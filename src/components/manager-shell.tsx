@@ -158,7 +158,21 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
   const [notificationError, setNotificationError] = useState("");
   const [archivingNotifications, setArchivingNotifications] = useState(false);
   const archivedNotificationIds = useRef(new Set<string>());
+  const notificationButtonRef = useRef<HTMLButtonElement>(null);
+  const notificationPopoverRef = useRef<HTMLDivElement>(null);
   const visibleNotifications = notificationsOrganizationId === organizationId ? notifications : [];
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && !notificationButtonRef.current?.contains(target) && !notificationPopoverRef.current?.contains(target)) {
+        setNotificationsOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+  }, [notificationsOpen]);
 
   useEffect(() => {
     archivedNotificationIds.current.clear();
@@ -330,11 +344,11 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
             <kbd>Ctrl K</kbd>
           </button>
           <div className="manager-topbar__actions">
-            <button type="button" className="icon-button notification-button" aria-label="Notificações" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
+            <button ref={notificationButtonRef} type="button" className="icon-button notification-button" aria-label="Notificações" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
               <Bell size={19} />
               {visibleNotifications.length > 0 && <span />}
             </button>
-            {notificationsOpen && <div className="manager-notifications-popover" role="dialog" aria-label="Notificações">
+            {notificationsOpen && <div ref={notificationPopoverRef} className="manager-notifications-popover" role="dialog" aria-label="Notificações">
               <div className="manager-notifications-popover__head"><strong>Notificações</strong><small>{visibleNotifications.length} pendentes</small></div>
               {visibleNotifications.length > 0 && <button type="button" className="manager-notifications-popover__archive-all" onClick={() => void archiveAllNotifications()} disabled={archivingNotifications}>
                 {archivingNotifications ? "Arquivando..." : "Marcar todos como visto"}
