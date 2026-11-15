@@ -8,6 +8,7 @@ const systemAuthDestinations = new Set([
   "/regularizacao",
   "/le-gras/regularizacao",
   "/music-pro/regularizacao",
+  "/ateliepro/regularizacao",
   "/display-admin",
 ]);
 

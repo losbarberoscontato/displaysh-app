@@ -5,13 +5,14 @@ import { Check, Eye, ImagePlus, LoaderCircle, Palette, Save, Type, BookText } fr
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import styles from "./product-identity-editor.module.css";
 
-type ProductKey = "los-barberos" | "le-gras" | "pro-stetic" | "music-pro";
+type ProductKey = "los-barberos" | "le-gras" | "pro-stetic" | "music-pro" | "ateliepro";
 type Identity = { brand: { name: string; tagline: string; mark: string; logoUrl: string }; colors: Record<string, string>; fonts: { interface: string; display: string }; vocabulary: Record<string, string> };
 const PRODUCTS: { key: ProductKey; name: string; segment: string; mark: string }[] = [
   { key: "los-barberos", name: "Los Barberos", segment: "Barbearias", mark: "LB" },
   { key: "le-gras", name: "Le Gras", segment: "Fotografia", mark: "LG" },
   { key: "pro-stetic", name: "ProStetic", segment: "Estética e beleza", mark: "PS" },
   { key: "music-pro", name: "MusicPro", segment: "Escolas de música", mark: "MP" },
+  { key: "ateliepro", name: "AteliePro", segment: "Ateliês e escolas de costura", mark: "AP" },
 ];
 const COLOR_LABELS: Record<string, string> = { primary: "Cor principal", secondary: "Cor secundária", accent: "Destaque", background: "Fundo", surface: "Superfície", text: "Texto", muted: "Texto auxiliar", border: "Bordas", success: "Sucesso", danger: "Erro", primarySoft: "Fundo suave da marca", accentSoft: "Destaque suave", accentDeep: "Destaque escuro", accentHover: "Destaque ao passar o cursor", accentTint: "Realce claro", focusRing: "Anel de foco" };
 const VOCAB_LABELS: Record<string, string> = { organization: "Organização (singular)", organizationPlural: "Organização (plural)", professional: "Profissional (singular)", professionalPlural: "Profissional (plural)", customer: "Cliente (singular)", customerPlural: "Cliente (plural)", service: "Serviço (singular)", servicePlural: "Serviço (plural)", teamApp: "Nome do app da equipe", organizationPicker: "Seletor da organização" };

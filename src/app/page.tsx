@@ -69,6 +69,16 @@ const products = [
     className: "ecosystem-product--music-pro",
     available: false,
   },
+  {
+    slug: "ateliepro",
+    name: "AteliePro",
+    audience: "Ateliês e escolas de costura",
+    state: "Disponível",
+    image: "/ateliepro/mark.png",
+    alt: "Símbolo AteliePro — gestão para ateliês de costura",
+    className: "ecosystem-product--ateliepro",
+    available: true,
+  },
 ];
 
 const sharedServices = [
@@ -142,7 +152,7 @@ export default async function DisplayHomePage() {
                   className={`ecosystem-product ${product.className}`}
                   aria-label={`${product.name} — ${product.audience}. ${product.state}.`}
                 >
-                  <span className="ecosystem-product__image"><Image src={product.image} alt={product.alt} width={400} height={114} /></span>
+                  <span className="ecosystem-product__image">{product.slug === "ateliepro" ? <span className="ecosystem-product__wordmark"><Image src={product.image} alt={product.alt} width={70} height={70} /><span><strong>{product.name}</strong><small>GESTÃO PARA ATELIÊS DE COSTURA</small></span></span> : <Image src={product.image} alt={product.alt} width={400} height={114} />}</span>
                   <span className="ecosystem-product__meta"><strong>{product.audience}</strong><span>{product.state}{product.available && <ArrowRight size={15} aria-hidden="true" />}</span></span>
                 </Link>
               ))}

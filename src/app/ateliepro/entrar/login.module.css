@@ -1,0 +1,6 @@
+.header:global(.system-login-page__header) { position: relative; justify-content: center; min-height: 88px; }
+.logoLink { display: flex; align-items: center; gap: 10px; width: max-content; max-width: 100%; color: var(--forest-950, #4a3024); text-decoration: none; }
+.logo { display: block; width: 54px; height: 54px; object-fit: contain; }
+.brandName { font: 700 27px/1 Georgia, "Times New Roman", serif; }
+.backLink:global(.system-login-page__back) { position: absolute; top: 50%; right: 0; transform: translateY(-50%); white-space: nowrap; }
+@media (max-width: 580px) { .header:global(.system-login-page__header) { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 3px; min-height: 0; }.logo { width: 44px; height: 44px; }.brandName { font-size: 23px; }.backLink:global(.system-login-page__back) { position: static; justify-self: end; transform: none; } }

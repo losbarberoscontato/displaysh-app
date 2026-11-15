@@ -12,6 +12,7 @@ describe("WhatsApp product copy", () => {
     ["le-gras", "WhatsApp do seu estúdio", "profissional de fotografia", "leGrasWhatsApp"],
     ["pro-stetic", "WhatsApp do seu estúdio", "profissional", "proSteticWhatsApp"],
     ["music-pro", "WhatsApp da sua escola", "professor(a) ou músico(a)", "musicProWhatsApp"],
+    ["ateliepro", "WhatsApp do seu ateliê", "costureira", "atelieProWhatsApp"],
   ] as const)("fornece aparência e vocabulário para %s", (productKey, heading, professional, rootClass) => {
     const copy = getWhatsAppProductCopy(productKey);
 
@@ -34,6 +35,10 @@ describe("WhatsApp product copy", () => {
       .toContain("na sessão");
     expect(getWhatsAppProductDefaultTemplates("pro-stetic").BOOKING_CREATED_CLIENT)
       .toContain("atendimento no estúdio");
+    expect(getWhatsAppProductDefaultTemplates("ateliepro").ATTENDANT_REQUEST_MANAGER)
+      .toContain("Costureira: {profissional}");
+    expect(getWhatsAppProductDefaultTemplates("ateliepro").BOOKING_CREATED_CLIENT)
+      .toContain("costura no ateliê");
   });
 
   it.each([
@@ -41,6 +46,7 @@ describe("WhatsApp product copy", () => {
     ["le-gras", "na sessão", "cancelou a sessão", "manualmente a sessão"],
     ["pro-stetic", "no atendimento", "cancelou o atendimento", "manualmente o atendimento"],
     ["music-pro", "na aula", "cancelou a aula", "manualmente a aula"],
+    ["ateliepro", "no atendimento", "cancelou o atendimento", "manualmente o atendimento"],
   ] as const)("usa termos naturais nos modelos de auxiliares de %s", (productKey, bookingPhrase, cancellationPhrase, manualPhrase) => {
     const templates = getWhatsAppProductDefaultTemplates(productKey);
 

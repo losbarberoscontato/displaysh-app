@@ -62,6 +62,11 @@ async function profileImage320(file: File) {
 export function TeamManager(props: Props) {
   const router = useRouter();
   const vocabulary = getProductVocabulary(props.productKey);
+  const isAteliePro = props.productKey === "ateliepro";
+  const professionalNoun = isAteliePro ? "costureira" : "profissional";
+  const professionalPlural = isAteliePro ? "costureiras" : "profissionais";
+  const professionalArticle = isAteliePro ? "da" : "do";
+  const newProfessionalLabel = isAteliePro ? "Nova costureira" : "Novo profissional";
   const [message, setMessage] = useState("");
   const [barberForm, setBarberForm] = useState<BarberRecord | "new" | null>(props.barbers.length ? null : "new");
   const [professionalFilter, setProfessionalFilter] = useState<ProfessionalFilter>("ACTIVE");
@@ -462,18 +467,18 @@ export function TeamManager(props: Props) {
   ] as const).map(([key, label]) => ({ key, label, services: props.services.filter((service) => (service.availability ?? "CLIENT") === key) }));
 
   return <div className={styles.stack}>
-    <PageHeader title="Equipe" description="Profissionais, serviços, escalas, folgas e regras versionadas." />
+    <PageHeader title="Equipe" description={isAteliePro ? "Costureiras, serviços, escalas, folgas e regras versionadas." : "Profissionais, serviços, escalas, folgas e regras versionadas."} />
     <ActionMessage message={message} />
-    <Panel title="Profissionais" titleAdornment={<select aria-label="Filtro de profissionais" className={styles.professionalFilter} value={professionalFilter} onChange={(event) => setProfessionalFilter(event.target.value as ProfessionalFilter)}><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option></select>} description={`${props.barbers.filter((item) => item.active).length} ativos`} action={<button className={styles.button} type="button" onClick={() => openBarberForm("new")}>Novo profissional</button>}>
+    <Panel title={professionalPlural[0].toLocaleUpperCase("pt-BR") + professionalPlural.slice(1)} titleAdornment={<select aria-label={`Filtro de ${professionalPlural}`} className={styles.professionalFilter} value={professionalFilter} onChange={(event) => setProfessionalFilter(event.target.value as ProfessionalFilter)}><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option></select>} description={`${props.barbers.filter((item) => item.active).length} ativos`} action={<button className={styles.button} type="button" onClick={() => openBarberForm("new")}>{isAteliePro ? "Nova costureira" : "Novo profissional"}</button>}>
       {barberForm && <div className="modal-layer" role="presentation">
         <button className="modal-layer__backdrop" type="button" aria-label="Fechar" onClick={closeBarberForm} />
-        <form className="form-modal" role="dialog" aria-modal="true" aria-label={barberForm === "new" ? "Novo profissional" : "Editar profissional"} onSubmit={saveBarber} key={barberForm === "new" ? "new" : barberForm.id}>
-          <div className="form-modal__head"><span><small>{barberForm === "new" ? "Novo profissional" : "Editar profissional"}</small><strong>{barberForm === "new" ? "Cadastre um profissional" : "Atualize os dados"}</strong></span><button type="button" className="icon-button" onClick={closeBarberForm} aria-label="Fechar"><X size={19} /></button></div>
+        <form className="form-modal" role="dialog" aria-modal="true" aria-label={barberForm === "new" ? newProfessionalLabel : `Editar ${professionalNoun}`} onSubmit={saveBarber} key={barberForm === "new" ? "new" : barberForm.id}>
+          <div className="form-modal__head"><span><small>{barberForm === "new" ? newProfessionalLabel : `Editar ${professionalNoun}`}</small><strong>{barberForm === "new" ? `Cadastre ${isAteliePro ? "uma costureira" : "um profissional"}` : "Atualize os dados"}</strong></span><button type="button" className="icon-button" onClick={closeBarberForm} aria-label="Fechar"><X size={19} /></button></div>
           <div className="form-modal__body">
             {message && <ActionMessage message={message} tone={message.includes("atualizado") || message.includes("Salvando") ? "info" : "error"} />}
             <div className="form-grid"><Field label="Nome completo"><input name="display_name" required minLength={2} defaultValue={barberForm === "new" ? "" : barberForm.display_name} /></Field><Field label="Função"><select name="professional_function_id" defaultValue={barberForm === "new" ? "" : barberForm.professional_function_id ?? ""}><option value="">Sem função</option>{props.professionalFunctions.map((professionalFunction) => <option key={professionalFunction.id} value={professionalFunction.id}>{professionalFunction.name}</option>)}</select></Field></div>
             <Field label="Unidade"><select name="location_id" required defaultValue={barberForm === "new" ? activeLocation?.id : barberForm.location_id}>{props.locations.filter((item) => item.active).map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></Field>
-            <Field label="WhatsApp do profissional"><><input name="whatsapp_e164" inputMode="tel" required placeholder="47999999999 ou +5547999999999" pattern="[+0-9][0-9\s().-]{7,20}" defaultValue={barberForm === "new" ? "" : barberForm.whatsapp_e164 ?? ""} onBlur={(event) => { const normalized = normalizePhoneE164(event.currentTarget.value); if (normalized) event.currentTarget.value = normalized; }} /><small>Usado somente para avisos transacionais dos próprios agendamentos.</small></></Field>
+            <Field label={`WhatsApp ${professionalArticle} ${professionalNoun}`}><><input name="whatsapp_e164" inputMode="tel" required placeholder="47999999999 ou +5547999999999" pattern="[+0-9][0-9\s().-]{7,20}" defaultValue={barberForm === "new" ? "" : barberForm.whatsapp_e164 ?? ""} onBlur={(event) => { const normalized = normalizePhoneE164(event.currentTarget.value); if (normalized) event.currentTarget.value = normalized; }} /><small>Usado somente para avisos transacionais dos próprios agendamentos.</small></></Field>
             <Field label="E-mail de acesso ao app"><><input name="login_email" type="email" readOnly={editingManager} aria-readonly={editingManager || undefined} defaultValue={barberForm === "new" ? "" : barberForm.login_email ?? ""} /><small>{editingManager ? "Vínculo original do login de administrador; não pode ser alterado." : `Deve ser igual ao e-mail usado no login. Sem este cadastro, o ${vocabulary.teamApp} não libera acesso.`}</small></></Field>
             <Field label="Acesso à agenda"><select name="agenda_access_scope" defaultValue={barberForm === "new" ? "OWN" : barberForm.agenda_access_scope ?? "OWN"}><option value="OWN">Somente a própria agenda</option><option value="FULL">Agenda completa {vocabulary.organizationPossessive}</option></select></Field>
             <Field label="Acesso ao App"><label className={styles.check}><input name="app_access_enabled" type="checkbox" defaultChecked={barberForm !== "new" && Boolean(barberForm.app_access_enabled)} />Liberar login no app</label></Field>
@@ -487,7 +492,7 @@ export function TeamManager(props: Props) {
         </form>
       </div>}
       <div className={styles.toolbar}><label className={styles.field}><span>Buscar</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nome ou WhatsApp" /></label></div>
-      {filteredBarbers.length === 0 ? <EmptyState title={props.barbers.length ? "Nenhum resultado" : "Cadastre a equipe"}>{props.barbers.length ? "Ajuste a busca ou altere o filtro." : "A unidade precisa de pelo menos um profissional para abrir a agenda."}</EmptyState> : <div className={styles.list}>{filteredBarbers.map((barber) => {
+      {filteredBarbers.length === 0 ? <EmptyState title={props.barbers.length ? "Nenhum resultado" : "Cadastre a equipe"}>{props.barbers.length ? "Ajuste a busca ou altere o filtro." : `A unidade precisa de pelo menos ${isAteliePro ? "uma costureira" : "um profissional"} para abrir a agenda.`}</EmptyState> : <div className={styles.list}>{filteredBarbers.map((barber) => {
         const isManager = Boolean(barber.is_manager || barber.auth_user_id === props.managerUserId);
         return <article className={`${styles.row} ${styles.professionalRow}`} key={barber.id}><span className={styles.professionalTitle}><i className={styles.avatar}>{barber.avatar_url ? <Image src={barber.avatar_url} alt="" width={42} height={42} sizes="42px" /> : initials(barber.display_name)}</i><span className={styles.rowTitle}><span className={styles.professionalName}><strong>{barber.display_name}</strong>{isManager && <StatusChip active label="Administrador" tone="info" />}</span><small>{barber.bio ?? "Sem apresentação"}</small></span></span>
           <span className={styles.professionalWhatsapp}>{barber.whatsapp_e164 ?? "WhatsApp não cadastrado"}</span>

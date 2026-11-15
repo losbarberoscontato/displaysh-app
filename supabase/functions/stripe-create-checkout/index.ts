@@ -63,6 +63,8 @@ Deno.serve((request) => {
     const productKey = assignment.product_key as string;
     const priceId = productKey === "le-gras"
       ? requiredEnv("STRIPE_PRICE_ID_LE_GRAS")
+      : productKey === "ateliepro"
+      ? requiredEnv("STRIPE_PRICE_ID_ATELIEPRO")
       : productKey === "music-pro"
       ? requiredEnv("STRIPE_PRICE_ID_MUSIC_PRO")
       : productKey === "pro-stetic"

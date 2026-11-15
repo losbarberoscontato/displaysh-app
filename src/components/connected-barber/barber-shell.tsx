@@ -54,6 +54,7 @@ export function BarberShell({ context, children }: { context: BarberAppContext; 
   const brandName = identity?.brand.name ?? "Los Barberos";
   const professionalName = identity?.vocabulary.professional ?? "barbeiro";
   const organizationName = identity?.vocabulary.organization ?? "barbearia";
+  const productLogoIsMark = context.product_key === "ateliepro";
   const organizationPlural = identity?.vocabulary.organizationPicker ?? "Trocar barbearia";
   const customerPlural = identity?.vocabulary.customerPlural ?? "clientes";
   const navigation: BarberNavigationItem[] = [
@@ -98,7 +99,7 @@ export function BarberShell({ context, children }: { context: BarberAppContext; 
 
   return <div className="manager-shell barber-manager-shell" style={productIdentityStyle(identity)}>
     <aside className="manager-sidebar">
-      <div className="manager-sidebar__brand"><Brand href={link("/barbeiro/agenda")} light name={brandName} tagline={identity?.brand.tagline} mark={identity?.brand.mark} wordmarkUrl={identity?.brand.logoUrl} /></div>
+      <div className="manager-sidebar__brand"><Brand href={link("/barbeiro/agenda")} light name={brandName} tagline={identity?.brand.tagline} mark={identity?.brand.mark} logoUrl={productLogoIsMark ? identity?.brand.logoUrl : undefined} wordmarkUrl={!productLogoIsMark ? identity?.brand.logoUrl : undefined} /></div>
       {organizationSwitcher}
       <BarberNavigation navigation={navigation} profile={profile} pathname={pathname} suffix={suffix} professionalName={professionalName} />
       <div className="manager-sidebar__footer">{accountFooter}</div>
@@ -106,7 +107,7 @@ export function BarberShell({ context, children }: { context: BarberAppContext; 
 
     {menuOpen && <button className="mobile-overlay" type="button" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} />}
     <aside className={`manager-drawer ${menuOpen ? "is-open" : ""}`} aria-hidden={!menuOpen}>
-      <div className="manager-drawer__head"><Brand href={link("/barbeiro/agenda")} light name={brandName} tagline={identity?.brand.tagline} mark={identity?.brand.mark} wordmarkUrl={identity?.brand.logoUrl} /><button type="button" className="icon-button icon-button--dark" onClick={() => setMenuOpen(false)} aria-label="Fechar menu"><X size={20} /></button></div>
+      <div className="manager-drawer__head"><Brand href={link("/barbeiro/agenda")} light name={brandName} tagline={identity?.brand.tagline} mark={identity?.brand.mark} logoUrl={productLogoIsMark ? identity?.brand.logoUrl : undefined} wordmarkUrl={!productLogoIsMark ? identity?.brand.logoUrl : undefined} /><button type="button" className="icon-button icon-button--dark" onClick={() => setMenuOpen(false)} aria-label="Fechar menu"><X size={20} /></button></div>
       {organizationSwitcher}
       <BarberNavigation navigation={navigation} profile={profile} pathname={pathname} suffix={suffix} professionalName={professionalName} onNavigate={() => setMenuOpen(false)} />
       <div className="manager-sidebar__footer">{accountFooter}</div>

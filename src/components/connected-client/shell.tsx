@@ -48,7 +48,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     : null;
   const productName = identity?.brand.name ?? (entry?.product_key === "los-barberos" ? "Los Barberos" : "Display SH");
   const productLabel = (key: string | null | undefined) => ({
-    "los-barberos": "Los Barberos", "le-gras": "Le Gras", "pro-stetic": "ProStetic", "music-pro": "MusicPro",
+    "los-barberos": "Los Barberos", "le-gras": "Le Gras", "pro-stetic": "ProStetic", "music-pro": "MusicPro", "ateliepro": "AteliePro",
   })[key ?? ""] ?? "Produto indisponível";
   const isAccessPage = pathname === "/cliente/entrar" || pathname === "/cliente/redefinir-senha";
   const identityStyle = productIdentityStyle(identity);

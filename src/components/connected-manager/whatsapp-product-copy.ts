@@ -123,6 +123,19 @@ const productCopy: Record<ProductKey, WhatsAppProductCopy> = {
     managerNotificationDescription: "Receba pedidos de contato dos estudantes em um WhatsApp separado da conta conectada ao QR.",
     customAfterServiceTitle: "Mensagens após a aula",
   },
+  ateliepro: {
+    heroEyebrow: "INTEGRAÇÃO WHATSAPP",
+    heroTitle: "WhatsApp do seu ateliê",
+    heroDescription: "Conecte o WhatsApp Business do ateliê e envie confirmações e lembretes dos serviços de costura com consentimento dos clientes.",
+    rootClass: "atelieProWhatsApp",
+    heroClass: "whatsappHeroAteliePro",
+    terms: { customer: "cliente", customerPlural: "clientes", professional: "costureira", professionalPlural: "costureiras", booking: "agendamento", bookingPlural: "agendamentos", attendance: "atendimento", attendancePlural: "atendimentos", service: "serviço", servicePlural: "serviços", organization: "ateliê", organizationWithArticle: "o ateliê", reminderSubject: "seu atendimento" },
+    bookingGroupTitle: "Atendimentos e lembretes",
+    bookingGroupDescription: "Ative confirmações e escolha um único horário de lembrete.",
+    responseGroupDescription: "Textos enviados depois que o cliente responde ou a gestão confirma.",
+    managerNotificationDescription: "Receba pedidos de contato dos clientes em um WhatsApp separado da conta conectada ao QR.",
+    customAfterServiceTitle: "Mensagens após o serviço",
+  },
 };
 
 const reminderTemplates = (subject: string, when: string) =>
@@ -185,6 +198,12 @@ export function getWhatsAppProductDefaultTemplates(productKey: ProductKey): Reco
       APPOINTMENT_CANCELED_AUXILIARY: "{cliente} cancelou a aula.",
       MANUAL_CONFIRMATION_AUXILIARY: "O gestor confirmou manualmente a aula de {cliente} em {horario}. Você está escalado como auxiliar.",
     },
+    ateliepro: {
+      BOOKING_CREATED_AUXILIARY: "Você foi escalada como auxiliar no atendimento de {cliente} em {horario}.",
+      APPOINTMENT_CONFIRMED_AUXILIARY: "{cliente} confirmou presença no atendimento em {horario}. Você está escalada como auxiliar.",
+      APPOINTMENT_CANCELED_AUXILIARY: "{cliente} cancelou o atendimento.",
+      MANUAL_CONFIRMATION_AUXILIARY: "A gestão confirmou manualmente o atendimento de {cliente} em {horario}. Você está escalada como auxiliar.",
+    },
   };
   Object.assign(shared, auxiliaryCopy[productKey]);
 
@@ -239,6 +258,20 @@ export function getWhatsAppProductDefaultTemplates(productKey: ProductKey): Reco
         MANUAL_CONFIRMATION_CLIENT: "{cliente}, sua aula foi confirmada pela escola para {horario}.",
         MANUAL_CONFIRMATION_STAFF: "Aula confirmada manualmente: {cliente}, {horario}.",
         RESERVATION_CHOICE: "Encontrei mais de uma aula. Responda com o número correspondente:\n\n{reservas}",
+      };
+    case "ateliepro":
+      return {
+        ...shared,
+        BOOKING_CREATED_CLIENT: "{cliente}, seu atendimento de costura no ateliê foi confirmado para {horario}.",
+        BOOKING_CREATED_STAFF: "Novo atendimento de costura no ateliê: {cliente}, {horario}.",
+        CONFIRMATION_ACK_CLIENT: "Presença no atendimento confirmada. Até {horario}.",
+        CANCELLATION_ACK_CLIENT: "Cancelamento confirmado. Se precisar, fale com o ateliê para marcar novo horário.",
+        APPOINTMENT_CONFIRMED_STAFF: "{cliente} confirmou presença no atendimento pelo WhatsApp para {horario}.",
+        APPOINTMENT_CANCELED_STAFF: "{cliente} cancelou o atendimento pelo WhatsApp.",
+        ATTENDANT_REQUEST_MANAGER: "Cliente deseja falar com o ateliê.\n\nCliente: {cliente}\nWhatsApp: {telefone}\nData e hora: {horario}\nCostureira: {profissional}\nServiço de costura: {servico}",
+        MANUAL_CONFIRMATION_CLIENT: "{cliente}, seu atendimento foi confirmado pelo ateliê para {horario}.",
+        MANUAL_CONFIRMATION_STAFF: "Atendimento confirmado manualmente: {cliente}, {horario}.",
+        RESERVATION_CHOICE: "Encontrei mais de um atendimento. Responda com o número correspondente:\n\n{reservas}",
       };
   }
 }

@@ -635,7 +635,7 @@
   .ecosystem-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 28px; margin-bottom: 24px; }
   .ecosystem-section-heading h2, .ecosystem-roadmap__intro h2, .ecosystem-future h2 { max-width: 670px; font: 700 clamp(27px,3.2vw,43px)/1.05 var(--font-display, Georgia,serif); letter-spacing: -.025em; text-wrap: balance; }
   .ecosystem-section-heading p { max-width: 360px; color: #63766d; font-size: 13px; line-height: 1.55; }
-  .ecosystem-product-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 13px; }
+  .ecosystem-product-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 13px; }
   .ecosystem-product { min-width: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(31,64,53,.1); border-radius: 12px; background: #fffdf8; color: inherit; text-decoration: none; transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
   .ecosystem-product:hover { transform: translateY(-3px); border-color: rgba(31,64,53,.26); box-shadow: 0 13px 28px rgba(23,53,43,.09); }
   .ecosystem-product__image { display: grid; min-height: 136px; place-items: center; padding: 9px 8px; }
@@ -644,6 +644,12 @@
   .ecosystem-product--pro-stetic .ecosystem-product__image { background: #efe4f2; }
   .ecosystem-product--le-gras .ecosystem-product__image { background: #f0ebdf; }
   .ecosystem-product--music-pro .ecosystem-product__image { background: #e5f5ff; }
+  .ecosystem-product--ateliepro .ecosystem-product__image { background: #f2e8df; }
+  .ecosystem-product__wordmark { display: flex; align-items: center; gap: 10px; color: #4a3024; }
+  .ecosystem-product__wordmark img { width: 62px; height: 62px; object-fit: contain; }
+  .ecosystem-product__wordmark > span { display: grid; gap: 5px; }
+  .ecosystem-product__wordmark strong { font: 700 clamp(17px,1.55vw,25px)/1 var(--font-display, Georgia,serif); }
+  .ecosystem-product__wordmark small { color: #806c60; font-size: 7px; letter-spacing: .16em; }
   .ecosystem-product__meta { min-height: 53px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 13px; }
   .ecosystem-product__meta strong { color: #334940; font-size: 11px; font-weight: 700; }
   .ecosystem-product__meta > span { display: inline-flex; align-items: center; gap: 5px; color: #748078; font-size: 10px; white-space: nowrap; }
@@ -778,6 +784,7 @@
 
 @layer responsive {
   @media (max-width: 1050px) {
+    .ecosystem-product-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
     .ecosystem-service { gap: 7px; padding-inline: 10px; }.ecosystem-services { grid-template-columns: 1.1fr repeat(5,minmax(0,1fr)); padding-inline: 16px; }
     .ecosystem-module { grid-template-columns: 1fr; justify-items: start; }.ecosystem-module small { grid-column: 1; }
     .ecosystem-roadmap__inner { grid-template-columns: 1fr; gap: 28px; }

@@ -1,0 +1,12 @@
+{
+  "name": "AteliePro",
+  "short_name": "AteliePro",
+  "description": "Gestão para ateliês de costura",
+  "start_url": "/ateliepro",
+  "display": "standalone",
+  "background_color": "#F4ECE4",
+  "theme_color": "#4A3024",
+  "icons": [
+    { "src": "/ateliepro/mark.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

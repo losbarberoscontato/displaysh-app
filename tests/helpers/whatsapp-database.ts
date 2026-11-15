@@ -60,7 +60,7 @@ export async function whatsappDatabase(options?: {
   await db.exec(sql("20261015213200_whatsapp_editable_templates_and_single_reminder"));
   await db.exec(`create table public.organization_product_assignments (
     organization_id uuid primary key references public.organizations(id) on delete cascade,
-    product_key text not null check (product_key in ('los-barberos', 'le-gras', 'pro-stetic', 'music-pro'))
+    product_key text not null check (product_key in ('los-barberos', 'le-gras', 'pro-stetic', 'music-pro', 'ateliepro'))
   );`);
   await options?.beforeProductMessageMigration?.(db);
   await db.exec(sql("20261019200042_whatsapp_product_message_defaults"));

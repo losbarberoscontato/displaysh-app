@@ -234,7 +234,7 @@ export function AdminControlPlane({ data }: { data: AdminControlPlaneData }) {
           <form onSubmit={(event) => void publishKanbanPrice(event)}>
             <h3>Kanban por sistema</h3>
             <p>Publique valor, IDs Stripe de teste e produção e aditivo. A nova versão vale para novas ativações.</p>
-            <label>Sistema <select value={kanbanProduct} onChange={(event) => setKanbanProduct(event.target.value)}><option value="los-barberos">Los Barberos</option><option value="le-gras">Le Gras</option><option value="pro-stetic">Pro Stetic</option><option value="music-pro">Music Pro</option></select></label>
+            <label>Sistema <select value={kanbanProduct} onChange={(event) => setKanbanProduct(event.target.value)}><option value="los-barberos">Los Barberos</option><option value="le-gras">Le Gras</option><option value="pro-stetic">Pro Stetic</option><option value="music-pro">Music Pro</option><option value="ateliepro">AteliePro</option></select></label>
             <label>Valor mensal em R$ <input value={kanbanPrice} onChange={(event) => setKanbanPrice(event.target.value)} inputMode="decimal" required /></label>
             <label>Stripe Price ID de teste <input value={kanbanTestId} onChange={(event) => setKanbanTestId(event.target.value)} required /></label>
             <label>Stripe Price ID de produção <input value={kanbanLiveId} onChange={(event) => setKanbanLiveId(event.target.value)} required /></label>

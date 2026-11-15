@@ -121,8 +121,8 @@ export function DemoLogin({
     <div className="login-card">
       <div className="login-card__heading">
         <h1>{isSignup
-          ? productKey === "le-gras" ? "Crie seu estúdio" : productKey === "music-pro" ? "Crie sua escola" : productKey === "pro-stetic" ? "Crie seu estúdio" : "Crie sua barbearia"
-          : productKey === "le-gras" ? "Entre no seu estúdio" : productKey === "music-pro" ? "Entre na sua escola" : productKey === "pro-stetic" ? "Entre no seu estúdio" : "Entre na sua barbearia"}</h1>
+          ? productKey === "ateliepro" ? "Crie seu ateliê" : productKey === "le-gras" ? "Crie seu estúdio" : productKey === "music-pro" ? "Crie sua escola" : productKey === "pro-stetic" ? "Crie seu estúdio" : "Crie sua barbearia"
+          : productKey === "ateliepro" ? "Entre no seu ateliê" : productKey === "le-gras" ? "Entre no seu estúdio" : productKey === "music-pro" ? "Entre na sua escola" : productKey === "pro-stetic" ? "Entre no seu estúdio" : "Entre na sua barbearia"}</h1>
         <p>
           {isSignup
             ? "Configure sua operação e comece seus 14 dias grátis."
@@ -183,7 +183,7 @@ export function DemoLogin({
       </button>
 
       <p className="login-security">
-        <ShieldCheck size={16} /> Seus dados protegidos com criptografia e isolamento por {productKey === "music-pro" ? "escola" : productKey === "pro-stetic" || productKey === "le-gras" ? "estúdio" : "organização"}.
+        <ShieldCheck size={16} /> Seus dados protegidos com criptografia e isolamento por {productKey === "ateliepro" ? "ateliê" : productKey === "music-pro" ? "escola" : productKey === "pro-stetic" || productKey === "le-gras" ? "estúdio" : "organização"}.
       </p>
     </div>
   );

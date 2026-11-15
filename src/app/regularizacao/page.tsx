@@ -12,6 +12,7 @@ export default async function BillingRegularizationPage() {
   const selectedProduct = await getSelectedProductKey();
   if (selectedProduct === "le-gras") redirect("/le-gras/regularizacao");
   if (selectedProduct === "music-pro") redirect("/music-pro/regularizacao");
+  if (selectedProduct === "ateliepro") redirect("/ateliepro/regularizacao");
   const context = hasSupabaseConfig ? await getAccessContext() : null;
 
   if (hasSupabaseConfig && !context) redirect("/entrar?next=/regularizacao");

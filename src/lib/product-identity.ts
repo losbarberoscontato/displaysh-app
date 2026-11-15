@@ -113,6 +113,46 @@ export const PRO_STETIC_IDENTITY_FALLBACK: ProductIdentityConfig = {
   },
 };
 
+export const ATELIE_PRO_IDENTITY_FALLBACK: ProductIdentityConfig = {
+  brand: {
+    name: "AteliePro",
+    tagline: "Gestão para ateliês de costura",
+    mark: "AP",
+    logoUrl: "/ateliepro/mark.png",
+  },
+  colors: {
+    primary: "#4A3024",
+    secondary: "#78543C",
+    accent: "#A87860",
+    background: "#F4ECE4",
+    surface: "#FFFCF9",
+    text: "#35261F",
+    muted: "#806C60",
+    border: "#DDCFC4",
+    success: "#526C53",
+    danger: "#9B5147",
+    primarySoft: "#E9DDD3",
+    accentSoft: "#F1E1DA",
+    accentDeep: "#78543C",
+    accentHover: "#906048",
+    accentTint: "#F6EAE4",
+    focusRing: "#A87860",
+  },
+  fonts: { interface: "Inter", display: "Baskerville" },
+  vocabulary: {
+    organization: "ateliê",
+    organizationPlural: "ateliês",
+    professional: "costureira",
+    professionalPlural: "costureiras",
+    teamApp: "App da Costureira",
+    organizationPicker: "Meus ateliês",
+    customer: "cliente",
+    customerPlural: "clientes",
+    service: "serviço de costura",
+    servicePlural: "serviços de costura",
+  },
+};
+
 export function isProductIdentityConfig(value: unknown): value is ProductIdentityConfig {
   if (!value || typeof value !== "object") return false;
   const config = value as Partial<ProductIdentityConfig>;

@@ -23,6 +23,8 @@ const publicProductRoutes = [
   "/pro-stetic/entrar",
   "/music-pro",
   "/music-pro/entrar",
+  "/ateliepro",
+  "/ateliepro/entrar",
 ];
 
 export function requiresSupabase(pathname: string): boolean {

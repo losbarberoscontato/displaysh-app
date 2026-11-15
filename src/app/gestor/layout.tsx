@@ -13,13 +13,15 @@ import { getTodayAgendaCount } from "@/lib/agenda-count";
 
 export async function generateMetadata(): Promise<Metadata> {
   const productKey = await getSelectedProductKey();
-  const productName = productKey === "music-pro" ? "MusicPro" : productKey === "le-gras" ? "Le Gras" : productKey === "pro-stetic" ? "ProStetic" : "Los Barberos";
+  const productName = productKey === "ateliepro" ? "AteliePro" : productKey === "music-pro" ? "MusicPro" : productKey === "le-gras" ? "Le Gras" : productKey === "pro-stetic" ? "ProStetic" : "Los Barberos";
   return {
     title: "Painel do gestor",
     applicationName: productName,
     appleWebApp: { capable: true, title: productName, statusBarStyle: "black-translucent" },
     icons: {
-      icon: productKey === "le-gras"
+      icon: productKey === "ateliepro"
+        ? [{ url: "/ateliepro/mark.png", type: "image/png" }]
+        : productKey === "le-gras"
         ? [{ url: "/le-gras/icon.svg", type: "image/svg+xml" }]
         : productKey === "music-pro"
         ? [{ url: "/music-pro/icon.svg", type: "image/svg+xml" }]
@@ -33,7 +35,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export async function generateViewport(): Promise<Viewport> {
   const productKey = await getSelectedProductKey();
-  return { themeColor: productKey === "music-pro" ? "#06233b" : productKey === "le-gras" ? "#29143d" : productKey === "pro-stetic" ? "#4d245f" : "#12352e" };
+  return { themeColor: productKey === "ateliepro" ? "#4A3024" : productKey === "music-pro" ? "#06233b" : productKey === "le-gras" ? "#29143d" : productKey === "pro-stetic" ? "#4d245f" : "#12352e" };
 }
 
 export default async function GestorLayout({ children }: { children: React.ReactNode }) {
@@ -47,7 +49,7 @@ export default async function GestorLayout({ children }: { children: React.React
   // Pages keep canceled tenants out of the operation. Configurações remains
   // reachable so CANCELED_RETENTION can export data; CLOSED sees it disabled.
 
-  let organizationName = productKey === "pro-stetic" ? "Seu estúdio" : productKey === "music-pro" ? "Sua escola" : productKey === "le-gras" ? "Seu estúdio" : "Sua barbearia";
+  let organizationName = productKey === "ateliepro" ? "Seu ateliê" : productKey === "pro-stetic" ? "Seu estúdio" : productKey === "music-pro" ? "Sua escola" : productKey === "le-gras" ? "Seu estúdio" : "Sua barbearia";
   let organizationLogoUrl: string | undefined;
   let locationName = "Unidade principal";
   let userName = "Gestor";

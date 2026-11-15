@@ -254,7 +254,7 @@ function ProfileContent() {
             <div className={styles.organizationList}>
               {organizations.map((item) => <article className={styles.organizationCard} key={item.organization_id}>
                 {logoUrl(item.logo_path) ? <img src={logoUrl(item.logo_path)!} alt="" /> : <span className={styles.organizationLogoFallback}>{initials(item.organization_name)}</span>}
-                <div><strong>{item.organization_name}</strong><small>{({ "los-barberos": "Los Barberos", "le-gras": "Le Gras", "pro-stetic": "ProStetic", "music-pro": "MusicPro" } as Record<string, string>)[item.product_key ?? ""] ?? "Produto indisponível"}</small><small>{item.location?.name ?? "Unidade"}</small><small>{locationLabel(item.location?.address)}</small>{item.public_contact_phone_e164 && <small>WhatsApp: {item.public_contact_phone_e164}</small>}</div>
+                <div><strong>{item.organization_name}</strong><small>{({ "los-barberos": "Los Barberos", "le-gras": "Le Gras", "pro-stetic": "ProStetic", "music-pro": "MusicPro", ateliepro: "AteliePro" } as Record<string, string>)[item.product_key ?? ""] ?? "Produto indisponível"}</small><small>{item.location?.name ?? "Unidade"}</small><small>{locationLabel(item.location?.address)}</small>{item.public_contact_phone_e164 && <small>WhatsApp: {item.public_contact_phone_e164}</small>}</div>
                 <button type="button" className={styles.secondaryButton} disabled={item.organization_slug === context.organization.slug} onClick={() => selectTenant(item.organization_slug)}>{item.organization_slug === context.organization.slug ? "Conectado" : "Conectar"}</button>
               </article>)}
               {!organizations.length && <p className={styles.empty}>Nenhum estabelecimento conectado ainda.</p>}

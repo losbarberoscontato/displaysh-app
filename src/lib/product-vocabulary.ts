@@ -62,6 +62,18 @@ const vocabulary: Record<ProductKey, ProductVocabulary> = {
     customer: "estudante",
     customers: "estudantes",
   },
+  ateliepro: {
+    organization: "ateliê",
+    organizationWithPreposition: "no ateliê",
+    organizationPossessive: "do ateliê",
+    professional: "costureira",
+    professionals: "costureiras",
+    teamApp: "App da Costureira",
+    service: "serviço de costura",
+    services: "serviços de costura",
+    customer: "cliente",
+    customers: "clientes",
+  },
 };
 
 const previousDefaults: Partial<Record<ProductKey, Record<string, string>>> = {

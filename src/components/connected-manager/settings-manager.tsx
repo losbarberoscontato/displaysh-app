@@ -34,6 +34,7 @@ export function SettingsManager(props: Props) {
   const isLeGras = props.productKey === "le-gras";
   const isMusicPro = props.productKey === "music-pro";
   const isProStetic = props.productKey === "pro-stetic";
+  const isAteliePro = props.productKey === "ateliepro";
   const vocabulary = getProductVocabulary(props.productKey);
   const billingPath = productBillingPath(props.productKey ?? "los-barberos");
   const router = useRouter();
@@ -303,7 +304,7 @@ export function SettingsManager(props: Props) {
     <ActionMessage message={message} />
     <div className={styles.grid}>
       {props.organization.queue_public_id &&
-        <Panel title="Links úteis" description={isLeGras || isProStetic ? "Links públicos do seu estúdio." : isMusicPro ? "Links públicos da sua escola." : "Acesse, compartilhe e imprima os links públicos da sua barbearia."} className={styles.span7}>
+        <Panel title="Links úteis" description={isAteliePro ? "Links públicos do seu ateliê." : isLeGras || isProStetic ? "Links públicos do seu estúdio." : isMusicPro ? "Links públicos da sua escola." : "Acesse, compartilhe e imprima os links públicos da sua barbearia."} className={styles.span7}>
           <div className="useful-links">
             {!isLeGras && props.organization.queue_public_id && <article className="useful-link-row">
               <div><strong>Link do gerenciador de fila</strong><p>Você pode imprimir o QRcode do gerenciador de fila para seus clientes escanearem.</p></div>
@@ -311,12 +312,12 @@ export function SettingsManager(props: Props) {
               <div className="useful-link-actions"><button type="button" className="button button--soft" onClick={() => void copyLink(queueUrl)}>Copiar link</button><button type="button" className="button button--soft" onClick={() => window.print()}>Imprimir QR code</button></div>
             </article>}
             <article className="useful-link-row">
-              <div><strong>{isLeGras || isProStetic ? "App do cliente" : isMusicPro ? "App do estudante" : "Link de agendamento"}</strong><p>{isLeGras || isProStetic ? "Envie este link para seus clientes acessarem seu app." : isMusicPro ? "Envie este link para seus estudantes acessarem o app da escola." : "Envie este link para clientes novos e antigos, eles poderão fazer cadastro/login e acessar a Agenda da sua barbearia."}</p></div>
+              <div><strong>{isAteliePro || isLeGras || isProStetic ? "App do cliente" : isMusicPro ? "App do estudante" : "Link de agendamento"}</strong><p>{isAteliePro ? "Envie este link para seus clientes acessarem os serviços de costura e seus atendimentos." : isLeGras || isProStetic ? "Envie este link para seus clientes acessarem seu app." : isMusicPro ? "Envie este link para seus estudantes acessarem o app da escola." : "Envie este link para clientes novos e antigos, eles poderão fazer cadastro/login e acessar a Agenda da sua barbearia."}</p></div>
               <button type="button" className="useful-link-value" onClick={() => void copyLink(bookingUrl)} title={isLeGras ? "Copiar link do app do cliente" : "Copiar link de agendamento"}>{bookingUrl}</button>
               <div className="useful-link-actions"><button type="button" className="button button--soft" onClick={() => void copyLink(bookingUrl)}>Copiar link</button></div>
             </article>
             <article className="useful-link-row">
-              <div><strong>{vocabulary.teamApp}</strong><p>{isLeGras ? "Envie este link para profissionais de fotografia acessarem a agenda e os recursos da equipe." : isMusicPro ? "Envie este link para professores(as) e músicos(as) acessarem a agenda e os recursos da equipe." : isProStetic ? "Envie este link para esteticistas, cabeleireiros(as), manicures e demais profissionais acessarem a agenda e os recursos da equipe." : "Envie este link para barbeiros acessarem a agenda e o caixa da barbearia."}</p></div>
+              <div><strong>{vocabulary.teamApp}</strong><p>{isAteliePro ? "Envie este link para as costureiras acessarem a agenda e os recursos da equipe." : isLeGras ? "Envie este link para profissionais de fotografia acessarem a agenda e os recursos da equipe." : isMusicPro ? "Envie este link para professores(as) e músicos(as) acessarem a agenda e os recursos da equipe." : isProStetic ? "Envie este link para esteticistas, cabeleireiros(as), manicures e demais profissionais acessarem a agenda e os recursos da equipe." : "Envie este link para barbeiros acessarem a agenda e o caixa da barbearia."}</p></div>
               <button type="button" className="useful-link-value" onClick={() => void copyLink(barberAccessUrl)} title={`Copiar link do ${vocabulary.teamApp}`}>{barberAccessUrl}</button>
               <div className="useful-link-actions"><button type="button" className="button button--soft" onClick={() => void copyLink(barberAccessUrl)}>Copiar link</button><Link className="button button--soft" href={barberAccessPath}>Abrir app</Link></div>
             </article>
@@ -346,7 +347,7 @@ export function SettingsManager(props: Props) {
           </article>
         </div>
       </Panel>
-      <Panel title={isLeGras || isProStetic ? "Dados do seu Estúdio" : isMusicPro ? "Dados da sua Escola" : "Dados da Barbearia"} className={styles.span7}>
+      <Panel title={isAteliePro ? "Dados do seu Ateliê" : isLeGras || isProStetic ? "Dados do seu Estúdio" : isMusicPro ? "Dados da sua Escola" : "Dados da Barbearia"} className={styles.span7}>
         <form className={styles.form} onSubmit={saveOrganization}>
           <Field label="Nome"><input name="name" required minLength={2} defaultValue={props.organization.name} /></Field>
           <Field label="Nome de usuário"><input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" defaultValue={props.organization.slug} /></Field>
@@ -423,7 +424,7 @@ export function SettingsManager(props: Props) {
         <p className={styles.muted}>Função refere-se ao cargo exercido pelo profissional na empresa.</p>
         {!professionalFunctionsAvailable && <div className={styles.noticeWarning}><strong>Cadastro indisponível</strong><p>Cadastro indisponível até a atualização do banco. Aplique as migrations pendentes e recarregue a tela.</p></div>}
         <form className={styles.professionalFunctionForm} onSubmit={(event) => void addProfessionalFunction(event)}>
-          <Field label="Adicionar uma função"><input value={professionalFunctionName} onChange={(event) => setProfessionalFunctionName(event.target.value)} minLength={2} maxLength={80} required disabled={!professionalFunctionsAvailable} placeholder={props.productKey === "pro-stetic" ? "Ex.: Esteticista, Cabeleireiro(a) ou Manicure" : props.productKey === "music-pro" ? "Ex.: Professor(a) ou Músico(a)" : props.productKey === "le-gras" ? "Ex.: Profissional de fotografia ou Assistente de fotografia" : "Ex.: Barbeiro"} /></Field>
+          <Field label="Adicionar uma função"><input value={professionalFunctionName} onChange={(event) => setProfessionalFunctionName(event.target.value)} minLength={2} maxLength={80} required disabled={!professionalFunctionsAvailable} placeholder={isAteliePro ? "Ex.: Costureira, Alfaiate ou Modelista" : props.productKey === "pro-stetic" ? "Ex.: Esteticista, Cabeleireiro(a) ou Manicure" : props.productKey === "music-pro" ? "Ex.: Professor(a) ou Músico(a)" : props.productKey === "le-gras" ? "Ex.: Profissional de fotografia ou Assistente de fotografia" : "Ex.: Barbeiro"} /></Field>
           <button className={`${styles.button} ${styles.buttonSoft}`} type="submit" disabled={!professionalFunctionsAvailable}>Adicionar função</button>
         </form>
         {professionalFunctionMessage && <p className={styles.message} role="status">{professionalFunctionMessage}</p>}

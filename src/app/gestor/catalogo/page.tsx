@@ -9,7 +9,8 @@ import { loadCatalogData } from "@/components/connected-manager/server";
 import { getSelectedProductKey } from "@/lib/product-context";
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: await getSelectedProductKey() === "music-pro" ? "Cursos" : "Serviços" };
+  const productKey = await getSelectedProductKey();
+  return { title: productKey === "music-pro" ? "Cursos" : productKey === "ateliepro" ? "Serviços de costura" : "Serviços" };
 }
 
 export default async function CatalogPage() {
@@ -21,7 +22,7 @@ export default async function CatalogPage() {
   }
   return (
     <div className="catalog-page">
-      <PageHeader title={productKey === "music-pro" ? "Cursos" : "Serviços"} description={productKey === "music-pro" ? "Organize cursos, valores, durações e combinações." : "Organize serviços, preços, durações e combinações."} actions={<button type="button" className="button button--dark"><Plus size={17} /> {productKey === "music-pro" ? "Adicionar curso" : "Adicionar"}</button>} />
+      <PageHeader title={productKey === "music-pro" ? "Cursos" : productKey === "ateliepro" ? "Serviços de costura" : "Serviços"} description={productKey === "music-pro" ? "Organize cursos, valores, durações e combinações." : productKey === "ateliepro" ? "Organize consertos, ajustes, criações, modelagens, alta costura e alfaiataria." : "Organize serviços, preços, durações e combinações."} actions={<button type="button" className="button button--dark"><Plus size={17} /> {productKey === "music-pro" ? "Adicionar curso" : "Adicionar"}</button>} />
       <CatalogView />
     </div>
   );

@@ -19,7 +19,7 @@ export function BarberAuthForm({ next, slug, error, productKey = "los-barberos",
   const [oauthLoading, setOauthLoading] = useState(false);
   const destination = barberAuthDestination({ next, slug });
   const appName = identity?.vocabulary.teamApp ?? "App do Barbeiro";
-  const loginHeading = productKey === "music-pro" ? "Entre na sua escola" : productKey === "le-gras" || productKey === "pro-stetic" ? "Entre no seu estúdio" : "Entre na sua barbearia";
+  const loginHeading = productKey === "ateliepro" ? "Entre no seu ateliê" : productKey === "music-pro" ? "Entre na sua escola" : productKey === "le-gras" || productKey === "pro-stetic" ? "Entre no seu estúdio" : "Entre na sua barbearia";
   const createAccountHref = `${productLoginPath(productKey)}?modo=cadastro&next=${encodeURIComponent(destination)}`;
 
   async function signIn(event: FormEvent<HTMLFormElement>) {

@@ -18,7 +18,7 @@ import type {
   PublicBookingContext,
 } from "@/components/connected-client/types";
 import { parseProductKey } from "@/lib/product-routes";
-import { isProductIdentityConfig, LE_GRAS_IDENTITY_FALLBACK, MUSIC_PRO_IDENTITY_FALLBACK, PRO_STETIC_IDENTITY_FALLBACK, type ProductIdentityConfig } from "@/lib/product-identity";
+import { ATELIE_PRO_IDENTITY_FALLBACK, isProductIdentityConfig, LE_GRAS_IDENTITY_FALLBACK, MUSIC_PRO_IDENTITY_FALLBACK, PRO_STETIC_IDENTITY_FALLBACK, type ProductIdentityConfig } from "@/lib/product-identity";
 import type { ProductKey } from "@/lib/product-routes";
 
 type DatabaseError = { message: string; code?: string } | null;
@@ -188,7 +188,8 @@ export async function getPublicClientProductIdentity(
   supabase: SupabaseClient,
   productKey: ProductKey,
 ): Promise<ProductIdentityConfig | null> {
-  const fallback = productKey === "le-gras" ? LE_GRAS_IDENTITY_FALLBACK
+  const fallback = productKey === "ateliepro" ? ATELIE_PRO_IDENTITY_FALLBACK
+    : productKey === "le-gras" ? LE_GRAS_IDENTITY_FALLBACK
     : productKey === "music-pro" ? MUSIC_PRO_IDENTITY_FALLBACK
     : productKey === "pro-stetic" ? PRO_STETIC_IDENTITY_FALLBACK : null;
   const { data, error } = await supabase.from("platform_product_identities")

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { isPlatformAdminUser } from "@/lib/auth/context";
 
-const PRODUCTS = ["los-barberos", "le-gras", "pro-stetic", "music-pro"] as const;
+const PRODUCTS = ["los-barberos", "le-gras", "pro-stetic", "music-pro", "ateliepro"] as const;
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const FONT_ALLOWLIST = new Set(["Inter", "Arial", "Georgia", "Baskerville", "Roboto", "system-ui"]);
 
