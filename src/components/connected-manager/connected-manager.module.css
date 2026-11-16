@@ -179,6 +179,10 @@
 .reconciliationBalanced { color: #347542 !important; }
 .reconciliationDivergence { color: #a13f31 !important; }
 .row { display: grid; grid-template-columns: minmax(150px, 1.4fr) repeat(3, minmax(90px, 1fr)) auto; gap: .8rem; align-items: center; padding: .8rem; border: 1px solid #edf0eb; border-radius: 13px; }
+.subscriptionPlanRow { grid-template-columns: minmax(12rem, 1.5fr) minmax(5.5rem, .65fr) minmax(6rem, .7fr) minmax(8rem, .9fr) minmax(18rem, auto); }
+.subscriptionPlanActions { justify-content: flex-start; align-items: center; }
+.subscriptionPlanArchive { display: inline-flex; min-width: 2.35rem; align-items: center; justify-content: center; padding-inline: .55rem; color: #7d4036; }
+.subscriptionPlanContractEditor { grid-column: 1 / -1; }
 .catalogServiceRow { grid-template-columns: minmax(150px, 1.4fr) repeat(3, minmax(90px, 1fr)) auto; }
 .row:hover { background: #fafbf9; }
 .subscriptionSummaryRow { grid-template-columns: minmax(180px, 1.35fr) minmax(130px, .75fr) minmax(220px, 1.25fr) auto auto; }
@@ -986,6 +990,11 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
 .connectedControls { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #ccd4ca; border-top-color: #465a43; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 1150px) {
+  .subscriptionPlanRow { grid-template-columns: minmax(0, 1fr) auto; }
+  .row.subscriptionPlanRow > :not(.rowTitle):not(.rowActions) { display: block; }
+  .subscriptionPlanActions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+}
 @media (max-width: 1000px) {
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .span8, .span7, .span6, .span5, .span4, .span3 { grid-column: span 12; }
@@ -1019,6 +1028,9 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
   .serviceCommissionRow { grid-template-columns: 1fr; }
   .commissionModalFooter { align-items: stretch; flex-direction: column; }
   .row { grid-template-columns: 1fr auto; }
+  .subscriptionPlanRow { grid-template-columns: 1fr; }
+  .row.subscriptionPlanRow > :not(.rowTitle):not(.rowActions) { display: block; }
+  .subscriptionPlanActions { justify-content: flex-start; flex-wrap: wrap; }
   .subscriptionSummaryRow { grid-template-columns: 1fr auto; }
   .subscriptionSummaryRow > strong, .subscriptionSummaryRow .subscriptionSummaryPayment, .subscriptionSummaryRow .subscriptionSummaryStatus { display: block; }
   .subscriptionSummaryRow .subscriptionSummaryStats { display: none; }

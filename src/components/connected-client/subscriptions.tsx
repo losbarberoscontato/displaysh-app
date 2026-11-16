@@ -174,7 +174,8 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           "id,name,description,version:subscription_plan_versions(id,version,price_cents,billing_period,duration_months,sessions_per_cycle,scheduling_mode,payment_method,cancellation_policy,session_cancellation_policy)",
         )
         .eq("organization_id", context.organization.id)
-        .eq("active", true),
+        .eq("active", true)
+        .is("archived_at", null),
       client.from("project_engagements").select("id,project_id,package_id,status,contracted_cents,created_by,accepted_at,project:projects(name,description),package:project_packages(name,description,sessions_count)")
         .eq("organization_id", context.organization.id).eq("customer_id", customer.id).in("status", ["PROPOSAL", "ACTIVE", "DECLINED", "CANCELED", "CANCELED_BY_ORGANIZATION", "COMPLETED"]),
       client.from("customer_project_cancellation_requests")

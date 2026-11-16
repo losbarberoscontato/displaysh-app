@@ -203,6 +203,7 @@ export async function loadCustomersData() {
       )
       .eq("organization_id", organizationId)
       .eq("active", true)
+      .is("archived_at", null)
       .order("name"),
     supabase
       .from("subscription_plan_services")
@@ -1727,11 +1728,12 @@ export async function loadModulesData() {
 
 export async function loadSubscriptionPlansData() {
   const { context, supabase, organizationId } = await managerClient();
-  const [plans, versions, services, module] = await Promise.all([
+  const [plans, versions, planServices, services, module] = await Promise.all([
     supabase
       .from("subscription_plans")
-      .select("id,organization_id,name,description,contract_body_override,active,created_at")
+      .select("id,organization_id,name,description,contract_body_override,active,archived_at,created_at")
       .eq("organization_id", organizationId)
+      .order("archived_at", { ascending: true, nullsFirst: true })
       .order("active", { ascending: false })
       .order("name"),
     supabase
@@ -1741,6 +1743,11 @@ export async function loadSubscriptionPlansData() {
       )
       .eq("organization_id", organizationId)
       .order("version", { ascending: false }),
+    supabase
+      .from("subscription_plan_services")
+      .select("plan_version_id,service_id,service_name_snapshot,position")
+      .eq("organization_id", organizationId)
+      .order("position"),
     supabase
       .from("services")
       .select(
@@ -1764,6 +1771,7 @@ export async function loadSubscriptionPlansData() {
     description: string | null;
     contract_body_override: string | null;
     active: boolean;
+    archived_at: string | null;
     created_at: string;
   };
   type VersionRow = {
@@ -1780,6 +1788,12 @@ export async function loadSubscriptionPlansData() {
     session_cancellation_policy: string;
     contract_version: string;
   };
+  type PlanServiceRow = {
+    plan_version_id: string;
+    service_id: string;
+    service_name_snapshot: string;
+    position: number;
+  };
   type EligibleServiceRow = {
     id: string;
     name: string;
@@ -1795,6 +1809,7 @@ export async function loadSubscriptionPlansData() {
     subscriptionModuleEnabled: module.error ? false : Boolean(module.data?.enabled),
     plans: requireData(plans, "Planos") as PlanRow[],
     versions: requireData(versions, "Versões de planos") as VersionRow[],
+    planServices: requireData(planServices, "Serviços dos planos") as PlanServiceRow[],
     services: requireData(
       services,
       "Serviços elegíveis",
