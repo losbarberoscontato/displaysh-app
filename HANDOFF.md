@@ -7,9 +7,7 @@
 - A ativação cria ciclos e sessões atomicamente; agendamentos fixos são colocados na agenda na mesma transação. Agendamento pelo cliente e registro de pagamento ficam bloqueados enquanto o aceite estiver pendente. Planos livres podem ser organizados pelo gestor no controle da assinatura.
 - Migration 20261116202914_manager_activate_subscription_pending_consent.sql aplicada ao projeto de produção bwdjkhqshmppescunwer; consulta remota confirmou as duas colunas de auditoria e as funções. Dry-run final confirmou o banco alinhado. Nenhuma Edge Function mudou; as RPCs e triggers são SQL.
 - TypeScript e build local passaram. ESLint terminou sem erros, com 14 avisos preexistentes em arquivos fora da mudança. supabase db lint retornou erros em funções legadas (process_expired_organization_retention e create_payment_checkout_order); a migration foi aplicada e as novas funções compilam. Suítes de teste não foram executadas.
-- Publicação GitHub/Vercel e CI: registrar após o push; a validação autenticada do fluxo completo ainda é necessária.
-
-## Egress Display — 03/11/2026
+- GitHub: commit `ee7efe8548da5b5a863814029b88fd770a4cae35` publicado em `main`. Check Vercel associado ao commit: `success`; smoke público da raiz `https://displaysh-app.vercel.app/`: HTTP 200. A validação autenticada do fluxo completo ainda é necessária.
 
 ## Egress Display — 03/11/2026
 
