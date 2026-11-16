@@ -1,5 +1,7 @@
 # Projetos e Planos Encerrados — 23/10/2026
 
+Atualização 16/11/2026: ativação provisória de assinaturas entregue na base compartilhada Display. Gestor ativa a oferta sem registrar aceite; cliente ainda pode aceitar ou recusar pelo app. Aceite real libera cobrança; recusa cancela sessões/agendamentos futuros e preserva pagamentos. Migration 20261116202914_manager_activate_subscription_pending_consent.sql aplicada a bwdjkhqshmppescunwer; sem Edge Function alterada. Typecheck/build passaram; lint geral sem erros (14 avisos preexistentes), lint remoto sinalizou erros legados fora do diff. Conferir commit/Vercel e validar o fluxo autenticado no topo de HANDOFF.md.
+
 Atualização 03/11/2026 — Egress: contexto vigente desta revisão em [egress-2026-11-03.md](egress-2026-11-03.md). Confirmar fim de 402 antes da etapa de 04/11. Dispatcher/VPS exigem autorização específica; aplicação não depende dessa publicação. Preservar cron, retries, leases, modos administrativos e `SEND_UNKNOWN`. Relatório separa métricas SQL/fixtures de Egress faturado e lista evidências de GitHub/Vercel/CI.
 
 Atualização 30/10/2026: cadastro de folga/exceção agora redireciona para lista de folgas pela rota `/barbeiro/escala/folgas?barbearia=...`; atalhos e redirect pós-salvamento montam URL de forma consistente. O RPC e trigger já implantados registram o evento e notificam gestores ativos. Sem migrations/Edge Functions novas.

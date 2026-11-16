@@ -1,5 +1,16 @@
 # Handoff — Los Barberos
 
+## Ativação provisória de assinaturas — 16/11/2026
+
+- Correção nos componentes compartilhados de gestor e cliente para os produtos Display. O gestor pode ativar operacionalmente uma oferta pendente sem registrar aceite contratual; a confirmação exibe “Sim” e “Não” e informa que a validação depende do aceite no app.
+- A oferta continua em “Aguardando aceite” no app do cliente, com destaque pulsante, e fica fora de “Meus Planos” até o aceite real. Se o cliente aceitar, a RPC registra o aceite e libera a cobrança; se recusar, o gestor vê “Recusada”, sessões futuras e agendamentos futuros são cancelados, e os registros financeiros/pagamentos existentes permanecem preservados.
+- A ativação cria ciclos e sessões atomicamente; agendamentos fixos são colocados na agenda na mesma transação. Agendamento pelo cliente e registro de pagamento ficam bloqueados enquanto o aceite estiver pendente. Planos livres podem ser organizados pelo gestor no controle da assinatura.
+- Migration 20261116202914_manager_activate_subscription_pending_consent.sql aplicada ao projeto de produção bwdjkhqshmppescunwer; consulta remota confirmou as duas colunas de auditoria e as funções. Dry-run final confirmou o banco alinhado. Nenhuma Edge Function mudou; as RPCs e triggers são SQL.
+- TypeScript e build local passaram. ESLint terminou sem erros, com 14 avisos preexistentes em arquivos fora da mudança. supabase db lint retornou erros em funções legadas (process_expired_organization_retention e create_payment_checkout_order); a migration foi aplicada e as novas funções compilam. Suítes de teste não foram executadas.
+- Publicação GitHub/Vercel e CI: registrar após o push; a validação autenticada do fluxo completo ainda é necessária.
+
+## Egress Display — 03/11/2026
+
 ## Egress Display — 03/11/2026
 
 Diagnóstico, alterações compartilhadas, medições, testes, publicação e roteiro de 04/11 em [docs/egress-2026-11-03.md](docs/egress-2026-11-03.md). Supabase Auth retornou 402 `exceed_egress_quota`; SQL administrativo e inventário de Functions funcionaram. Worker confirmado em execução por SSH, mas heartbeat registrado no banco é de 01/11. Não confundir container ativo com processamento saudável.

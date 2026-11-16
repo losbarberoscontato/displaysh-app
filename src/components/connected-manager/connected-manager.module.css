@@ -198,7 +198,9 @@
 .subscriptionSummaryStatusOverdue { background: #a51d2d; color: #fff; }
 .subscriptionSummaryStatusDeclined { background: #ece8ef; color: #54445e; }
 .subscriptionSummaryStatusCanceled { background: #fbe8e6; color: #8f2f2a; }
-.pendingSubscriptionNotice { display: inline-flex; align-items: center; gap: .45rem; white-space: nowrap; }
+.pendingSubscriptionNotice { display: grid; justify-items: start; gap: .4rem; white-space: normal; }
+.pendingSubscriptionButtons { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }
+.provisionalSubscriptionNotice { margin: 0; padding: .75rem .9rem; border: 1px solid #ead8bd; border-radius: 10px; background: #fff5e6; color: #704713; font-size: .84rem; line-height: 1.5; }
 .customerFilters { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .45rem; }
 .customerSubscriptionFilter { min-width: 12rem; }
 .subscriptionLegacyAction { display: none; }

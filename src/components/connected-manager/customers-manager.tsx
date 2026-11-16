@@ -88,14 +88,16 @@ function timeFromMinutes(value: number): string {
 }
 
 function subscriptionDisplayStatuses(
-  subscription: { status?: unknown; contract_accepted_at?: unknown },
+  subscription: { status?: unknown; contract_accepted_at?: unknown; manager_activated_provisionally_at?: unknown },
   cycles: Array<Record<string, unknown>>,
   today: string,
   cancellationPending = false,
 ): Set<SubscriptionDisplayStatus> {
   const statuses = new Set<SubscriptionDisplayStatus>();
   const status = String(subscription.status);
-  if (status === "REQUESTED") {
+  if (subscription.manager_activated_provisionally_at && !subscription.contract_accepted_at) {
+    statuses.add("pending");
+  } else if (status === "REQUESTED") {
     statuses.add("pending");
   } else if (status === "DECLINED") {
     statuses.add("declined");
@@ -184,6 +186,7 @@ const inactivationReasons = [
 ] as const;
 
 type ApprovalDraft = { subscriptionId: string; startDate: string; dueDate: string };
+type ManualSubscriptionActivationDraft = { subscriptionId: string; planName: string };
 type FixedEnrollmentDraft = { customerId: string; planId: string; cadenceWeeks: string; startDate: string; localTime: string; barberId: string; environmentId: string; serviceIds: string[] };
 type FixedScheduleEditDraft = { subscriptionId: string; cadenceWeeks: string; startDate: string; localTime: string; barberId: string; environmentId: string; serviceIds: string[] };
 type FixedScheduleSlot = { time: string; environmentId: string; environmentName: string };
@@ -281,6 +284,7 @@ export function CustomersManager({
   const [inactivationReason, setInactivationReason] = useState("");
   const [customInactivationReason, setCustomInactivationReason] = useState("");
   const [approvalDraft, setApprovalDraft] = useState<ApprovalDraft | null>(null);
+  const [manualSubscriptionActivationDraft, setManualSubscriptionActivationDraft] = useState<ManualSubscriptionActivationDraft | null>(null);
   const [fixedEnrollmentDraft, setFixedEnrollmentDraft] = useState<FixedEnrollmentDraft | null>(null);
   const [fixedScheduleEditDraft, setFixedScheduleEditDraft] = useState<FixedScheduleEditDraft | null>(null);
   const [subscriptionControlId, setSubscriptionControlId] = useState<string | null>(null);
@@ -770,6 +774,26 @@ export function CustomersManager({
     );
     if (saved) {
       setApprovalDraft(null);
+      router.refresh();
+    }
+  }
+
+  async function confirmManualSubscriptionActivation() {
+    if (!manualSubscriptionActivationDraft) return;
+    const { subscriptionId } = manualSubscriptionActivationDraft;
+    const saved = await runMutation(
+      setMessage,
+      async () => {
+        await assertResult(await connectedClient().rpc("manager_activate_customer_subscription_without_acceptance", {
+          p_organization_id: organizationId,
+          p_subscription_id: subscriptionId,
+        }));
+      },
+      "Plano ativado para organização da agenda. O aceite do contrato continua pendente.",
+    );
+    if (saved) {
+      setManualSubscriptionActivationDraft(null);
+      setSubscriptionControlId(subscriptionId);
       router.refresh();
     }
   }
@@ -1638,8 +1662,15 @@ export function CustomersManager({
                                         Aprovar
                                       </button>
                                     )}
-                                    {subscription.status === "REQUESTED" && !subscription.contract_accepted_at && <small className={styles.pendingSubscriptionNotice}>Aguardando aceite do cliente<button type="button" className={`${styles.button} ${styles.buttonSmall}`} aria-label="Excluir assinatura pendente" title="Excluir assinatura pendente" disabled={deletingSubscriptionId === String(subscription.id)} onClick={() => void deletePendingSubscription(String(subscription.id))}><Trash2 size={14} /></button></small>}
+                                    {((subscription.status === "REQUESTED" && !subscription.contract_accepted_at) || (Boolean(subscription.manager_activated_provisionally_at) && !subscription.contract_accepted_at)) && <div className={styles.pendingSubscriptionNotice}>
+                                      <small>{subscription.manager_activated_provisionally_at ? "Ativado provisoriamente · aguardando aceite do cliente" : "Aguardando aceite do cliente"}</small>
+                                      {!subscription.manager_activated_provisionally_at && <div className={styles.pendingSubscriptionButtons}>
+                                        <button type="button" className={`${styles.button} ${styles.buttonSmall}`} onClick={() => setManualSubscriptionActivationDraft({ subscriptionId: String(subscription.id), planName: plan?.name ?? "Plano" })}>Ativar plano sem aceite do cliente</button>
+                                        <button type="button" className={`${styles.button} ${styles.buttonSmall}`} aria-label="Excluir assinatura pendente" title="Excluir assinatura pendente" disabled={deletingSubscriptionId === String(subscription.id)} onClick={() => void deletePendingSubscription(String(subscription.id))}><Trash2 size={14} /></button>
+                                      </div>}
+                                    </div>}
                                     {subscription.status !== "REQUESTED" &&
+                                      !(subscription.manager_activated_provisionally_at && !subscription.contract_accepted_at) &&
                                       cycles
                                         .filter(
                                           (cycle) =>
@@ -1743,6 +1774,24 @@ export function CustomersManager({
             </section>
           </div>
         )}
+        {manualSubscriptionActivationDraft && (
+          <div className="modal-layer" role="presentation">
+            <button className="modal-layer__backdrop" type="button" aria-label="Fechar confirmação de ativação provisória" onClick={() => setManualSubscriptionActivationDraft(null)} />
+            <section className="form-modal" role="alertdialog" aria-modal="true" aria-labelledby="manual-subscription-activation-title" aria-describedby="manual-subscription-activation-description">
+              <div className="form-modal__head">
+                <span><small>Assinatura · {manualSubscriptionActivationDraft.planName}</small><strong id="manual-subscription-activation-title">Deseja fazer o aceite do plano sem assinatura do cliente?</strong></span>
+                <button type="button" className="icon-button" onClick={() => setManualSubscriptionActivationDraft(null)} aria-label="Fechar">×</button>
+              </div>
+              <div className="form-modal__body">
+                <p id="manual-subscription-activation-description">Mesmo ativando a assinatura manualmente, o cliente ainda pode recusar pelo app - validação do contrato depende de aceitação pelo app do cliente.</p>
+              </div>
+              <div className="form-modal__footer">
+                <button className="button button--ghost" type="button" onClick={() => setManualSubscriptionActivationDraft(null)}>Não</button>
+                <button className="button button--dark" type="button" onClick={() => void confirmManualSubscriptionActivation()}>Sim</button>
+              </div>
+            </section>
+          </div>
+        )}
         {subscriptionControlId && (() => {
           const subscription = subscriptions.find((item) => String(item.id) === subscriptionControlId);
           if (!subscription) return null;
@@ -1752,6 +1801,7 @@ export function CustomersManager({
           const sessions = subscriptionSessions.filter((session) => String(session.subscription_id) === subscriptionControlId);
           const openCycles = cycles.filter((cycle) => cycle.status === "OPEN" || cycle.status === "OVERDUE");
           const upfront = String(subscription.payment_method) === "UPFRONT";
+          const awaitingCustomerConsent = Boolean(subscription.manager_activated_provisionally_at) && !subscription.contract_accepted_at;
           const paymentLabels: Record<string, string> = { CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Link de pagamento" };
           const firstOpenCycle = openCycles[0];
           const cancellationRequest = subscriptionCancellationRequests.find((request) => String(request.subscription_id) === subscriptionControlId);
@@ -1762,6 +1812,7 @@ export function CustomersManager({
             <section className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionControlModal}`} role="dialog" aria-modal="true" aria-labelledby="subscription-control-title">
               <header className={styles.modalHeader}><div><small>Controle da assinatura · Contrato nº {String(subscription.contract_number ?? "—")}</small><h2 id="subscription-control-title">{plan?.name ?? "Plano"}</h2><p>{formatCents(version?.price_cents ?? 0)} · Venc. {String(subscription.first_due_date ?? "—")} · {paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)}</p></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => { setSubscriptionCycleDeleteTarget(null); setSubscriptionControlId(null); }}><X size={19} /></button></header>
               <div className={styles.subscriptionControlBody}>
+                {awaitingCustomerConsent && <p className={styles.provisionalSubscriptionNotice}>Ativação provisória para organizar a agenda. O contrato ainda aguarda aceite do cliente; pagamentos permanecem bloqueados até a confirmação pelo app.</p>}
                 <div className={styles.subscriptionControlLegend}><span><i className={styles.subscriptionDotAvailable} />Em aberto</span><span><i className={styles.subscriptionDotScheduled} />Agendada</span><span><i className={styles.subscriptionDotCompleted} />Concluída</span><span><i className={styles.subscriptionDotCanceled} />Cancelada</span></div>
                 {String((subscription.plan_version as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED" && <section className={styles.subscriptionFixedSchedule}>
                   <strong>Agendamento fixo</strong>
@@ -1816,7 +1867,7 @@ export function CustomersManager({
                   const cycleSessions = sessions.filter((session) => String(session.cycle_id) === String(cycle.id));
                   const canReceive = cycle.status === "OPEN" || cycle.status === "OVERDUE";
                   const canDelete = canReceive && cycleSessions.every((session) => session.status === "AVAILABLE" || session.status === "CANCELED");
-                  const showReceive = canReceive && (!upfront || String(cycle.id) === String(firstOpenCycle?.id));
+                  const showReceive = !awaitingCustomerConsent && canReceive && (!upfront || String(cycle.id) === String(firstOpenCycle?.id));
                   const amount = upfront
                     ? (cycle.status === "PAID" ? cycles : cycle.status === "CANCELED" ? [cycle] : openCycles).reduce((total, item) => total + Number(item.amount_cents ?? 0), 0)
                     : Number(cycle.amount_cents ?? version?.price_cents ?? 0);

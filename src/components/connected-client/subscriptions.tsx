@@ -13,6 +13,7 @@ type Row = {
   plan_id: string;
   status: string;
   contract_accepted_at: string | null;
+  manager_activated_provisionally_at: string | null;
   start_date: string | null;
   end_date: string | null;
   first_due_date: string | null;
@@ -158,7 +159,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       client
         .from("customer_subscriptions")
         .select(
-          "id,plan_id,status,contract_accepted_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(price_cents,billing_period,sessions_per_cycle,scheduling_mode,duration_months,cancellation_policy,session_cancellation_policy,payment_method)",
+          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(price_cents,billing_period,sessions_per_cycle,scheduling_mode,duration_months,cancellation_policy,session_cancellation_policy,payment_method)",
         )
         .eq("organization_id", context.organization.id)
         .eq("customer_id", customer.id)
@@ -547,14 +548,17 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       && !rowCycles.some((cycle) => cycle.sessions.some((session) => session.status === "AVAILABLE" || session.status === "SCHEDULED"));
   };
   const dateRange = (start: string | null, end: string | null) => start || end ? `${start ? formatDate(start) : "—"} a ${end ? formatDate(end) : "—"}` : null;
-  const requestedOffers = rows.filter((row) => row.status === "REQUESTED" && !row.contract_accepted_at && row.created_by !== user?.id);
+  const isPendingManagerOffer = (row: Row) => row.created_by !== user?.id
+    && !row.contract_accepted_at
+    && (row.status === "REQUESTED" || (row.status === "ACTIVE" && Boolean(row.manager_activated_provisionally_at)));
+  const requestedOffers = rows.filter(isPendingManagerOffer);
   const pendingProjectOffers = projectOffers.filter((offer) => offer.status === "PROPOSAL" && offer.created_by !== user?.id);
   const selectedPlan = plans.find((plan) => plan.id === itemId);
   const selectedProject = publicProjects.find((project) => project.id === itemId);
   const selectedSubscriptionOffer = requestedOffers.find((row) => row.id === itemId);
   const selectedProjectOffer = pendingProjectOffers.find((offer) => offer.id === itemId);
   const selectedCustomerProject = projectOffers.find((offer) => offer.id === itemId && offer.status !== "DECLINED" && !projectCancellationArchiveReady(offer));
-  const selectedCustomerSubscription = rows.find((row) => row.id === itemId && row.status !== "DECLINED" && !cancellationArchiveReady(row));
+  const selectedCustomerSubscription = rows.find((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row));
 
   if (view === "home") return <section className={styles.subscriptionStack}>
     <header><h1>Assinaturas</h1><p>Consulte seus planos e encontre novas opções deste estabelecimento.</p></header>
@@ -562,7 +566,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     {(requestedOffers.length > 0 || pendingProjectOffers.length > 0) && <div className={styles.subscriptionStack}>
       <h2>Planos aguardando sua decisão</h2>
       {requestedOffers.map((row) => <Link className={styles.subscriptionCard} key={row.id} href={route(`/cliente/assinaturas/ofertas/assinatura/${row.id}`)}>
-        <span className={styles.planStatus}>Aguardando aceite</span><h3>{row.plan?.name ?? "Plano"}</h3><p>O gestor enviou este plano para você aceitar.</p>
+      <span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><h3>{row.plan?.name ?? "Plano"}</h3><p>O gestor enviou este plano para você aceitar.</p>
         {row.plan_version && <strong>{money(row.plan_version.price_cents)}</strong>}
         <span>Ver detalhes e decidir</span>
       </Link>)}
@@ -630,7 +634,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   </section>;
 
   if (view === "subscription-offer" && selectedSubscriptionOffer) return <section className={styles.subscriptionStack}>
-    <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link><span className={styles.planKind}>Plano enviado pelo gestor</span><h1>{selectedSubscriptionOffer.plan?.name ?? "Plano"}</h1><p>{selectedSubscriptionOffer.plan?.description ?? "Confira os detalhes antes de aceitar ou recusar."}</p></header>
+    <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link><span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><span className={styles.planKind}>Plano enviado pelo gestor</span><h1>{selectedSubscriptionOffer.plan?.name ?? "Plano"}</h1><p>{selectedSubscriptionOffer.plan?.description ?? "Confira os detalhes antes de aceitar ou recusar."}</p></header>
     <article className={styles.subscriptionCard}>{selectedSubscriptionOffer.plan_version && <><h2>{money(selectedSubscriptionOffer.plan_version.price_cents)}</h2><p>{selectedSubscriptionOffer.plan_version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedSubscriptionOffer.plan_version.duration_months} mês(es) · {selectedSubscriptionOffer.plan_version.sessions_per_cycle} sessão(ões) por ciclo · {selectedSubscriptionOffer.plan_version.scheduling_mode === "FIXED" ? "Agendamento fixo" : "Agendamento livre"} · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.plan_version.payment_method] ?? selectedSubscriptionOffer.plan_version.payment_method}</p>
       {selectedSubscriptionOffer.plan_version.cancellation_policy && <details><summary>Políticas</summary><p>{selectedSubscriptionOffer.plan_version.cancellation_policy}</p>{selectedSubscriptionOffer.plan_version.session_cancellation_policy && <p>{selectedSubscriptionOffer.plan_version.session_cancellation_policy}</p>}</details>}</>}
       {selectedSubscriptionOffer.contract_body_snapshot && <details><summary>Contrato</summary><p>{selectedSubscriptionOffer.contract_body_snapshot}</p></details>}
@@ -725,7 +729,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
         </Link> : <article className={styles.subscriptionCard} key={`closed-subscription-${row.id}`}><span className={styles.planStatus}>{row.status === "CANCELED" ? "Cancelado" : "Encerrado"}</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura encerrada sem pendências."}</p><strong>{row.plan_version ? money(row.plan_version.price_cents) : "—"}</strong></article>)}
         {!projectOffers.some(projectCancellationArchiveReady) && !rows.some((row) => row.status === "DECLINED" || row.status === "CANCELED" || cancellationArchiveReady(row)) && <p>Nenhum plano encerrado disponível.</p>}
       </div>}
-      {(view === "my-plan" ? rows.filter((row) => row.id === itemId && row.status !== "DECLINED" && !cancellationArchiveReady(row)) : view === "closed-plans" ? [] : rows.filter((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !(row.status === "REQUESTED" && !row.contract_accepted_at && row.created_by !== user?.id))).map((row) => view === "my-plan" ? (
+      {(view === "my-plan" ? rows.filter((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row)) : view === "closed-plans" ? [] : rows.filter((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row))).map((row) => view === "my-plan" ? (
         <article className={styles.subscriptionCard} key={row.id}>
           {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
           {row.status === "CANCELED" && <span className={styles.planStatus}>Aguardando regular pendências</span>}
@@ -837,7 +841,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           <span>Ver detalhes do plano</span>
         </Link>
       ))}
-      {view === "my-plans" && !rows.some((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !(row.status === "REQUESTED" && !row.contract_accepted_at && row.created_by !== user?.id)) && !projectOffers.some((offer) => offer.created_by === user?.id || offer.status === "ACTIVE" || offer.status === "DECLINED") && <p>Você ainda não possui planos neste estabelecimento.</p>}
+      {view === "my-plans" && !rows.some((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row)) && !projectOffers.some((offer) => offer.created_by === user?.id || offer.status === "ACTIVE" || offer.status === "DECLINED") && <p>Você ainda não possui planos neste estabelecimento.</p>}
       {view === "my-plans" && <Link className={styles.subscriptionCard} href={route("/cliente/assinaturas/meus-planos/encerrados")}><h2>Planos Encerrados</h2><p>Consulte planos cancelados e contratos finalizados.</p><span>Acessar planos encerrados</span></Link>}
       {fixedScheduleDraft && context && (() => {
         const eligibleBarbers = context.barbers.filter((barber) => barberSupportsServices(fixedScheduleDraft.plan.service_ids, barber.service_ids)

@@ -873,5 +873,8 @@
 .subscriptionBack { width: fit-content; font-weight: 700; text-decoration: none; }
 .planKind { width: fit-content; color: var(--amber-500, #8d5b2e); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .planStatus { width: fit-content; padding: 5px 9px; border-radius: 999px; background: color-mix(in srgb, var(--forest-900, #775314) 10%, var(--surface, #fff)); color: var(--forest-900, #775314); font-size: 12px; font-weight: 750; }
+.pendingOfferPulse { animation: pending-offer-pulse 1.8s ease-in-out infinite; }
+@keyframes pending-offer-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--forest-900, #775314) 13%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .pendingOfferPulse { animation: none; } }
 .planActions { display: flex; flex-wrap: wrap; gap: 10px; }
 @media (max-width: 620px) { .planMenu { grid-template-columns: 1fr; } }
