@@ -12,6 +12,7 @@ import { FinanceSubnav } from "./cash-manager";
 import { addDateKey, appointmentServiceDateKey, DEFAULT_FINANCIAL_TIMEZONE, isDateKeyAtOrBefore, isReceivableAppointmentStatus, localDateKey } from "@/lib/domain/financial-receivables";
 import { BarberCashSessionReconciliation } from "./barber-cash-reconciliation";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type Props = AwaitedReturn<typeof loadFinanceData>;
 
@@ -115,7 +116,7 @@ export function FinanceManager(props: Props) {
   async function correctCommission(entry: Props["ledger"][number], kind: "ADJUSTMENT" | "REVERSAL") {
     const remaining = entry.amount_cents + (correctionsBySource.get(entry.id) ?? 0);
     if (remaining <= 0) {
-      setMessage("Esta comissão já foi totalmente revertida.");
+      showManagerError("Esta comissão já foi totalmente revertida.");
       return;
     }
     let deltaCents = -remaining;
@@ -124,7 +125,7 @@ export function FinanceManager(props: Props) {
       if (!raw) return;
       const numeric = Number(raw.trim().replace(/\./g, "").replace(",", "."));
       if (!Number.isFinite(numeric) || numeric === 0) {
-        setMessage("Informe um ajuste diferente de zero.");
+        showManagerError("Informe um ajuste diferente de zero.");
         return;
       }
       deltaCents = Math.round(numeric * 100);

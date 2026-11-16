@@ -13,6 +13,7 @@ import styles from "./connected-manager.module.css";
 import { normalizePhoneE164 } from "@/lib/phone";
 import { formatCents, formatRange, parsePostgresRange } from "./format";
 import { cpfCnpjDigits, formatCpfCnpj, isCpfCnpjValid } from "@/lib/cpf-cnpj";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type LoadedProps = AwaitedReturn<typeof loadCustomersData>;
 type Props = Omit<
@@ -25,8 +26,13 @@ type Props = Omit<
   | "subscriptionPlans"
   | "subscriptionPlanServices"
   | "barberServices"
+  | "barberSubscriptionPlans"
+  | "subscriptionServiceDurations"
   | "chartAccounts"
   | "financialAccounts"
+  | "slotIntervalMinutes"
+  | "workIntervals"
+  | "agendaEnvironments"
   | "subscriptionModuleEnabled"
 > &
   Partial<
@@ -40,8 +46,13 @@ type Props = Omit<
       | "subscriptionPlans"
       | "subscriptionPlanServices"
       | "barberServices"
+      | "barberSubscriptionPlans"
+      | "subscriptionServiceDurations"
       | "chartAccounts"
       | "financialAccounts"
+      | "slotIntervalMinutes"
+      | "workIntervals"
+      | "agendaEnvironments"
       | "subscriptionModuleEnabled"
     >
   >;
@@ -58,6 +69,22 @@ function dateInTimezone(date: Date, timezone: string): string {
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function weekdayForDate(date: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(date);
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))).getUTCDay();
+}
+
+function minutesFromTime(value: string): number | null {
+  const match = /^(\d{2}):(\d{2})/u.exec(value);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function timeFromMinutes(value: number): string {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
 function subscriptionDisplayStatuses(
@@ -157,8 +184,9 @@ const inactivationReasons = [
 ] as const;
 
 type ApprovalDraft = { subscriptionId: string; startDate: string; dueDate: string };
-type FixedEnrollmentDraft = { customerId: string; planId: string; cadenceWeeks: string; startDate: string; localTime: string; barberId: string; serviceIds: string[] };
-type FixedScheduleEditDraft = { subscriptionId: string; cadenceWeeks: string; startDate: string; localTime: string; barberId: string; serviceIds: string[] };
+type FixedEnrollmentDraft = { customerId: string; planId: string; cadenceWeeks: string; startDate: string; localTime: string; barberId: string; environmentId: string; serviceIds: string[] };
+type FixedScheduleEditDraft = { subscriptionId: string; cadenceWeeks: string; startDate: string; localTime: string; barberId: string; environmentId: string; serviceIds: string[] };
+type FixedScheduleSlot = { time: string; environmentId: string; environmentName: string };
 type SubscriptionCancellationDraft = {
   subscriptionId: string;
   requestId: string | null;
@@ -222,6 +250,11 @@ export function CustomersManager({
   subscriptionPlans = [],
   subscriptionPlanServices = [],
   barberServices = [],
+  barberSubscriptionPlans = [],
+  subscriptionServiceDurations = [],
+  slotIntervalMinutes = 15,
+  workIntervals = [],
+  agendaEnvironments = [],
   chartAccounts = [],
   financialAccounts = [],
   subscriptionModuleEnabled = false,
@@ -472,11 +505,11 @@ export function CustomersManager({
     const rawPhone = String(data.get("phone_e164") ?? "").trim();
     const normalizedPhone = normalizePhoneE164(rawPhone);
     if (rawPhone && !normalizedPhone) {
-      setMessage("Informe um telefone válido com DDD e, se necessário, DDI.");
+      showManagerError("Informe um telefone válido com DDD e, se necessário, DDI.");
       return;
     }
     if (!isCpfCnpjValid(String(data.get("cpf_cnpj") ?? ""))) {
-      setMessage("CPF/CNPJ deve ter 11 ou 14 dígitos.");
+      showManagerError("CPF/CNPJ deve ter 11 ou 14 dígitos.");
       return;
     }
     const canonicalPayload = {
@@ -590,7 +623,7 @@ export function CustomersManager({
     const targetId = String(data.get("target_customer_id"));
     const reason = String(data.get("reason") ?? "").trim();
     if (sourceId === targetId) {
-      setMessage("Escolha dois cadastros diferentes.");
+      showManagerError("Escolha dois cadastros diferentes.");
       return;
     }
     if (
@@ -621,7 +654,7 @@ export function CustomersManager({
 
   async function enrollPresential(customerId: string, planId: string) {
     if (!subscriptionModuleEnabled) {
-      setMessage("Planos de Assinatura está inativo em Configurações → Módulos. Ative o módulo para iniciar novas assinaturas.");
+      showManagerError("Planos de Assinatura está inativo em Configurações → Módulos. Ative o módulo para iniciar novas assinaturas.");
       return;
     }
     const saved = await runMutation(
@@ -676,6 +709,7 @@ export function CustomersManager({
           p_barber_id: draft.barberId,
           p_acceptance_source: "PRESENTIAL",
           p_accept_contract: false,
+          p_environment_id: draft.environmentId,
         }));
       },
       "Adesão fixa enviada ao cliente. Ele precisa aceitar antes da aprovação.",
@@ -701,6 +735,7 @@ export function CustomersManager({
           p_start_date: draft.startDate,
           p_local_time: draft.localTime,
           p_barber_id: draft.barberId,
+          p_environment_id: draft.environmentId,
         }));
       },
       "Agendamento fixo atualizado.",
@@ -715,7 +750,7 @@ export function CustomersManager({
     if (!approvalDraft) return;
     const { subscriptionId, startDate, dueDate } = approvalDraft;
     if (!startDate || !dueDate) {
-      setMessage("Informe a data de início e o primeiro vencimento.");
+      showManagerError("Informe a data de início e o primeiro vencimento.");
       return;
     }
     const saved = await runMutation(
@@ -744,7 +779,7 @@ export function CustomersManager({
     if (!subscriptionCancellationDraft) return;
     const draft = subscriptionCancellationDraft;
     if (!draft.requestId && (!draft.reason || (draft.reason === "OTHER" && !draft.observations.trim()))) {
-      setMessage("Informe o motivo do cancelamento. Para “Outros”, preencha as observações.");
+      showManagerError("Informe o motivo do cancelamento. Para “Outros”, preencha as observações.");
       return;
     }
     const saved = await runMutation(
@@ -798,8 +833,8 @@ export function CustomersManager({
   ) {
     const chart = (chartAccounts as Array<{ id: string; name?: string }>)[0];
     if (!chart) {
-      setMessage("Cadastre uma conta de receita antes de registrar a parcela.");
-      return;
+      showManagerError("Cadastre uma conta de receita antes de registrar a parcela.");
+      return false;
     }
     const saved = await runMutation(
       setMessage,
@@ -822,6 +857,7 @@ export function CustomersManager({
       "Parcela registrada e assinatura ativada.",
     );
     if (saved) router.refresh();
+    return saved;
   }
 
   function openPaymentDialog(subscriptionId: string, cycle: { id: unknown; amount_cents?: unknown; due_on?: unknown }, method: string) {
@@ -831,14 +867,55 @@ export function CustomersManager({
     setPaymentReference("");
   }
 
-  function eligibleSubscriptionBarbers(serviceIds: string[]) {
-    return barbers.filter((barber) => serviceIds.every((serviceId) =>
+  function eligibleSubscriptionBarbers(serviceIds: string[], planId?: string) {
+    return barbers.filter((barber) => barber.active && (!planId || barberSubscriptionPlans.some((link) =>
+      String(link.barber_id) === barber.id && String(link.plan_id) === planId && link.active !== false
+    )) && serviceIds.every((serviceId) =>
       barberServices.some((link) =>
         String(link.barber_id) === barber.id &&
         String(link.service_id) === serviceId &&
         link.active !== false,
       ),
     ));
+  }
+
+  function fixedScheduleSlots(serviceIds: string[], barberId: string, startDate: string): FixedScheduleSlot[] {
+    const weekday = weekdayForDate(startDate);
+    const barber = barbers.find((item) => item.id === barberId);
+    if (weekday === null || !barber || serviceIds.length === 0) return [];
+
+    const currentServices = serviceIds.map((serviceId) => subscriptionServiceDurations.find((item) => item.id === serviceId && item.active));
+    if (currentServices.some((service) => !service)) return [];
+    const serviceDuration = currentServices.reduce((total, service) => total + Number(service?.duration_minutes ?? 0), 0);
+    const slotSize = Math.max(1, Number(slotIntervalMinutes) || 15);
+    if (serviceDuration <= 0) return [];
+    const occupiedMinutes = Math.ceil(serviceDuration / slotSize) * slotSize;
+    const slots: FixedScheduleSlot[] = [];
+
+    for (const interval of workIntervals) {
+      if (String(interval.barber_id) !== barberId || Number(interval.weekday) !== weekday || interval.active === false) continue;
+      const environmentId = String(interval.environment_id ?? "");
+      const environment = agendaEnvironments.find((item) => item.id === environmentId && item.location_id === barber.location_id);
+      const intervalStart = minutesFromTime(interval.starts_at);
+      const intervalEnd = minutesFromTime(interval.ends_at);
+      if (!environment || intervalStart === null || intervalEnd === null) continue;
+
+      let startMinute = Math.ceil(intervalStart / slotSize) * slotSize;
+      while (startMinute + occupiedMinutes <= intervalEnd) {
+        slots.push({ time: timeFromMinutes(startMinute), environmentId, environmentName: environment.name });
+        startMinute += slotSize;
+      }
+    }
+
+    return slots.sort((left, right) => left.time.localeCompare(right.time) || left.environmentName.localeCompare(right.environmentName));
+  }
+
+  function firstFixedScheduleSlot(serviceIds: string[], barberId: string, startDate: string, preferredTime = "", preferredEnvironmentId = "") {
+    const slots = fixedScheduleSlots(serviceIds, barberId, startDate);
+    return slots.find((slot) => slot.time === preferredTime && slot.environmentId === preferredEnvironmentId)
+      ?? slots.find((slot) => slot.time === preferredTime)
+      ?? slots[0]
+      ?? null;
   }
 
   function openSubscriptionBooking(
@@ -852,9 +929,9 @@ export function CustomersManager({
       .filter((item) => String(item.plan_version_id) === String(version?.id ?? ""))
       .sort((left, right) => Number(left.position ?? 0) - Number(right.position ?? 0));
     const serviceIds = planServices.map((item) => String(item.service_id));
-    const eligible = eligibleSubscriptionBarbers(serviceIds);
+    const eligible = eligibleSubscriptionBarbers(serviceIds, String(subscription.plan_id ?? "") || undefined);
     if (!version?.id || serviceIds.length === 0 || eligible.length === 0) {
-      setMessage("Nenhum profissional habilitado para os serviços deste plano.");
+      showManagerError("Nenhum profissional habilitado para os serviços deste plano.");
       return;
     }
     const tomorrow = new Date(todayTimestamp + 86_400_000).toISOString().slice(0, 10);
@@ -910,6 +987,17 @@ export function CustomersManager({
       : `${String(session.session_number ?? "—")} de ${totalSessions}`;
     return { label, tone: session.status === "COMPLETED" ? "completed" : session.status === "CANCELED" || session.status === "CONSUMED" ? "canceled" : session.status === "AVAILABLE" ? "available" : "scheduled" };
   }
+
+  const fixedEnrollmentSlots = fixedEnrollmentDraft
+    ? fixedScheduleSlots(fixedEnrollmentDraft.serviceIds, fixedEnrollmentDraft.barberId, fixedEnrollmentDraft.startDate)
+    : [];
+  const fixedEnrollmentTimes = [...new Set(fixedEnrollmentSlots.map((slot) => slot.time))];
+  const fixedEnrollmentRooms = fixedEnrollmentSlots.filter((slot) => slot.time === fixedEnrollmentDraft?.localTime);
+  const fixedScheduleEditSlots = fixedScheduleEditDraft
+    ? fixedScheduleSlots(fixedScheduleEditDraft.serviceIds, fixedScheduleEditDraft.barberId, fixedScheduleEditDraft.startDate)
+    : [];
+  const fixedScheduleEditTimes = [...new Set(fixedScheduleEditSlots.map((slot) => slot.time))];
+  const fixedScheduleEditRooms = fixedScheduleEditSlots.filter((slot) => slot.time === fixedScheduleEditDraft?.localTime);
 
   return (
     <div className={styles.stack}>
@@ -1616,7 +1704,7 @@ export function CustomersManager({
                         <div>
                           <strong>Nova adesão presencial</strong>
                           <div className={styles.toolbarGroup}>
-                            <button type="button" className={`${styles.button} ${styles.buttonSoft}`} onClick={() => subscriptionModuleEnabled ? setPresentialCustomerId(historyCustomer.id) : setMessage("Planos de Assinatura está inativo em Configurações → Módulos. Ative o módulo para iniciar novas assinaturas.")}>Nova adesão</button>
+                            <button type="button" className={`${styles.button} ${styles.buttonSoft}`} onClick={() => subscriptionModuleEnabled ? setPresentialCustomerId(historyCustomer.id) : showManagerError("Planos de Assinatura está inativo em Configurações → Módulos. Ative o módulo para iniciar novas assinaturas.")}>Nova adesão</button>
                           </div>
                         </div>
                       </div>
@@ -1677,26 +1765,51 @@ export function CustomersManager({
                 <div className={styles.subscriptionControlLegend}><span><i className={styles.subscriptionDotAvailable} />Em aberto</span><span><i className={styles.subscriptionDotScheduled} />Agendada</span><span><i className={styles.subscriptionDotCompleted} />Concluída</span><span><i className={styles.subscriptionDotCanceled} />Cancelada</span></div>
                 {String((subscription.plan_version as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED" && <section className={styles.subscriptionFixedSchedule}>
                   <strong>Agendamento fixo</strong>
-                  <span>{Number(subscription.fixed_schedule_cadence_weeks) === 2 ? "Quinzenal" : "Semanal"} · {String(subscription.fixed_schedule_start_date ?? "Data não informada")} às {String(subscription.fixed_schedule_local_time ?? "Horário não informado").slice(0, 5)} · {barbers.find((barber) => barber.id === String(subscription.fixed_schedule_barber_id))?.display_name ?? "Profissional não informado"}</span>
+                  <span>{Number(subscription.fixed_schedule_cadence_weeks) === 2 ? "Quinzenal" : "Semanal"} · {String(subscription.fixed_schedule_start_date ?? "Data não informada")} às {String(subscription.fixed_schedule_local_time ?? "Horário não informado").slice(0, 5)} · {barbers.find((barber) => barber.id === String(subscription.fixed_schedule_barber_id))?.display_name ?? "Profissional não informado"} · {agendaEnvironments.find((environment) => environment.id === String(subscription.fixed_schedule_environment_id ?? ""))?.name ?? "Ambiente conforme escala"}</span>
                   {!subscription.fixed_schedule_created_at && (subscription.status === "REQUESTED" || subscription.status === "PENDING_PAYMENT") && <button type="button" className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} onClick={() => {
                     const planVersionId = String((subscription.plan_version as { id?: string } | null)?.id ?? "");
                     const serviceIds = subscriptionPlanServices.filter((item) => String(item.plan_version_id) === planVersionId).map((item) => String(item.service_id));
-                    const eligible = eligibleSubscriptionBarbers(serviceIds);
+                    const eligible = eligibleSubscriptionBarbers(serviceIds, String(subscription.plan_id ?? "") || undefined);
+                    const startDate = String(subscription.fixed_schedule_start_date ?? "");
+                    const storedBarberId = String(subscription.fixed_schedule_barber_id ?? "");
+                    const barberId = eligible.some((item) => item.id === storedBarberId) ? storedBarberId : eligible[0]?.id ?? "";
+                    const preferredTime = String(subscription.fixed_schedule_local_time ?? "09:00").slice(0, 5);
+                    const storedEnvironmentId = String(subscription.fixed_schedule_environment_id ?? "");
+                    const slot = firstFixedScheduleSlot(serviceIds, barberId, startDate, preferredTime, storedEnvironmentId);
                     setFixedScheduleEditDraft({
                       subscriptionId: String(subscription.id),
                       cadenceWeeks: String(subscription.fixed_schedule_cadence_weeks ?? 1),
-                      startDate: String(subscription.fixed_schedule_start_date ?? ""),
-                      localTime: String(subscription.fixed_schedule_local_time ?? "09:00").slice(0, 5),
-                      barberId: eligible.some((item) => item.id === String(subscription.fixed_schedule_barber_id)) ? String(subscription.fixed_schedule_barber_id) : eligible[0]?.id ?? "",
+                      startDate,
+                      localTime: slot?.time ?? "",
+                      barberId,
+                      environmentId: slot?.environmentId ?? "",
                       serviceIds,
                     });
                   }}>Editar série fixa</button>}
                   {fixedScheduleEditDraft?.subscriptionId === String(subscription.id) && <form className={styles.formCompactSchedule} onSubmit={(event) => void saveFixedScheduleEdit(event)}>
                     <label>Frequência<select value={fixedScheduleEditDraft.cadenceWeeks} onChange={(event) => setFixedScheduleEditDraft((draft) => draft ? { ...draft, cadenceWeeks: event.target.value } : draft)}><option value="1">Semanal</option><option value="2">Quinzenal (a cada 2 semanas)</option></select></label>
-                    <label>Data inicial<input type="date" value={fixedScheduleEditDraft.startDate} onChange={(event) => setFixedScheduleEditDraft((draft) => draft ? { ...draft, startDate: event.target.value } : draft)} required /></label>
-                    <label>Horário<input type="time" step={15 * 60} value={fixedScheduleEditDraft.localTime} onChange={(event) => setFixedScheduleEditDraft((draft) => draft ? { ...draft, localTime: event.target.value } : draft)} required /></label>
-                    <label>Profissional<select value={fixedScheduleEditDraft.barberId} onChange={(event) => setFixedScheduleEditDraft((draft) => draft ? { ...draft, barberId: event.target.value } : draft)} required><option value="">Selecione</option>{eligibleSubscriptionBarbers(fixedScheduleEditDraft.serviceIds).map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
-                    <div className={styles.formWide}><button className={styles.button} type="submit">Salvar série</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setFixedScheduleEditDraft(null)}>Cancelar</button></div>
+                    <label>Profissional<select value={fixedScheduleEditDraft.barberId} onChange={(event) => setFixedScheduleEditDraft((draft) => {
+                      if (!draft) return draft;
+                      const barberId = event.target.value;
+                      const slot = firstFixedScheduleSlot(draft.serviceIds, barberId, draft.startDate, draft.localTime, draft.environmentId);
+                      return { ...draft, barberId, localTime: slot?.time ?? "", environmentId: slot?.environmentId ?? "" };
+                })} required><option value="">Selecione</option>{eligibleSubscriptionBarbers(fixedScheduleEditDraft.serviceIds, String(subscription.plan_id ?? "") || undefined).map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
+                    <label>Data inicial<input type="date" min={todayInOrganization} value={fixedScheduleEditDraft.startDate} onChange={(event) => setFixedScheduleEditDraft((draft) => {
+                      if (!draft) return draft;
+                      const startDate = event.target.value;
+                      const slot = firstFixedScheduleSlot(draft.serviceIds, draft.barberId, startDate, draft.localTime, draft.environmentId);
+                      return { ...draft, startDate, localTime: slot?.time ?? "", environmentId: slot?.environmentId ?? "" };
+                    })} required /></label>
+                    <label>Horário<select value={fixedScheduleEditDraft.localTime} onChange={(event) => setFixedScheduleEditDraft((draft) => {
+                      if (!draft) return draft;
+                      const localTime = event.target.value;
+                      const slot = fixedScheduleSlots(draft.serviceIds, draft.barberId, draft.startDate).find((item) => item.time === localTime && item.environmentId === draft.environmentId)
+                        ?? fixedScheduleSlots(draft.serviceIds, draft.barberId, draft.startDate).find((item) => item.time === localTime);
+                      return { ...draft, localTime, environmentId: slot?.environmentId ?? "" };
+                    })} required><option value="">Selecione um horário</option>{fixedScheduleEditTimes.map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
+                    <label>Sala/ambiente<select value={fixedScheduleEditDraft.environmentId} onChange={(event) => setFixedScheduleEditDraft((draft) => draft ? { ...draft, environmentId: event.target.value } : draft)} required disabled={!fixedScheduleEditDraft.localTime}><option value="">Selecione</option>{fixedScheduleEditRooms.map((slot) => <option key={slot.environmentId} value={slot.environmentId}>{slot.environmentName}</option>)}</select></label>
+                    {fixedScheduleEditDraft.startDate && fixedScheduleEditTimes.length === 0 && <p className={styles.subscriptionBookingHint}>Não há horário e sala compatíveis com a escala desse profissional para esta data. Escolha outra data ou profissional.</p>}
+                    <div className={styles.formWide}><button className={styles.button} type="submit" disabled={!fixedScheduleEditDraft.localTime || !fixedScheduleEditDraft.environmentId}>Salvar série</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setFixedScheduleEditDraft(null)}>Cancelar</button></div>
                   </form>}
                 </section>}
                 {cycles.map((cycle) => {
@@ -1757,7 +1870,8 @@ export function CustomersManager({
         })()}
         {subscriptionBooking && (() => {
           const customer = customers.find((item) => item.id === subscriptionBooking.customerId);
-          const eligible = eligibleSubscriptionBarbers(subscriptionBooking.serviceIds);
+          const currentSubscription = subscriptions.find((item) => String(item.id) === subscriptionBooking.subscriptionId);
+          const eligible = eligibleSubscriptionBarbers(subscriptionBooking.serviceIds, String(currentSubscription?.plan_id ?? "") || undefined);
           return <div className="modal-layer" role="presentation">
             <button className="modal-layer__backdrop" type="button" aria-label="Fechar reserva de assinatura" onClick={() => setSubscriptionBooking(null)} />
             <form className="form-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-booking-title" onSubmit={bookSubscriptionSession}>
@@ -1785,12 +1899,12 @@ export function CustomersManager({
             return <button key={String(plan.id)} type="button" className={`${styles.button} ${styles.buttonSoft}`} onClick={() => {
               if (fixed) {
                 const serviceIds = subscriptionPlanServices.filter((item) => String(item.plan_version_id) === planVersionId).map((item) => String(item.service_id));
-                const eligible = eligibleSubscriptionBarbers(serviceIds);
+                const eligible = eligibleSubscriptionBarbers(serviceIds, String(plan.id));
                 if (!eligible.length || !planVersionId) {
-                  setMessage("Nenhum profissional está habilitado para todos os serviços deste plano.");
+                  showManagerError("Nenhum profissional está habilitado para todos os serviços deste plano.");
                   return;
                 }
-                setFixedEnrollmentDraft({ customerId: presentialCustomerId, planId: String(plan.id), cadenceWeeks: "1", startDate: "", localTime: "09:00", barberId: eligible[0].id, serviceIds });
+                setFixedEnrollmentDraft({ customerId: presentialCustomerId, planId: String(plan.id), cadenceWeeks: "1", startDate: "", localTime: "", barberId: eligible[0].id, environmentId: "", serviceIds });
                 return;
               }
               setPresentialCustomerId(null);
@@ -1801,18 +1915,36 @@ export function CustomersManager({
         {fixedEnrollmentDraft && (
           <div className="modal-layer" role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar escolha de agenda fixa" onClick={() => setFixedEnrollmentDraft(null)} /><form className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="fixed-enrollment-title" onSubmit={(event) => void saveFixedPresentialEnrollment(event)}>
             <header className={styles.modalHeader}><div><small>Adesão presencial</small><h2 id="fixed-enrollment-title">Agendamento fixo</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setFixedEnrollmentDraft(null)}><X size={19} /></button></header>
-            <p>Escolha a frequência, primeira data, horário e profissional. Após a aprovação e o primeiro pagamento, o sistema agenda todas as sessões do plano. Datas bloqueadas deslocam esta e as sessões seguintes.</p>
+            <p>Escolha um horário e uma sala compatíveis com a escala do profissional. Após a aprovação e o primeiro pagamento, o sistema agenda as sessões do plano; conflitos futuros continuam sujeitos à disponibilidade da agenda.</p>
             <div className={styles.formCompactSchedule}>
               <label>Frequência<select value={fixedEnrollmentDraft.cadenceWeeks} onChange={(event) => setFixedEnrollmentDraft((draft) => draft ? { ...draft, cadenceWeeks: event.target.value } : draft)}><option value="1">Semanal</option><option value="2">Quinzenal (a cada 2 semanas)</option></select></label>
-              <label>Data inicial<input type="date" value={fixedEnrollmentDraft.startDate} onChange={(event) => setFixedEnrollmentDraft((draft) => draft ? { ...draft, startDate: event.target.value } : draft)} required /></label>
-              <label>Horário<input type="time" step={15 * 60} value={fixedEnrollmentDraft.localTime} onChange={(event) => setFixedEnrollmentDraft((draft) => draft ? { ...draft, localTime: event.target.value } : draft)} required /></label>
-              <label>Profissional<select value={fixedEnrollmentDraft.barberId} onChange={(event) => setFixedEnrollmentDraft((draft) => draft ? { ...draft, barberId: event.target.value } : draft)} required><option value="">Selecione</option>{eligibleSubscriptionBarbers(fixedEnrollmentDraft.serviceIds).map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
+              <label>Profissional<select value={fixedEnrollmentDraft.barberId} onChange={(event) => setFixedEnrollmentDraft((draft) => {
+                if (!draft) return draft;
+                const barberId = event.target.value;
+                const slot = firstFixedScheduleSlot(draft.serviceIds, barberId, draft.startDate, draft.localTime, draft.environmentId);
+                return { ...draft, barberId, localTime: slot?.time ?? "", environmentId: slot?.environmentId ?? "" };
+              })} required><option value="">Selecione</option>{eligibleSubscriptionBarbers(fixedEnrollmentDraft.serviceIds, fixedEnrollmentDraft.planId).map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
+              <label>Data inicial<input type="date" min={todayInOrganization} value={fixedEnrollmentDraft.startDate} onChange={(event) => setFixedEnrollmentDraft((draft) => {
+                if (!draft) return draft;
+                const startDate = event.target.value;
+                const slot = firstFixedScheduleSlot(draft.serviceIds, draft.barberId, startDate, draft.localTime, draft.environmentId);
+                return { ...draft, startDate, localTime: slot?.time ?? "", environmentId: slot?.environmentId ?? "" };
+              })} required /></label>
+              <label>Horário<select value={fixedEnrollmentDraft.localTime} onChange={(event) => setFixedEnrollmentDraft((draft) => {
+                if (!draft) return draft;
+                const localTime = event.target.value;
+                const slot = fixedScheduleSlots(draft.serviceIds, draft.barberId, draft.startDate).find((item) => item.time === localTime && item.environmentId === draft.environmentId)
+                  ?? fixedScheduleSlots(draft.serviceIds, draft.barberId, draft.startDate).find((item) => item.time === localTime);
+                return { ...draft, localTime, environmentId: slot?.environmentId ?? "" };
+              })} required disabled={!fixedEnrollmentDraft.startDate}><option value="">Selecione um horário</option>{fixedEnrollmentTimes.map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
+              <label>Sala/ambiente<select value={fixedEnrollmentDraft.environmentId} onChange={(event) => setFixedEnrollmentDraft((draft) => draft ? { ...draft, environmentId: event.target.value } : draft)} required disabled={!fixedEnrollmentDraft.localTime}><option value="">Selecione</option>{fixedEnrollmentRooms.map((slot) => <option key={slot.environmentId} value={slot.environmentId}>{slot.environmentName}</option>)}</select></label>
             </div>
-            <div className={styles.toolbarGroup}><button className={styles.button} type="submit">Criar adesão</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setFixedEnrollmentDraft(null)}>Cancelar</button></div>
+            {fixedEnrollmentDraft.startDate && fixedEnrollmentTimes.length === 0 && <p className={styles.subscriptionBookingHint}>Esse profissional não atende esse dia e horário para a duração do plano. Escolha outra data ou profissional.</p>}
+            <div className={styles.toolbarGroup}><button className={styles.button} type="submit" disabled={!fixedEnrollmentDraft.startDate || !fixedEnrollmentDraft.localTime || !fixedEnrollmentDraft.environmentId}>Criar adesão</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setFixedEnrollmentDraft(null)}>Cancelar</button></div>
           </form></div>
         )}
         {paymentTarget && (
-          <div className="modal-layer" role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar recebimento" onClick={() => setPaymentTarget(null)} /><section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="subscription-payment-title"><header className={styles.modalHeader}><div><small>Recebimento de assinatura</small><h2 id="subscription-payment-title">Receber parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setPaymentTarget(null)}><X size={19} /></button></header><div className={styles.form}><Field label="Valor (R$)"><input value={(paymentTarget.amountCents / 100).toFixed(2).replace(".", ",")} readOnly /></Field><Field label="Vencimento"><input value={paymentTarget.dueOn} readOnly /></Field><Field label="Forma de pagamento"><input value={({ CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Link de pagamento" } as Record<string, string>)[paymentTarget.method] ?? paymentTarget.method} readOnly /></Field><Field label="Data de pagamento"><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></Field><Field label="Conta financeira"><select value={paymentAccountId} onChange={(event) => setPaymentAccountId(event.target.value)} required><option value="">Selecione</option>{financialAccounts.map((account) => <option key={String(account.id)} value={String(account.id)}>{String(account.name)}</option>)}</select></Field><Field label="Referência" wide><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Link externo, comprovante ou protocolo" /></Field><div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="button" disabled={!paymentAccountId} onClick={async () => { const target = paymentTarget; await recordFirstPayment(target.subscriptionId, target.cycleId, target.amountCents, target.method, paymentAccountId, paymentDate, paymentReference); setPaymentTarget(null); }}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setPaymentTarget(null)}>Cancelar</button></div></div></section></div>
+          <div className="modal-layer" role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar recebimento" onClick={() => setPaymentTarget(null)} /><section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="subscription-payment-title"><header className={styles.modalHeader}><div><small>Recebimento de assinatura</small><h2 id="subscription-payment-title">Receber parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setPaymentTarget(null)}><X size={19} /></button></header><div className={styles.form}><Field label="Valor (R$)"><input value={(paymentTarget.amountCents / 100).toFixed(2).replace(".", ",")} readOnly /></Field><Field label="Vencimento"><input value={paymentTarget.dueOn} readOnly /></Field><Field label="Forma de pagamento"><input value={({ CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Link de pagamento" } as Record<string, string>)[paymentTarget.method] ?? paymentTarget.method} readOnly /></Field><Field label="Data de pagamento"><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></Field><Field label="Conta financeira"><select value={paymentAccountId} onChange={(event) => setPaymentAccountId(event.target.value)} required><option value="">Selecione</option>{financialAccounts.map((account) => <option key={String(account.id)} value={String(account.id)}>{String(account.name)}</option>)}</select></Field><Field label="Referência" wide><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Link externo, comprovante ou protocolo" /></Field><div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="button" disabled={!paymentAccountId} onClick={async () => { const target = paymentTarget; if (await recordFirstPayment(target.subscriptionId, target.cycleId, target.amountCents, target.method, paymentAccountId, paymentDate, paymentReference)) setPaymentTarget(null); }}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setPaymentTarget(null)}>Cancelar</button></div></div></section></div>
         )}
       </Panel>
     </div>

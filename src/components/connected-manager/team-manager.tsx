@@ -15,6 +15,7 @@ import { centsFromInput, formatRange, initials, localDateTimeToIso, weekDays } f
 import { ActionMessage, EmptyState, Field, Panel, StatusChip } from "./shared";
 import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type TeamData = AwaitedReturn<typeof loadTeamData>;
 type Props = Omit<TeamData, "financialAccounts" | "barberAccountPermissions" | "managerUserId" | "environments" | "projectsModuleEnabled"> & Partial<Pick<TeamData, "financialAccounts" | "barberAccountPermissions" | "projectsModuleEnabled">> & { managerUserId?: string; environments?: TeamData["environments"]; productKey?: ProductKey };
@@ -124,7 +125,7 @@ export function TeamManager(props: Props) {
     try {
       preparedPhoto = photo ? await profileImage320(photo) : null;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível preparar esta foto.");
+      showManagerError(error instanceof Error ? error.message : "Não foi possível preparar esta foto.");
       return;
     }
     const payload = {

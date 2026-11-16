@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { ManagerErrorDialog } from "@/components/manager-error-dialog";
 import { publicSite } from "@/lib/public-site";
 
 export const metadata: Metadata = {
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="pt-BR" data-scroll-behavior="smooth">
       <body>
         {children}
+        <ManagerErrorDialog />
         <ServiceWorkerRegister />
       </body>
     </html>

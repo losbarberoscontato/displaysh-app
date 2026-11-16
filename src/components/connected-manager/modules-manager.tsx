@@ -9,6 +9,7 @@ import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import { formatCents } from "./format";
 import { useState } from "react";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type ModuleData = AwaitedReturn<typeof loadModulesData>;
 type Props = Omit<ModuleData, "productKey" | "kanbanPrices" | "kanbanBilling" | "nextChargeAt" | "timezone"> & {
@@ -77,7 +78,7 @@ export function ModulesManager(props: Props) {
   async function enableModule() {
     if (!activationModuleKey) return;
     if (!activationAccepted) {
-      setMessage("Leia e aceite o aditivo para ativar o módulo.");
+      showManagerError("Leia e aceite o aditivo para ativar o módulo.");
       return;
     }
     const saved = await runMutation(setMessage, async () => {

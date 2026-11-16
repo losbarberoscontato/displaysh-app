@@ -15,6 +15,7 @@ import { formatCpfCnpj } from "@/lib/cpf-cnpj";
 import type { ProductKey } from "@/lib/product-routes";
 import { getProductVocabulary } from "@/lib/product-vocabulary";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type Props = ProjectsPageData;
 type ManagerProps = Omit<Props, "appointmentAuxiliaryModuleEnabled" | "projectBarbers" | "packageServiceAssignments" | "barberServices" | "kanbanSectors" | "engagementLastComments" | "financialAccounts" | "chartAccounts" | "costCenters" | "tags" | "projectSessions" | "projectCommissions" | "projectEngagementLinks" | "environments" | "internalServices" | "internalCards" | "cancellationRequests"> & { appointmentAuxiliaryModuleEnabled?: boolean; projectBarbers?: Props["projectBarbers"]; packageServiceAssignments?: Props["packageServiceAssignments"]; barberServices?: Props["barberServices"]; kanbanSectors?: Props["kanbanSectors"]; engagementLastComments?: Props["engagementLastComments"]; projectSessions?: Props["projectSessions"]; projectCommissions?: Props["projectCommissions"]; projectEngagementLinks?: Props["projectEngagementLinks"]; environments?: Props["environments"]; internalServices?: Props["internalServices"]; internalCards?: Props["internalCards"]; cancellationRequests?: Props["cancellationRequests"]; projectId?: string; productKey?: ProductKey; financialAccounts?: FinancialAccountRecord[]; chartAccounts?: ChartAccountRecord[]; costCenters?: CostCenterRecord[]; tags?: FinancialTagRecord[] };
@@ -595,7 +596,7 @@ export function ProjectsManager(props: ManagerProps) {
       setBookingEnvironments(environments);
       setBookingEnvironmentId(environments[0]?.id ?? "");
     } catch (error) {
-      setMessage(humanizeError(error));
+      showManagerError(humanizeError(error));
     } finally {
       setBookingAvailabilityLoading(false);
     }
@@ -733,7 +734,7 @@ export function ProjectsManager(props: ManagerProps) {
     const draft = projectCancellationDraft;
     if (!draft || saving) return;
     if (!draft.requestId && (!draft.reason || (draft.reason === "OTHER" && !draft.observations.trim()))) {
-      setMessage("Informe o motivo. Para “Outros”, preencha as observações.");
+      showManagerError("Informe o motivo. Para “Outros”, preencha as observações.");
       return;
     }
     setSaving(true);
@@ -785,11 +786,11 @@ export function ProjectsManager(props: ManagerProps) {
     if (!selectedProject || packageSavingId) return null;
     const pricing = packagePricing(draft, projectAllocationCents);
     if (!draft.name.trim()) {
-      setMessage("Informe o nome do pacote.");
+      showManagerError("Informe o nome do pacote.");
       return null;
     }
     if (!pricing.denominatorValid) {
-      setMessage("A soma de margem, taxa e imposto precisa ser menor que 100%.");
+      showManagerError("A soma de margem, taxa e imposto precisa ser menor que 100%.");
       return null;
     }
     setPackageSavingId(draft.id ?? "new");
@@ -893,7 +894,7 @@ export function ProjectsManager(props: ManagerProps) {
       await assertResult(result);
       setEventComments((result.data ?? []) as ProjectEventComment[]);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Comentários não puderam ser carregados.");
+      showManagerError(error instanceof Error ? error.message : "Comentários não puderam ser carregados.");
     } finally {
       setEventCommentsLoading(false);
     }
@@ -1266,23 +1267,23 @@ function ProjectPackages({ packages, barbers, barberServices, services, fixedCos
   async function saveServiceInput(index: number, key: string, draft: PackageDraft) {
     const input = serviceInputs[key];
     if (!input?.serviceId || !input.barberId || !input.commission.trim()) {
-      setMessage("Selecione o serviço e o profissional e informe a comissão.");
+      showManagerError("Selecione o serviço e o profissional e informe a comissão.");
       return;
     }
     let commissionCents: number;
     try {
       commissionCents = centsFromInput(input.commission);
     } catch {
-      setMessage("Informe um valor válido para a comissão.");
+      showManagerError("Informe um valor válido para a comissão.");
       return;
     }
     const eligible = barberServices.some((link) => link.service_id === input.serviceId && link.barber_id === input.barberId);
     if (!eligible) {
-      setMessage("O profissional selecionado não está habilitado para este serviço.");
+      showManagerError("O profissional selecionado não está habilitado para este serviço.");
       return;
     }
     if (draft.serviceAssignments.some((assignment) => assignment.service_id === input.serviceId && assignment.barber_id === input.barberId)) {
-      setMessage("Este profissional já foi vinculado a este serviço no pacote.");
+      showManagerError("Este profissional já foi vinculado a este serviço no pacote.");
       return;
     }
     const serviceAssignment = { service_id: input.serviceId, barber_id: input.barberId, commission_cents: commissionCents };
@@ -1469,8 +1470,8 @@ function ProjectInternalServiceCard({ organizationId, projectId, engagementId, i
   async function saveInternalService() {
     if (!assignmentId || busy) return;
     let amountCents: number;
-    try { amountCents = centsFromInput(commission); } catch { setMessage("Informe uma comissão válida em reais."); return; }
-    if (amountCents < 0) { setMessage("A comissão não pode ser negativa."); return; }
+    try { amountCents = centsFromInput(commission); } catch { showManagerError("Informe uma comissão válida em reais."); return; }
+    if (amountCents < 0) { showManagerError("A comissão não pode ser negativa."); return; }
     setBusy(true); setMessage("");
     const result = await runMutation(setMessage, async () => {
       const response = record?.id
@@ -1689,7 +1690,7 @@ function GeneralProjectKanban({ organizationId, sectors: initialSectors, boards,
     if (boardById.get(engagement.kanban_board_id)?.sector_id === destinationSectorId) return;
     const destinationBoards = boards.filter((board) => board.project_id === engagement.project_id && board.sector_id === destinationSectorId && board.active).sort((a, b) => a.position - b.position);
     if (!destinationBoards.length) {
-      setMessage("Este setor não possui quadro deste projeto para receber o evento.");
+      showManagerError("Este setor não possui quadro deste projeto para receber o evento.");
       return;
     }
     setPendingMove({ engagementId, destinationSectorId, destinationBoardId: "", boards: destinationBoards });

@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { humanizeError } from "./format";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 export function connectedClient(): SupabaseClient {
   const client = getSupabaseBrowserClient();
@@ -25,7 +26,8 @@ export async function runMutation(
     setMessage(success);
     return true;
   } catch (error) {
-    setMessage(humanizeError(error));
+    setMessage("");
+    showManagerError(humanizeError(error));
     return false;
   }
 }

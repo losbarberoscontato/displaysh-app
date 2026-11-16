@@ -14,6 +14,7 @@ import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import styles from "./connected-manager.module.css";
 import { CATALOG_AUDIENCES, audienceLabel, type CatalogAudience, hasAudience } from "@/lib/catalog-audiences";
 import type { ProductKey } from "@/lib/product-context";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type CatalogAudienceRecord = AwaitedReturn<typeof loadCatalogData>["organizationAudiences"][number];
 type Props = Omit<AwaitedReturn<typeof loadCatalogData>, "organizationAudiences"> & {
@@ -146,7 +147,7 @@ export function CatalogManager(props: Props) {
     const isInternal = serviceAvailability === "INTERNAL";
     const normalizedOffers: ServiceOfferRecord[] = [];
     if (serviceHasOffers) {
-      if (serviceOffers.length < 2) { setMessage("Adicione pelo menos duas ofertas para ativar esta opção."); return; }
+      if (serviceOffers.length < 2) { showManagerError("Adicione pelo menos duas ofertas para ativar esta opção."); return; }
       try {
         for (const [index, offer] of serviceOffers.entries()) {
           const name = offer.name.trim();
@@ -155,15 +156,15 @@ export function CatalogManager(props: Props) {
           if (!Number.isInteger(duration) || duration < 5 || duration > 720) throw new Error("Informe uma duração entre 5 e 720 minutos para cada oferta.");
           normalizedOffers.push({ id: `offer-${index + 1}`, name, price_cents: centsFromInput(offer.price), duration_minutes: duration, description: offer.description.trim() || null });
         }
-      } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Confira os dados das ofertas."); return; }
+      } catch (cause) { showManagerError(cause instanceof Error ? cause.message : "Confira os dados das ofertas."); return; }
     }
     let priceCents: number;
     try { priceCents = serviceHasOffers ? normalizedOffers[0].price_cents : centsFromInput(servicePrice); }
-    catch { setMessage("Informe um preço válido."); return; }
+    catch { showManagerError("Informe um preço válido."); return; }
     const durationMinutes = serviceHasOffers ? normalizedOffers[0].duration_minutes : Number(serviceDuration);
     const description = serviceHasOffers ? normalizedOffers[0].description : serviceDescription.trim() || null;
     const payload = { organization_id: organizationId, name: String(data.get("name") ?? "").trim(), description, price_cents: priceCents, duration_minutes: durationMinutes, offers: serviceHasOffers ? normalizedOffers : [], audiences: isInternal ? [] : audiencesFromForm(data), accepts_subscription: isInternal ? false : data.get("accepts_subscription") === "on", accepts_online_payment: isInternal ? false : data.get("accepts_online_payment") === "on", availability: serviceAvailability };
-    if (!hasAudience(payload.audiences) && !isInternal) { setMessage("Selecione pelo menos um público."); return; }
+    if (!hasAudience(payload.audiences) && !isInternal) { showManagerError("Selecione pelo menos um público."); return; }
     const saved = await runMutation(setMessage, async () => {
       const client = connectedClient();
       await assertResult(editing ? await client.from("services").update(payload).eq("id", editing.id).eq("organization_id", organizationId) : await client.from("services").insert(payload));
@@ -173,15 +174,15 @@ export function CatalogManager(props: Props) {
 
   async function savePackage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedServices.length) { setMessage(serviceCopy("Selecione pelo menos um serviço para o pacote.", isMusicPro)); return; }
-    if (packageAcceptsSubscription && !subscriptionEligible) { setMessage(serviceCopy("Ative Aceita assinatura em todos os serviços do pacote antes de ativá-la no pacote.", isMusicPro)); return; }
-    if (packageAcceptsOnlinePayment && !onlinePaymentEligible) { setMessage(serviceCopy("Ative Aceita pagamento online em todos os serviços do pacote antes de ativá-la no pacote.", isMusicPro)); return; }
+    if (!selectedServices.length) { showManagerError(serviceCopy("Selecione pelo menos um serviço para o pacote.", isMusicPro)); return; }
+    if (packageAcceptsSubscription && !subscriptionEligible) { showManagerError(serviceCopy("Ative Aceita assinatura em todos os serviços do pacote antes de ativá-la no pacote.", isMusicPro)); return; }
+    if (packageAcceptsOnlinePayment && !onlinePaymentEligible) { showManagerError(serviceCopy("Ative Aceita pagamento online em todos os serviços do pacote antes de ativá-la no pacote.", isMusicPro)); return; }
     const data = new FormData(event.currentTarget);
     const editing = packageForm === "new" ? null : packageForm;
     const audiences = audiencesFromForm(data);
-    if (!hasAudience(audiences)) { setMessage("Selecione pelo menos um público."); return; }
+    if (!hasAudience(audiences)) { showManagerError("Selecione pelo menos um público."); return; }
     const durationMinutes = Number(packageDuration);
-    if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 14400) { setMessage("Informe uma duração entre 5 e 14.400 minutos."); return; }
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 14400) { showManagerError("Informe uma duração entre 5 e 14.400 minutos."); return; }
     const saved = await runMutation(setMessage, async () => {
       await assertResult(await connectedClient().rpc("save_package_with_items_v3", { p_organization_id: organizationId, p_package_id: editing?.id ?? null, p_name: String(data.get("name") ?? "").trim(), p_description: String(data.get("description") ?? "").trim(), p_price_cents: centsFromInput(packagePrice), p_duration_minutes: durationMinutes, p_active: editing?.active ?? true, p_sort_order: editing?.sort_order ?? 0, p_audiences: audiences, p_items: selectedServices.map((serviceId) => ({ service_id: serviceId, quantity: 1 })), p_accepts_subscription: packageAcceptsSubscription, p_accepts_online_payment: packageAcceptsOnlinePayment }));
     }, editing ? "Pacote atualizado." : "Pacote criado.");

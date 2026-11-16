@@ -11,6 +11,7 @@ import { ActionMessage, Field, Panel, StatusChip } from "./shared";
 import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import { centsFromInput, formatCents } from "./format";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type Props = AwaitedReturn<typeof loadSubscriptionPlansData>;
 type Plan = Props["plans"][number];
@@ -50,7 +51,7 @@ export function SubscriptionPlansManager(props: Props) {
       const version = props.versions.find((item) => item.plan_id === planId);
       if (!version) {
         setEditingPlanId(null);
-        setMessage("Não foi possível carregar a versão atual deste plano.");
+        showManagerError("Não foi possível carregar a versão atual deste plano.");
         return;
       }
 
@@ -73,7 +74,7 @@ export function SubscriptionPlansManager(props: Props) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     if (!selected.length) {
-      setMessage("Selecione ao menos um serviço.");
+      showManagerError("Selecione ao menos um serviço.");
       return;
     }
 

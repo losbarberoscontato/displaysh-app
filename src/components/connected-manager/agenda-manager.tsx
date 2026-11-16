@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { Avatar, PageHeader } from "@/components/ui";
+import { showManagerError } from "@/components/manager-error-dialog";
 import type { loadAgendaData } from "./server";
 import type { AwaitedReturn } from "./utility-types";
 import type { AppointmentRecord, AppointmentAuxiliaryRecord, AppointmentAuxiliaryCommissionRuleRecord, AppointmentItemRecord } from "./types";
@@ -252,13 +253,19 @@ export function AgendaManager(props: Props) {
         });
         if (!current) return;
         if (error) {
-          setManagerAvailability({ key: availabilityRequestKey, slots: [], error: humanizeError(new Error(error.message)) });
+          const message = humanizeError(new Error(error.message));
+          setManagerAvailability({ key: availabilityRequestKey, slots: [], error: message });
+          showManagerError(message);
           return;
         }
         const result = data as { slots?: ManagerAppointmentEnvironmentSlot[] } | null;
         setManagerAvailability({ key: availabilityRequestKey, slots: result?.slots ?? [], error: null });
       } catch (error) {
-        if (current) setManagerAvailability({ key: availabilityRequestKey, slots: [], error: humanizeError(error) });
+        if (current) {
+          const message = humanizeError(error);
+          setManagerAvailability({ key: availabilityRequestKey, slots: [], error: message });
+          showManagerError(message);
+        }
       }
     }
     void loadManagerAvailability();
@@ -780,7 +787,6 @@ export function AgendaManager(props: Props) {
           <label>Horário<span className="select-input"><select name="time" required value={newAppointmentSlotStart} disabled={!newAppointmentEnvironmentId || managerAvailabilityLoading || availableAppointmentTimes.length === 0} onChange={(event) => setNewAppointmentSlotStart(event.target.value)}><option value="">{managerAvailabilityLoading ? "Consultando horários…" : newAppointmentEnvironmentId ? "Selecione um horário disponível" : "Selecione primeiro a sala"}</option>{availableAppointmentTimes.map((slot) => <option key={`${slot.starts_at}:${slot.environment_id}`} value={slot.starts_at}>{formatSlotTime(slot.starts_at, timezone)}</option>)}</select><ChevronDown size={15} /></span></label>
         </div>
         {managerAvailabilityLoading && <small>Consultando salas e horários disponíveis para este profissional…</small>}
-        {currentManagerAvailability?.error && <small role="alert">{currentManagerAvailability.error}</small>}
         {currentManagerAvailability && !currentManagerAvailability.error && managerAvailabilitySlots.length === 0 && <small>Nenhuma sala ou horário disponível para este profissional nesta data.</small>}
         <label>Observação <small>opcional</small><textarea name="notes" placeholder="Preferências e observações..." rows={3} /></label>
         <label>Motivo fora da escala <small>somente quando necessário</small><span className="input-shell"><input name="override_reason" placeholder="Explique por que este horário será liberado" /></span></label>

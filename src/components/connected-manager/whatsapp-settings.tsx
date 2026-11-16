@@ -8,6 +8,7 @@ import { normalizePhoneE164 } from "@/lib/phone";
 import { ActionMessage, Field, Panel, StatusChip } from "./shared";
 import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import { humanizeError } from "./format";
+import { showManagerError } from "@/components/manager-error-dialog";
 import styles from "./connected-manager.module.css";
 import type { ProductKey } from "@/lib/product-context";
 import { getWhatsAppProductCopy, localizeWhatsAppCopy, resolveWhatsAppProductTemplates, type WhatsAppFixedMessageKey } from "./whatsapp-product-copy";
@@ -280,7 +281,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
   const managerNotification = status.managerNotification ?? { phoneE164: null, matchesQrPhone: false };
   const [managerNotificationPhone, setManagerNotificationPhone] = useState(managerNotification.phoneE164 ?? "");
   const [managerNotificationMatchesQr, setManagerNotificationMatchesQr] = useState(managerNotification.matchesQrPhone);
-  const [managerNotificationFeedback, setManagerNotificationFeedback] = useState<{ tone: "error" | "success"; message: string } | null>(
+  const [managerNotificationFeedback, setManagerNotificationFeedback] = useState<{ tone: "success"; message: string } | null>(
     managerNotification.phoneE164 ? { tone: "success", message: `Número salvo: ${managerNotification.phoneE164}` } : null,
   );
   const [savingManagerNotification, setSavingManagerNotification] = useState(false);
@@ -330,7 +331,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
         router.refresh();
       }
     } catch (error) {
-      setMessage("Falha ao comunicar com o gateway Evolution. Confirme a VPS; remova a sessão no celular e gere novo QR. " + (error instanceof Error ? error.message : "Tente novamente."));
+      showManagerError("Falha ao comunicar com o gateway Evolution. Confirme a VPS; remova a sessão no celular e gere novo QR. " + (error instanceof Error ? error.message : "Tente novamente."));
     } finally {
       setBusyProvider(null);
     }
@@ -376,7 +377,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
       });
     } catch (error) {
       setAutomationRules((current) => ({ ...current, ...savedReminderSelection.current }));
-      setMessage(humanizeError(error));
+      showManagerError(humanizeError(error));
     } finally {
       setPreviewingReminderChange(false);
     }
@@ -482,7 +483,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
     event.preventDefault();
     const normalizedPhone = managerNotificationPhone.trim() ? normalizePhoneE164(managerNotificationPhone) : null;
     if (!normalizedPhone) {
-      setManagerNotificationFeedback({ tone: "error", message: "Informe um WhatsApp válido para receber avisos do gestor." });
+      showManagerError("Informe um WhatsApp válido para receber avisos do gestor.");
       return;
     }
     setSavingManagerNotification(true);
@@ -500,7 +501,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
       setManagerNotificationFeedback({ tone: "success", message: `Número salvo: ${value.phone_e164}` });
       router.refresh();
     } catch (error) {
-      setManagerNotificationFeedback({ tone: "error", message: `Não foi possível salvar o número. ${humanizeError(error)}` });
+      showManagerError(`Não foi possível salvar o número. ${humanizeError(error)}`);
     } finally {
       setSavingManagerNotification(false);
     }
@@ -523,7 +524,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
           ? "QR lido. A Evolution está confirmando a conexão automaticamente."
           : `Evolution informou estado: ${state ?? "desconhecido"}.`);
     } catch {
-      if (!automatic) setMessage("Não foi possível consultar a Evolution agora. Verifique a VPS e tente novamente.");
+      if (!automatic) showManagerError("Não foi possível consultar a Evolution agora. Verifique a VPS e tente novamente.");
     } finally {
       refreshInFlight.current = false;
       setCheckingStatus(false);
@@ -684,7 +685,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
           />
         </Field>
         <small className={styles.muted}>Usado somente quando o cliente escolher 3 — Falar com atendente ou após três respostas inválidas.</small>
-        {managerNotificationFeedback && <p className={`${styles.message} ${managerNotificationFeedback.tone === "error" ? styles.error : ""}`} role="status">{managerNotificationFeedback.message}</p>}
+        {managerNotificationFeedback && <p className={styles.message} role="status">{managerNotificationFeedback.message}</p>}
         {managerNotificationMatchesQr && <p className={`${styles.message} ${styles.warning}`}>Número igual ao da API, poderá ter problemas de envio/recebimento de mensagens no futuro.</p>}
         <div className={styles.rowActions}><button className={styles.button} type="submit" disabled={!schemaReady || savingManagerNotification}>{savingManagerNotification ? "Salvando…" : "Salvar número de avisos"}</button></div>
       </form>

@@ -29,6 +29,7 @@ import { systemLoginHref } from "@/lib/system-auth";
 import type { ProductKey } from "@/lib/product-context";
 import { productBillingPath } from "@/lib/product-routes";
 import { getProductVocabulary } from "@/lib/product-vocabulary";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 const navigation = [
   { href: "/gestor", label: "Visão geral", icon: LayoutDashboard, exact: true },
@@ -150,12 +151,10 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState("");
   const [organizationNotice, setOrganizationNotice] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<ManagerNotification[]>([]);
   const [notificationsOrganizationId, setNotificationsOrganizationId] = useState<string | null>(null);
-  const [notificationError, setNotificationError] = useState("");
   const [archivingNotifications, setArchivingNotifications] = useState(false);
   const archivedNotificationIds = useRef(new Set<string>());
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
@@ -201,9 +200,8 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
 
   async function openNotification(notification: ManagerNotification) {
     const supabase = getSupabaseBrowserClient();
-    setNotificationError("");
     if (!supabase || !organizationId) {
-      setNotificationError("Não foi possível arquivar esta notificação. Tente novamente.");
+      showManagerError("Não foi possível arquivar esta notificação. Tente novamente.");
       return;
     }
     if (!notification.read_at) {
@@ -214,7 +212,7 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
         .eq("organization_id", organizationId)
         .is("read_at", null);
       if (error) {
-        setNotificationError("Não foi possível arquivar esta notificação. Tente novamente.");
+        showManagerError("Não foi possível arquivar esta notificação. Tente novamente.");
         return;
       }
     }
@@ -227,10 +225,9 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
   async function archiveAllNotifications() {
     const supabase = getSupabaseBrowserClient();
     if (!supabase || !organizationId || archivingNotifications) {
-      if (!supabase || !organizationId) setNotificationError("Não foi possível arquivar as notificações. Tente novamente.");
+      if (!supabase || !organizationId) showManagerError("Não foi possível arquivar as notificações. Tente novamente.");
       return;
     }
-    setNotificationError("");
     setArchivingNotifications(true);
     const { error } = await supabase
       .from("manager_notifications")
@@ -239,7 +236,7 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
       .is("read_at", null);
     setArchivingNotifications(false);
     if (error) {
-      setNotificationError("Não foi possível arquivar as notificações. Tente novamente.");
+      showManagerError("Não foi possível arquivar as notificações. Tente novamente.");
       return;
     }
     for (const notification of visibleNotifications) archivedNotificationIds.current.add(notification.id);
@@ -249,7 +246,6 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
   async function handleSignOut() {
     if (signingOut) return;
     setSigningOut(true);
-    setSignOutError("");
 
     try {
       if (!demoMode) {
@@ -260,7 +256,7 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
       }
       router.replace(systemLoginHref("signin", "/gestor", productKey));
     } catch {
-      setSignOutError("Não foi possível sair. Tente novamente.");
+      showManagerError("Não foi possível sair. Tente novamente.");
       setSigningOut(false);
     }
   }
@@ -289,7 +285,6 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
       >
         <LogOut size={17} aria-hidden="true" />
       </button>
-      {signOutError && <p className="manager-profile__error" role="alert">{signOutError}</p>}
     </div>
   );
 
@@ -353,8 +348,7 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
               {visibleNotifications.length > 0 && <button type="button" className="manager-notifications-popover__archive-all" onClick={() => void archiveAllNotifications()} disabled={archivingNotifications}>
                 {archivingNotifications ? "Arquivando..." : "Marcar todos como visto"}
               </button>}
-              {notificationError && <p className="manager-notifications-popover__empty" role="alert">{notificationError}</p>}
-              {!notificationError && (visibleNotifications.length === 0 ? <p className="manager-notifications-popover__empty">Nenhuma notificação pendente.</p> : <div className="manager-notifications-popover__list">{visibleNotifications.map((notification) => <button type="button" key={notification.id} className="manager-notification" onClick={() => void openNotification(notification)}><strong>{notification.title}</strong><span>{notification.body}</span><small>{new Date(notification.created_at).toLocaleString("pt-BR")}</small></button>)}</div>)}
+              {visibleNotifications.length === 0 ? <p className="manager-notifications-popover__empty">Nenhuma notificação pendente.</p> : <div className="manager-notifications-popover__list">{visibleNotifications.map((notification) => <button type="button" key={notification.id} className="manager-notification" onClick={() => void openNotification(notification)}><strong>{notification.title}</strong><span>{notification.body}</span><small>{new Date(notification.created_at).toLocaleString("pt-BR")}</small></button>)}</div>}
             </div>}
             <Avatar initials="GC" tone="amber" size="sm" />
           </div>

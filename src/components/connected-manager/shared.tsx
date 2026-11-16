@@ -2,18 +2,22 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 export const ACTION_MESSAGE_TIMEOUT_MS = 5000;
 
 export function ActionMessage({ message, tone = "info" }: { message: string; tone?: "info" | "warning" | "error" }) {
   const [dismissedMessage, setDismissedMessage] = useState("");
   useEffect(() => {
-    if (!message) return;
+    if (tone === "error" && message) showManagerError(message);
+  }, [message, tone]);
+  useEffect(() => {
+    if (!message || tone === "error") return;
     const timeoutId = window.setTimeout(() => setDismissedMessage(message), ACTION_MESSAGE_TIMEOUT_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [message]);
+  }, [message, tone]);
   if (!message || dismissedMessage === message) return null;
-  const toneClass = tone === "error" ? styles.error : tone === "warning" ? styles.warning : "";
+  const toneClass = tone === "warning" ? styles.warning : "";
   return <p className={`${styles.message} ${toneClass}`} role="status">{message}</p>;
 }
 

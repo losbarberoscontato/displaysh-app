@@ -7,6 +7,7 @@ import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import { EmptyState, Field, StatusChip } from "./shared";
 import type { BarberCashReceiptRecord, FinancialAccountRecord } from "./types";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 export type BarberCashSession = {
   id: string;
@@ -73,11 +74,11 @@ export function BarberCashSessionReconciliation({ sessions, receipts = [], finan
     try {
       selectedRows.forEach((row) => { centsFromInput(reconciledByAccount[row.financial_account_id] ?? "0"); });
     } catch {
-      setMessage("Informe valores apurados válidos para todas as contas.");
+      showManagerError("Informe valores apurados válidos para todas as contas.");
       return;
     }
     if (difference !== 0 && !reason) {
-      setMessage("Informe o motivo obrigatório para fechar um caixa com diferença.");
+      showManagerError("Informe o motivo obrigatório para fechar um caixa com diferença.");
       return;
     }
     const accountBreakdown: AccountBreakdown[] = selectedRows.map((row) => ({

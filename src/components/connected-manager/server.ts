@@ -100,6 +100,10 @@ export async function loadCustomersData() {
     subscriptionPlans,
     subscriptionPlanServices,
     barberServices,
+    barberSubscriptionPlans,
+    subscriptionServiceDurations,
+    workIntervals,
+    agendaEnvironments,
     chartAccounts,
     financialAccounts,
     subscriptionModule,
@@ -168,7 +172,7 @@ export async function loadCustomersData() {
     supabase
       .from("customer_subscriptions")
       .select(
-        "id,customer_id,status,contract_number,contract_accepted_at,start_date,end_date,payment_method,first_due_date,fixed_schedule_cadence_weeks,fixed_schedule_start_date,fixed_schedule_local_time,fixed_schedule_barber_id,fixed_schedule_created_at,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(id,price_cents,billing_period,sessions_per_cycle,scheduling_mode)",
+        "id,customer_id,plan_id,status,contract_number,contract_accepted_at,start_date,end_date,payment_method,first_due_date,fixed_schedule_cadence_weeks,fixed_schedule_start_date,fixed_schedule_local_time,fixed_schedule_barber_id,fixed_schedule_environment_id,fixed_schedule_created_at,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(id,price_cents,billing_period,sessions_per_cycle,scheduling_mode)",
       )
       .eq("organization_id", organizationId)
       .in("status", ["REQUESTED", "PENDING_PAYMENT", "ACTIVE", "CANCELED", "EXPIRED", "DECLINED"])
@@ -207,7 +211,7 @@ export async function loadCustomersData() {
       .order("name"),
     supabase
       .from("subscription_plan_services")
-      .select("plan_version_id,service_id,service_name_snapshot,position")
+      .select("plan_version_id,service_id,service_name_snapshot,duration_minutes_snapshot,position")
       .eq("organization_id", organizationId)
       .order("position"),
     supabase
@@ -215,6 +219,30 @@ export async function loadCustomersData() {
       .select("barber_id,service_id,active")
       .eq("organization_id", organizationId)
       .eq("active", true),
+    supabase
+      .from("barber_subscription_plans")
+      .select("barber_id,plan_id,active")
+      .eq("organization_id", organizationId)
+      .eq("active", true),
+    supabase
+      .from("services")
+      .select("id,duration_minutes,active")
+      .eq("organization_id", organizationId)
+      .eq("active", true),
+    supabase
+      .from("work_intervals")
+      .select("id,organization_id,barber_id,weekday,starts_at,ends_at,active,environment_id")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .order("weekday")
+      .order("starts_at"),
+    supabase
+      .from("agenda_environments")
+      .select("id,organization_id,location_id,name,sort_order,active")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .order("sort_order")
+      .order("name"),
     supabase
       .from("chart_of_accounts")
       .select("id,name,kind,active")
@@ -236,7 +264,7 @@ export async function loadCustomersData() {
       .maybeSingle(),
     supabase
       .from("organizations")
-      .select("timezone")
+      .select("timezone,slot_interval_minutes")
       .eq("id", organizationId)
       .single(),
   ]);
@@ -253,6 +281,7 @@ export async function loadCustomersData() {
   return {
     organizationId,
     timezone: organizationTimezone.data?.timezone ?? DEFAULT_FINANCIAL_TIMEZONE,
+    slotIntervalMinutes: Number(organizationTimezone.data?.slot_interval_minutes ?? 15),
     billingStatus: context.billingStatus,
     subscriptionModuleEnabled: subscriptionModule.error ? false : Boolean(subscriptionModule.data?.enabled),
     customers: customerRows.map((customer) => ({
@@ -308,6 +337,18 @@ export async function loadCustomersData() {
       : (requireData(barberServices, "Serviços por profissional") as Array<
           Record<string, unknown>
         >),
+    barberSubscriptionPlans: barberSubscriptionPlans.error
+      ? []
+      : (requireData(barberSubscriptionPlans, "Planos por profissional") as Array<Record<string, unknown>>),
+    subscriptionServiceDurations: subscriptionServiceDurations.error
+      ? []
+      : (requireData(subscriptionServiceDurations, "Duração dos serviços") as Array<{ id: string; duration_minutes: number; active: boolean }>),
+    workIntervals: workIntervals.error
+      ? []
+      : (requireData(workIntervals, "Escalas dos profissionais") as WorkIntervalRecord[]),
+    agendaEnvironments: agendaEnvironments.error
+      ? []
+      : (requireData(agendaEnvironments, "Salas e ambientes") as AgendaEnvironmentRecord[]),
     chartAccounts: chartAccounts.error
       ? []
       : (requireData(chartAccounts, "Plano de contas") as Array<

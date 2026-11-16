@@ -17,6 +17,7 @@ import { productBillingPath, type ProductKey } from "@/lib/product-routes";
 import { getProductVocabulary } from "@/lib/product-vocabulary";
 import { DateBlocksEditor } from "./date-blocks-editor";
 import styles from "./connected-manager.module.css";
+import { showManagerError } from "@/components/manager-error-dialog";
 
 type SettingsData = AwaitedReturn<typeof loadSettingsData>;
 type Props = Omit<SettingsData, "environments" | "environmentIssues" | "professionalFunctions" | "professionalFunctionsAvailable" | "dateBlocks" | "organizationAudiences" | "googleCalendar"> & {
@@ -66,7 +67,7 @@ export function SettingsManager(props: Props) {
       await navigator.clipboard.writeText(value);
       setMessage("Link copiado.");
     } catch {
-      setMessage("Não foi possível copiar automaticamente. Selecione e copie o link manualmente.");
+      showManagerError("Não foi possível copiar automaticamente. Selecione e copie o link manualmente.");
     }
   }
 
@@ -76,7 +77,7 @@ export function SettingsManager(props: Props) {
     const rawWhatsApp = String(data.get("public_contact_phone_e164") ?? "").trim();
     const publicContactPhone = rawWhatsApp ? normalizePhoneE164(rawWhatsApp) : null;
     if (rawWhatsApp && !publicContactPhone) {
-      setMessage("Informe um WhatsApp válido.");
+      showManagerError("Informe um WhatsApp válido.");
       return;
     }
     const saved = await runMutation(setMessage, async () => {
@@ -98,12 +99,12 @@ export function SettingsManager(props: Props) {
   async function uploadLogo(file: File | undefined) {
     if (!file) return;
     if (!/^image\/(png|jpeg|webp)$/u.test(file.type) || file.size > 2 * 1024 * 1024) {
-      setMessage("Logo deve ser PNG, JPEG ou WebP de até 2 MB.");
+      showManagerError("Logo deve ser PNG, JPEG ou WebP de até 2 MB.");
       return;
     }
     const path = `${props.organizationId}/logo-${crypto.randomUUID()}`;
     const { error } = await connectedClient().storage.from("organization-logos").upload(path, file, { upsert: true, contentType: file.type, cacheControl: "3600" });
-    if (error) { setMessage(error.message); return; }
+    if (error) { showManagerError(humanizeError(error)); return; }
     const saved = await runMutation(setMessage, async () => {
       await assertResult(await connectedClient().from("organizations").update({ logo_path: path }).eq("id", props.organizationId));
     }, "Logo atualizada.");
@@ -178,8 +179,8 @@ export function SettingsManager(props: Props) {
 
   async function addEnvironment() {
     const name = environmentName.trim();
-    if (!activeLocationId) { setMessage("Cadastre uma unidade ativa antes dos ambientes."); return; }
-    if (!name) { setMessage("Informe o nome do ambiente."); return; }
+    if (!activeLocationId) { showManagerError("Cadastre uma unidade ativa antes dos ambientes."); return; }
+    if (!name) { showManagerError("Informe o nome do ambiente."); return; }
     const saved = await runMutation(setMessage, async () => {
       await assertResult(await connectedClient().from("agenda_environments").insert({
         organization_id: props.organizationId,
@@ -235,7 +236,7 @@ export function SettingsManager(props: Props) {
       window.location.assign(authorizationUrl);
     } catch (error) {
       setConnecting(false);
-      setMessage(humanizeError(error));
+      showManagerError(humanizeError(error));
     }
   }
 
@@ -251,7 +252,7 @@ export function SettingsManager(props: Props) {
       window.location.assign(authorizationUrl);
     } catch (error) {
       setConnecting(false);
-      setMessage(humanizeError(error));
+      showManagerError(humanizeError(error));
     }
   }
 
@@ -275,7 +276,7 @@ export function SettingsManager(props: Props) {
       URL.revokeObjectURL(url);
       setMessage("Exportação JSON concluída.");
     } catch (error) {
-      setMessage(humanizeError(error));
+      showManagerError(humanizeError(error));
     } finally {
       setExporting(false);
     }
