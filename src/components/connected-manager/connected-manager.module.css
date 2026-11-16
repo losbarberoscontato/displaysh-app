@@ -185,6 +185,8 @@
 .subscriptionPlanContractEditor { grid-column: 1 / -1; }
 .catalogServiceRow { grid-template-columns: minmax(150px, 1.4fr) repeat(3, minmax(90px, 1fr)) auto; }
 .row:hover { background: #fafbf9; }
+.rowOverdue { border-color: #e7aaa4; background: #fff4f2; color: #8f2e28; }
+.rowOverdue:hover { background: #ffefed; }
 .subscriptionSummaryRow { grid-template-columns: minmax(180px, 1.35fr) minmax(130px, .75fr) minmax(220px, 1.25fr) auto auto; }
 .subscriptionLink { width: fit-content; padding: 0; border: 0; background: transparent; color: #1f5b4b; font: inherit; font-weight: 850; text-align: left; text-decoration: underline; text-decoration-color: #9bc5b4; text-underline-offset: .2em; cursor: pointer; }
 .subscriptionLink:hover { color: #123f35; text-decoration-color: #315f51; }
@@ -220,12 +222,17 @@
 .subscriptionDotCompleted { background: #2f7a4e; }
 .subscriptionDotCanceled { background: #a13f31; }
 .subscriptionMonth { display: grid; gap: .8rem; padding: 1rem; border: 1px solid #e3e9e1; border-radius: 16px; background: #fff; }
+.subscriptionMonthOverdue { border-color: #e7aaa4; background: #fff4f2; }
+.subscriptionMonthOverdue .subscriptionMonthTitle small,
+.subscriptionMonthOverdue .subscriptionInstallment small { color: #a33a32; }
+.subscriptionMonthOverdue .subscriptionInstallment strong { color: #a32620; }
 .subscriptionMonthTitle { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .subscriptionMonthTitle strong { color: #24342d; text-transform: capitalize; }
 .subscriptionMonthTitle small { color: #778078; font-size: .76rem; text-align: right; }
 .subscriptionSessionList { display: flex; flex-wrap: wrap; gap: .5rem; }
 .subscriptionSessionChip { display: inline-flex; align-items: center; min-height: 2rem; padding: .45rem .65rem; border: 1px solid transparent; border-radius: 9px; font-size: .78rem; font-weight: 800; }
 .subscriptionSessionList button { font: inherit; cursor: pointer; }
+.subscriptionSessionChipAction:hover, .subscriptionSessionChipAction:focus-visible { outline: 2px solid #99650f; outline-offset: 2px; }
 .subscriptionSessionChipAvailable { border-color: #b9d8f1; background: #edf7ff; color: #2771ab; }
 .subscriptionSessionChipScheduled { border-color: #e9ce9c; background: #fff7e8; color: #99650f; }
 .subscriptionSessionChipCompleted { border-color: #b8dec5; background: #eef8f0; color: #2f7a4e; }

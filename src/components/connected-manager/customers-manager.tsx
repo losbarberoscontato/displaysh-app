@@ -11,7 +11,7 @@ import { ActionMessage, EmptyState, Field, Panel, StatusChip } from "./shared";
 import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import styles from "./connected-manager.module.css";
 import { normalizePhoneE164 } from "@/lib/phone";
-import { formatCents, formatRange, parsePostgresRange } from "./format";
+import { formatCents, formatRange, localDateTimeToIso, parsePostgresRange } from "./format";
 import { cpfCnpjDigits, formatCpfCnpj, isCpfCnpjValid } from "@/lib/cpf-cnpj";
 import { showManagerError } from "@/components/manager-error-dialog";
 
@@ -87,6 +87,23 @@ function timeFromMinutes(value: number): string {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
+function localDateTimeInputs(value: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    date: `${fields.year}-${fields.month}-${fields.day}`,
+    time: `${fields.hour}:${fields.minute}`,
+  };
+}
+
 function subscriptionDisplayStatuses(
   subscription: { status?: unknown; contract_accepted_at?: unknown; manager_activated_provisionally_at?: unknown },
   cycles: Array<Record<string, unknown>>,
@@ -159,7 +176,7 @@ const subscriptionDisplayStatusLabels: Record<SubscriptionDisplayStatus, string>
   cancellationPending: "Cancelamento pendente",
   due: "À Vencer",
   finished: "Finalizado",
-  overdue: "Em atraso",
+  overdue: "Em Atraso",
   active: "Ativo",
   declined: "Recusada",
   canceled: "Cancelada",
@@ -199,6 +216,8 @@ type SubscriptionCancellationDraft = {
   lastSessionId: string;
 };
 type SubscriptionBookingTarget = {
+  mode: "BOOK" | "RESCHEDULE";
+  appointmentId: string | null;
   subscriptionId: string;
   sessionId: string;
   customerId: string;
@@ -960,6 +979,8 @@ export function CustomersManager({
     }
     const tomorrow = new Date(todayTimestamp + 86_400_000).toISOString().slice(0, 10);
     setSubscriptionBooking({
+      mode: "BOOK",
+      appointmentId: null,
       subscriptionId: String(subscription.id),
       sessionId: String(session.id),
       customerId: String(subscription.customer_id),
@@ -976,13 +997,59 @@ export function CustomersManager({
     setSubscriptionOverdueReason("");
   }
 
+  function openSubscriptionSessionReschedule(
+    subscription: Record<string, unknown>,
+    session: Record<string, unknown>,
+    appointmentId: string,
+  ) {
+    const plan = subscription.plan as { name?: string | null } | null;
+    const version = subscription.plan_version as { id?: string; scheduling_mode?: string; sessions_per_cycle?: number } | null;
+    const appointment = appointments.find((item) => item.id === appointmentId);
+    const range = appointment ? parsePostgresRange(appointment.service_period) : null;
+    const planServices = subscriptionPlanServices
+      .filter((item) => String(item.plan_version_id) === String(version?.id ?? ""))
+      .sort((left, right) => Number(left.position ?? 0) - Number(right.position ?? 0));
+    if (version?.scheduling_mode !== "FIXED" || !appointment || appointment.status !== "CONFIRMED" || !range) {
+      showManagerError("Esta sessão não pode ser reagendada por este modal.");
+      return;
+    }
+    const localStart = localDateTimeInputs(range.start, timezone);
+    setSubscriptionBooking({
+      mode: "RESCHEDULE",
+      appointmentId,
+      subscriptionId: String(subscription.id),
+      sessionId: String(session.id),
+      customerId: String(subscription.customer_id),
+      sessionNumber: Number(session.session_number ?? 0),
+      totalSessions: Number(version.sessions_per_cycle ?? 0),
+      referenceDate: localStart.date,
+      planName: String(plan?.name ?? "Plano de assinatura"),
+      serviceNames: planServices.map((item) => String(item.service_name_snapshot)),
+      serviceIds: planServices.map((item) => String(item.service_id)),
+    });
+    setSubscriptionBookingDate(localStart.date);
+    setSubscriptionBookingTime(localStart.time);
+    setSubscriptionBookingBarberId(appointment.barber_id);
+    setSubscriptionOverdueReason("");
+  }
+
   async function bookSubscriptionSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!subscriptionBooking || !subscriptionBookingBarberId) return;
     const saved = await runMutation(
       setMessage,
       async () => {
-        const startsAt = new Date(`${subscriptionBookingDate}T${subscriptionBookingTime}:00`).toISOString();
+        const startsAt = subscriptionBooking.mode === "RESCHEDULE"
+          ? localDateTimeToIso(`${subscriptionBookingDate}T${subscriptionBookingTime}`, timezone)
+          : new Date(`${subscriptionBookingDate}T${subscriptionBookingTime}:00`).toISOString();
+        if (subscriptionBooking.mode === "RESCHEDULE" && subscriptionBooking.appointmentId) {
+          await assertResult(await connectedClient().rpc("reschedule_fixed_customer_subscription_session", {
+            p_organization_id: organizationId,
+            p_subscription_session_id: subscriptionBooking.sessionId,
+            p_new_starts_at: startsAt,
+          }));
+          return;
+        }
         await assertResult(await connectedClient().rpc(subscriptionOverdueReason.trim()
           ? "book_customer_subscription_session_with_overdue_override"
           : "book_customer_subscription_session", {
@@ -994,7 +1061,7 @@ export function CustomersManager({
           ...(subscriptionOverdueReason.trim() ? { p_reason: subscriptionOverdueReason.trim() } : {}),
         }));
       },
-      "Sessão da assinatura agendada.",
+      subscriptionBooking.mode === "RESCHEDULE" ? "Sessão da assinatura reagendada." : "Sessão da assinatura agendada.",
     );
     if (saved) {
       setSubscriptionBooking(null);
@@ -1007,7 +1074,7 @@ export function CustomersManager({
     const start = appointment ? parsePostgresRange(appointment.service_period)?.start : null;
     const base = `${String(session.session_number ?? "—")} de ${totalSessions}`;
     const label = session.status === "SCHEDULED" || session.status === "COMPLETED"
-      ? (start ? `${base} | ${new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(start)}` : `${base} | Agendada`)
+      ? (start ? `${base} | ${new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit", month: "2-digit" }).format(start)}` : `${base} | Agendada`)
       : `${String(session.session_number ?? "—")} de ${totalSessions}`;
     return { label, tone: session.status === "COMPLETED" ? "completed" : session.status === "CANCELED" || session.status === "CONSUMED" ? "canceled" : session.status === "AVAILABLE" ? "available" : "scheduled" };
   }
@@ -1296,7 +1363,7 @@ export function CustomersManager({
         ) : (
           <div className={styles.list}>
             {filtered.map((customer) => (
-              <article className={styles.row} key={customer.id}>
+              <article className={`${styles.row} ${subscriptionStatusesByCustomer.get(customer.id)?.has("overdue") ? styles.rowOverdue : ""}`} key={customer.id}>
                 <span className={styles.rowTitle}>
                   <strong>{customer.full_name}</strong>
                   <small>{lastVisitLabel(customer.id)}</small>
@@ -1337,7 +1404,11 @@ export function CustomersManager({
                     "Nascimento não informado"
                   )}
                 </span>
-                <StatusChip active={customer.active} />
+                <StatusChip
+                  active={customer.active && !subscriptionStatusesByCustomer.get(customer.id)?.has("overdue")}
+                  label={subscriptionStatusesByCustomer.get(customer.id)?.has("overdue") ? "Em Atraso" : undefined}
+                  tone={subscriptionStatusesByCustomer.get(customer.id)?.has("overdue") ? "danger" : undefined}
+                />
                 <span className={styles.rowActions}>
                   <button
                     className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`}
@@ -1796,7 +1867,7 @@ export function CustomersManager({
           const subscription = subscriptions.find((item) => String(item.id) === subscriptionControlId);
           if (!subscription) return null;
           const plan = subscription.plan as { name?: string; description?: string | null } | null;
-          const version = subscription.plan_version as { price_cents?: number; sessions_per_cycle?: number } | null;
+          const version = subscription.plan_version as { price_cents?: number; sessions_per_cycle?: number; scheduling_mode?: string } | null;
           const cycles = subscriptionCycles.filter((cycle) => String(cycle.subscription_id) === subscriptionControlId);
           const sessions = subscriptionSessions.filter((session) => String(session.subscription_id) === subscriptionControlId);
           const openCycles = cycles.filter((cycle) => cycle.status === "OPEN" || cycle.status === "OVERDUE");
@@ -1812,7 +1883,7 @@ export function CustomersManager({
             <section className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionControlModal}`} role="dialog" aria-modal="true" aria-labelledby="subscription-control-title">
               <header className={styles.modalHeader}><div><small>Controle da assinatura · Contrato nº {String(subscription.contract_number ?? "—")}</small><h2 id="subscription-control-title">{plan?.name ?? "Plano"}</h2><p>{formatCents(version?.price_cents ?? 0)} · Venc. {String(subscription.first_due_date ?? "—")} · {paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)}</p></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => { setSubscriptionCycleDeleteTarget(null); setSubscriptionControlId(null); }}><X size={19} /></button></header>
               <div className={styles.subscriptionControlBody}>
-                {awaitingCustomerConsent && <p className={styles.provisionalSubscriptionNotice}>Ativação provisória para organizar a agenda. O contrato ainda aguarda aceite do cliente; pagamentos permanecem bloqueados até a confirmação pelo app.</p>}
+                {awaitingCustomerConsent && <p className={styles.provisionalSubscriptionNotice}>Ativação provisória para organizar a agenda. O contrato ainda aguarda aceite do cliente. Recebimentos registrados serão preservados para ajuste manual se o cliente recusar.</p>}
                 <div className={styles.subscriptionControlLegend}><span><i className={styles.subscriptionDotAvailable} />Em aberto</span><span><i className={styles.subscriptionDotScheduled} />Agendada</span><span><i className={styles.subscriptionDotCompleted} />Concluída</span><span><i className={styles.subscriptionDotCanceled} />Cancelada</span></div>
                 {String((subscription.plan_version as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED" && <section className={styles.subscriptionFixedSchedule}>
                   <strong>Agendamento fixo</strong>
@@ -1867,13 +1938,30 @@ export function CustomersManager({
                   const cycleSessions = sessions.filter((session) => String(session.cycle_id) === String(cycle.id));
                   const canReceive = cycle.status === "OPEN" || cycle.status === "OVERDUE";
                   const canDelete = canReceive && cycleSessions.every((session) => session.status === "AVAILABLE" || session.status === "CANCELED");
-                  const showReceive = !awaitingCustomerConsent && canReceive && (!upfront || String(cycle.id) === String(firstOpenCycle?.id));
+                  const canReceiveButton = canReceive && (!upfront || String(cycle.id) === String(firstOpenCycle?.id));
+                  const cycleOverdue = cycle.status === "OVERDUE" || (cycle.status === "OPEN" && String(cycle.due_on ?? "") < todayInOrganization);
                   const amount = upfront
                     ? (cycle.status === "PAID" ? cycles : cycle.status === "CANCELED" ? [cycle] : openCycles).reduce((total, item) => total + Number(item.amount_cents ?? 0), 0)
                     : Number(cycle.amount_cents ?? version?.price_cents ?? 0);
-                  const cycleStatus = cycle.status === "PAID" ? `Pago em ${cycle.paid_at ? new Intl.DateTimeFormat("pt-BR").format(new Date(String(cycle.paid_at))) : "—"}` : cycle.status === "CANCELED" ? "Parcela cancelada" : "Parcela em aberto";
+                  const cycleStatus = cycle.status === "PAID" ? `Pago em ${cycle.paid_at ? new Intl.DateTimeFormat("pt-BR").format(new Date(String(cycle.paid_at))) : "—"}` : cycle.status === "CANCELED" ? "Parcela cancelada" : cycleOverdue ? "Parcela em atraso" : "Parcela em aberto";
                   const deleteTitle = !canReceive ? "Somente parcelas em aberto podem ser excluídas" : canDelete ? "Excluir parcela" : "Cancele as sessões agendadas antes de excluir esta parcela";
-                  return <article className={styles.subscriptionMonth} key={String(cycle.id)}><div className={styles.subscriptionMonthTitle}><strong>{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${String(cycle.starts_on)}T12:00:00`))}</strong><small>Vencimento {String(cycle.due_on)} · {cycleStatus}</small></div><div className={styles.subscriptionSessionList}>{cycleSessions.map((session) => { const presentation = sessionPresentation(session, cycleSessions.length || Number(version?.sessions_per_cycle ?? 0)); const chipClass = `${styles.subscriptionSessionChip} ${styles[`subscriptionSessionChip${presentation.tone[0].toUpperCase()}${presentation.tone.slice(1)}`]}`; return session.status === "AVAILABLE" ? <button type="button" className={chipClass} key={String(session.id)} onClick={() => openSubscriptionBooking(subscription, session, cycle)}>{presentation.label}</button> : <span className={chipClass} key={String(session.id)}>{presentation.label}</span>; })}</div><div className={styles.subscriptionInstallment}><span><small>Parcela</small><strong>{formatCents(amount)}</strong><small>{cycle.status === "PAID" ? `${paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)} · ${cycle.paid_at ? new Intl.DateTimeFormat("pt-BR").format(new Date(String(cycle.paid_at))) : "Pago"}` : `Venc. ${String(cycle.due_on)}`}</small></span><div className={styles.subscriptionCycleActions}>{showReceive && <button type="button" className={`${styles.button} ${styles.buttonSmall}`} onClick={() => openPaymentDialog(String(subscription.id), { id: cycle.id, amount_cents: amount, due_on: cycle.due_on }, String(subscription.payment_method ?? "CASH"))}>Receber</button>}<button type="button" className={`${styles.button} ${styles.buttonDanger} ${styles.financialDeleteIcon}`} aria-label="Excluir parcela" title={deleteTitle} disabled={deletingSubscriptionCycle || !canDelete} onClick={() => setSubscriptionCycleDeleteTarget(cycle)}><Trash2 size={15} /></button></div></div></article>;
+                  return <article className={`${styles.subscriptionMonth} ${cycleOverdue ? styles.subscriptionMonthOverdue : ""}`} key={String(cycle.id)}>
+                    <div className={styles.subscriptionMonthTitle}><strong>{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${String(cycle.starts_on)}T12:00:00`))}</strong><small>Vencimento {String(cycle.due_on)} · {cycleStatus}</small></div>
+                    <div className={styles.subscriptionSessionList}>{cycleSessions.map((session) => {
+                      const presentation = sessionPresentation(session, cycleSessions.length || Number(version?.sessions_per_cycle ?? 0));
+                      const chipClass = `${styles.subscriptionSessionChip} ${styles[`subscriptionSessionChip${presentation.tone[0].toUpperCase()}${presentation.tone.slice(1)}`]}`;
+                      const appointmentId = String(session.appointment_id ?? "");
+                      const linkedAppointment = appointments.find((item) => item.id === appointmentId);
+                      const canReschedule = String(version?.scheduling_mode) === "FIXED" && session.status === "SCHEDULED" && linkedAppointment?.status === "CONFIRMED";
+                      if (session.status === "AVAILABLE") return <button type="button" className={chipClass} key={String(session.id)} onClick={() => openSubscriptionBooking(subscription, session, cycle)}>{presentation.label}</button>;
+                      if (canReschedule) return <button type="button" className={`${chipClass} ${styles.subscriptionSessionChipAction}`} key={String(session.id)} title="Reagendar sessão" aria-label={`Reagendar sessão ${presentation.label}`} onClick={() => openSubscriptionSessionReschedule(subscription, session, appointmentId)}>{presentation.label}</button>;
+                      return <span className={chipClass} key={String(session.id)}>{presentation.label}</span>;
+                    })}</div>
+                    <div className={styles.subscriptionInstallment}><span><small>Parcela</small><strong>{formatCents(amount)}</strong><small>{cycle.status === "PAID" ? `${paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)} · ${cycle.paid_at ? new Intl.DateTimeFormat("pt-BR").format(new Date(String(cycle.paid_at))) : "Pago"}` : `Venc. ${String(cycle.due_on)}`}</small></span><div className={styles.subscriptionCycleActions}>
+                      <button type="button" className={`${styles.button} ${styles.buttonSmall}`} disabled={!canReceiveButton} title={canReceiveButton ? "Receber parcela" : upfront && canReceive ? "O pagamento à vista recebe o saldo pelo primeiro ciclo" : "Parcela paga ou cancelada"} onClick={() => openPaymentDialog(String(subscription.id), { id: cycle.id, amount_cents: amount, due_on: cycle.due_on }, String(subscription.payment_method ?? "CASH"))}>Receber</button>
+                      <button type="button" className={`${styles.button} ${styles.buttonDanger} ${styles.financialDeleteIcon}`} aria-label="Excluir parcela" title={deleteTitle} disabled={deletingSubscriptionCycle || !canDelete} onClick={() => setSubscriptionCycleDeleteTarget(cycle)}><Trash2 size={15} /></button>
+                    </div></div>
+                  </article>;
                 })}
                 {cancellationRequest && <section className={styles.subscriptionFixedSchedule}>
                   <strong>Solicitação de cancelamento pendente</strong>
@@ -1926,17 +2014,17 @@ export function CustomersManager({
           return <div className="modal-layer" role="presentation">
             <button className="modal-layer__backdrop" type="button" aria-label="Fechar reserva de assinatura" onClick={() => setSubscriptionBooking(null)} />
             <form className="form-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-booking-title" onSubmit={bookSubscriptionSession}>
-              <div className="form-modal__head"><span><small>Agendamento de sessão de assinatura</small><strong id="subscription-booking-title">Reserve um horário</strong></span><button type="button" className="icon-button" onClick={() => setSubscriptionBooking(null)} aria-label="Fechar"><X size={19} /></button></div>
+              <div className="form-modal__head"><span><small>Agendamento de sessão de assinatura</small><strong id="subscription-booking-title">{subscriptionBooking.mode === "RESCHEDULE" ? "Reagendar sessão" : "Reserve um horário"}</strong></span><button type="button" className="icon-button" onClick={() => setSubscriptionBooking(null)} aria-label="Fechar"><X size={19} /></button></div>
               <div className="form-modal__body">
                 <p className={styles.subscriptionBookingReference}>Sessão {subscriptionBooking.sessionNumber} de {subscriptionBooking.totalSessions} de {new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${subscriptionBooking.referenceDate}T12:00:00`))}</p>
                 <label>Cliente<span className="input-shell"><UserRound size={17} /><input value={customer?.full_name ?? "Cliente"} readOnly /></span></label>
                 <label>Serviço ou pacote<span className="input-shell"><input value={subscriptionBooking.planName} readOnly /></span></label>
-                <label>Profissional<span className="select-input"><select value={subscriptionBookingBarberId} onChange={(event) => setSubscriptionBookingBarberId(event.target.value)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
+                <label>Profissional<span className="select-input"><select value={subscriptionBookingBarberId} onChange={(event) => setSubscriptionBookingBarberId(event.target.value)} required disabled={subscriptionBooking.mode === "RESCHEDULE"}><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
                 <div className="form-grid"><label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={subscriptionBookingDate} onChange={(event) => setSubscriptionBookingDate(event.target.value)} required /></span></label><label>Horário<span className="input-shell"><Clock3 size={17} /><input type="time" value={subscriptionBookingTime} onChange={(event) => setSubscriptionBookingTime(event.target.value)} step={15 * 60} required /></span></label></div>
-                <p className={styles.subscriptionBookingHint}>O cliente e o serviço pertencem ao plano e não podem ser alterados.</p>
-                <label>Motivo de exceção por parcela vencida (apenas se necessário)<span className="input-shell"><textarea value={subscriptionOverdueReason} onChange={(event) => setSubscriptionOverdueReason(event.target.value)} minLength={5} maxLength={1000} placeholder="Informe o motivo para liberar este agendamento" /></span></label>
+                <p className={styles.subscriptionBookingHint}>{subscriptionBooking.mode === "RESCHEDULE" ? "O reagendamento mantém o profissional, os serviços e a cobrança da sessão." : "O cliente e o serviço pertencem ao plano e não podem ser alterados."}</p>
+                {subscriptionBooking.mode === "BOOK" && <label>Motivo de exceção por parcela vencida (apenas se necessário)<span className="input-shell"><textarea value={subscriptionOverdueReason} onChange={(event) => setSubscriptionOverdueReason(event.target.value)} minLength={5} maxLength={1000} placeholder="Informe o motivo para liberar este agendamento" /></span></label>}
               </div>
-              <div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={() => setSubscriptionBooking(null)}>Cancelar</button><button type="submit" className="button button--dark"><Check size={17} /> Agendar sessão</button></div>
+              <div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={() => setSubscriptionBooking(null)}>Cancelar</button><button type="submit" className="button button--dark"><Check size={17} /> {subscriptionBooking.mode === "RESCHEDULE" ? "Confirmar reagendamento" : "Agendar sessão"}</button></div>
             </form>
           </div>;
         })()}

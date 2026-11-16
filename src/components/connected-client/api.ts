@@ -436,6 +436,11 @@ export async function getMyAppointments(
   const rows = (appointments as AppointmentRow[] | null) ?? [];
   if (!rows.length) return [];
   const ids = rows.map((appointment) => appointment.id);
+  const subscriptionSessionIds = [...new Set(rows.flatMap((appointment) =>
+    appointment.status === "CONFIRMED" && appointment.subscription_session_id
+      ? [appointment.subscription_session_id]
+      : [],
+  ))];
   const [
     { data: items, error: itemsError },
     { data: financial, error: financialError },
@@ -464,11 +469,51 @@ export async function getMyAppointments(
   if (itemsError) throw new Error(itemsError.message);
   if (financialError) throw new Error(financialError.message);
   if (paymentOrdersError) throw new Error(paymentOrdersError.message);
+  let schedulingModeBySession = new Map<string, "FIXED" | "FREE">();
+  if (subscriptionSessionIds.length) {
+    const { data: sessionRows, error: sessionError } = await supabase
+      .from("customer_subscription_sessions")
+      .select("id,subscription_id")
+      .eq("organization_id", organizationId)
+      .in("id", subscriptionSessionIds);
+    if (sessionError) throw new Error(sessionError.message);
+    const sessions = (sessionRows as Array<{ id: string; subscription_id: string }> | null) ?? [];
+    const subscriptionIds = [...new Set(sessions.map((session) => session.subscription_id))];
+    if (subscriptionIds.length) {
+      const { data: subscriptionRows, error: subscriptionError } = await supabase
+        .from("customer_subscriptions")
+        .select("id,plan_version_id")
+        .eq("organization_id", organizationId)
+        .in("id", subscriptionIds);
+      if (subscriptionError) throw new Error(subscriptionError.message);
+      const subscriptions = (subscriptionRows as Array<{ id: string; plan_version_id: string }> | null) ?? [];
+      const versionIds = [...new Set(subscriptions.map((subscription) => subscription.plan_version_id))];
+      if (versionIds.length) {
+        const { data: versions, error: versionsError } = await supabase
+          .from("subscription_plan_versions")
+          .select("id,scheduling_mode")
+          .eq("organization_id", organizationId)
+          .in("id", versionIds);
+        if (versionsError) throw new Error(versionsError.message);
+        const modeByVersion = new Map((versions as Array<{ id: string; scheduling_mode: string }> | null ?? [])
+          .map((version) => [version.id, version.scheduling_mode === "FIXED" ? "FIXED" as const : "FREE" as const]));
+        const versionBySubscription = new Map(subscriptions.map((subscription) => [subscription.id, subscription.plan_version_id]));
+        schedulingModeBySession = new Map(sessions.flatMap((session) => {
+          const versionId = versionBySubscription.get(session.subscription_id);
+          const mode = versionId ? modeByVersion.get(versionId) : undefined;
+          return mode ? [[session.id, mode] as const] : [];
+        }));
+      }
+    }
+  }
   const itemRows = (items as AppointmentItem[] | null) ?? [];
   const financialRows = (financial as FinancialRow[] | null) ?? [];
   const paymentOrderRows = (paymentOrders as PaymentOrderRow[] | null) ?? [];
   return rows.map((appointment) => ({
     ...appointment,
+    subscription_scheduling_mode: appointment.subscription_session_id
+      ? schedulingModeBySession.get(appointment.subscription_session_id) ?? null
+      : null,
     pending_payment_order_id: paymentOrderRows.find((item) => item.appointment_id === appointment.id)?.id ?? null,
     items: itemRows.filter((item) => item.appointment_id === appointment.id),
     financial: financialRows.find((item) => item.appointment_id === appointment.id) ?? {
@@ -506,6 +551,22 @@ export async function rescheduleAppointment(
     p_override_reason: null,
   });
   return assertData<{ appointment_id: string; service_period: string; total_cents: number }>(data, error, "Não foi possível reagendar reserva.");
+}
+
+export async function rescheduleFixedSubscriptionSession(
+  supabase: SupabaseClient,
+  input: { organizationId: string; subscriptionSessionId: string; startsAt: string },
+): Promise<{ appointment_id: string; subscription_session_id: string; service_period: string; status: string }> {
+  const { data, error } = await supabase.rpc("reschedule_fixed_customer_subscription_session", {
+    p_organization_id: input.organizationId,
+    p_subscription_session_id: input.subscriptionSessionId,
+    p_new_starts_at: input.startsAt,
+  });
+  return assertData<{ appointment_id: string; subscription_session_id: string; service_period: string; status: string }>(
+    data,
+    error,
+    "Não foi possível reagendar a sessão do plano.",
+  );
 }
 
 export async function getCustomerPrivacy(
