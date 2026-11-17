@@ -855,32 +855,15 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
               .filter((cycle) => cycle.subscription_id === row.id)
               .map((cycle) => (
                 <div className={styles.subscriptionCycle} key={cycle.id}>
-                  <p className={styles.subscriptionCycleHeader}>
-                    <strong>Ciclo {cycle.cycle_number}</strong> · venc.{" "}
-                    {formatDate(cycle.due_on)} · {cycle.status} ·{" "}
-                    {
-                      cycle.sessions.filter(
-                        (session) => session.status === "AVAILABLE",
-                      ).length
-                    }{" "}
-                    abertas ·{" "}
-                    {
-                      cycle.sessions.filter(
-                        (session) => session.status === "SCHEDULED",
-                      ).length
-                    }{" "}
-                    agendadas ·{" "}
-                    {
-                      cycle.sessions.filter(
-                        (session) => session.appointment?.status === "COMPLETED",
-                      ).length
-                    }{" "}
-                    concluídas
-                  </p>
+                  <div className={styles.subscriptionCycleHeader}>
+                    <strong>
+                      {row.plan_version?.billing_period === "BIWEEKLY" ? "Quinzena" : "Mês"} {cycle.cycle_number}
+                    </strong>
+                    <span>Venc. {formatDate(cycle.due_on)}</span>
+                  </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem" }}>
                     {cycle.sessions.map((session) => {
-                      const date = sessionDate(session.appointment?.service_period);
-                      const title = `${session.session_number} de ${cycle.sessions.length}${date ? ` | ${date}` : ""}`;
+                      const title = `Sessão ${session.session_number}`;
                       const tone = sessionTone(session.status);
                       if (session.status === "AVAILABLE") {
                         return (

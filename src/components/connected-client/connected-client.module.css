@@ -328,7 +328,7 @@
 .subscriptionCard h2, .subscriptionCard h3 { color: var(--forest-900, #173c31); }
 .subscriptionMeta { color: var(--muted, #59655e); line-height: 1.5; }
 .subscriptionCycle { display: grid; gap: 8px; margin-top: 7px; padding: 13px; border: 1px solid var(--border, #e1e7df); border-radius: 13px; background: var(--surface, #fff); }
-.subscriptionCycleHeader { margin: 0; color: var(--muted, #42564c); font-size: 12px; line-height: 1.5; }
+.subscriptionCycleHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; color: var(--muted, #42564c); font-size: 12px; line-height: 1.5; }
 .subscriptionAction, .subscriptionSecondary { display: inline-flex; width: fit-content; align-items: center; justify-content: center; min-height: 38px; padding: 8px 13px; border-radius: 9px; font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; text-decoration: none; }
 .subscriptionAction { border: 1px solid var(--forest-900, #215f4d); background: var(--forest-900, #215f4d); color: var(--surface, #fff); }
 .subscriptionSecondary { border: 1px solid var(--border, #cfd8cf); background: var(--surface, #fff); color: var(--forest-900, #215f4d); }
