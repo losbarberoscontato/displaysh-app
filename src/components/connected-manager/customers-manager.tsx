@@ -1909,7 +1909,7 @@ export function CustomersManager({
                     });
                   }}>Editar série fixa</button>}
                   {fixedScheduleEditDraft?.subscriptionId === String(subscription.id) && <form className={styles.formCompactSchedule} onSubmit={(event) => void saveFixedScheduleEdit(event)}>
-                    <label>Frequência<select value={fixedScheduleEditDraft.cadenceWeeks} onChange={(event) => setFixedScheduleEditDraft((draft) => draft ? { ...draft, cadenceWeeks: event.target.value } : draft)}><option value="1">Semanal</option><option value="2">Quinzenal (a cada 2 semanas)</option></select></label>
+                    <label>Frequência da série<span className="input-shell">{fixedScheduleEditDraft.cadenceWeeks === "2" ? "Quinzenal · a cada duas semanas" : "Semanal"}</span></label>
                     <label>Profissional<select value={fixedScheduleEditDraft.barberId} onChange={(event) => setFixedScheduleEditDraft((draft) => {
                       if (!draft) return draft;
                       const barberId = event.target.value;
@@ -2035,6 +2035,7 @@ export function CustomersManager({
               : plan.version;
             const planVersionId = String((planVersion as { id?: string } | null)?.id ?? "");
             const fixed = String((planVersion as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED";
+            const cadenceWeeks = Number((planVersion as { fixed_schedule_cadence_weeks?: number | null } | null)?.fixed_schedule_cadence_weeks ?? 1);
             return <button key={String(plan.id)} type="button" className={`${styles.button} ${styles.buttonSoft}`} onClick={() => {
               if (fixed) {
                 const serviceIds = subscriptionPlanServices.filter((item) => String(item.plan_version_id) === planVersionId).map((item) => String(item.service_id));
@@ -2043,7 +2044,7 @@ export function CustomersManager({
                   showManagerError("Nenhum profissional está habilitado para todos os serviços deste plano.");
                   return;
                 }
-                setFixedEnrollmentDraft({ customerId: presentialCustomerId, planId: String(plan.id), cadenceWeeks: "1", startDate: "", localTime: "", barberId: eligible[0].id, environmentId: "", serviceIds });
+                setFixedEnrollmentDraft({ customerId: presentialCustomerId, planId: String(plan.id), cadenceWeeks: String(cadenceWeeks), startDate: "", localTime: "", barberId: eligible[0].id, environmentId: "", serviceIds });
                 return;
               }
               setPresentialCustomerId(null);
@@ -2056,7 +2057,7 @@ export function CustomersManager({
             <header className={styles.modalHeader}><div><small>Adesão presencial</small><h2 id="fixed-enrollment-title">Agendamento fixo</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setFixedEnrollmentDraft(null)}><X size={19} /></button></header>
             <p>Escolha um horário e uma sala compatíveis com a escala do profissional. Após a aprovação e o primeiro pagamento, o sistema agenda as sessões do plano; conflitos futuros continuam sujeitos à disponibilidade da agenda.</p>
             <div className={styles.formCompactSchedule}>
-              <label>Frequência<select value={fixedEnrollmentDraft.cadenceWeeks} onChange={(event) => setFixedEnrollmentDraft((draft) => draft ? { ...draft, cadenceWeeks: event.target.value } : draft)}><option value="1">Semanal</option><option value="2">Quinzenal (a cada 2 semanas)</option></select></label>
+              <label>Frequência do plano<span className="input-shell">{fixedEnrollmentDraft.cadenceWeeks === "2" ? "Quinzenal · a cada duas semanas, no mesmo dia e horário" : "Semanal · toda semana, no mesmo dia e horário"}</span></label>
               <label>Profissional<select value={fixedEnrollmentDraft.barberId} onChange={(event) => setFixedEnrollmentDraft((draft) => {
                 if (!draft) return draft;
                 const barberId = event.target.value;
