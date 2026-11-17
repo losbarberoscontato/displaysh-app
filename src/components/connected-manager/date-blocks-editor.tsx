@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import { buildYearCalendar, dateBlockCoversDate, dateKey, type DateBlockType, type OrganizationDateBlock } from "./date-block-calendar";
@@ -10,6 +10,10 @@ import styles from "./date-blocks-editor.module.css";
 type Props = { organizationId: string; timezone: string; blocks: OrganizationDateBlock[]; onClose(): void };
 type HolidayScope = NonNullable<OrganizationDateBlock["holiday_scope"]>;
 type Recurrence = NonNullable<OrganizationDateBlock["recurrence"]>;
+type BookingConflict = { block_id: string; block_name: string; booking_id: string; booking_type: "APPOINTMENT" | "QUEUE_HOLD"; customer_name: string; professional_name: string | null; starts_at: string };
+type ConfirmationConflict = { key: string; name: string; professional: string | null; starts_at: string };
+type SaveValues = { p_id: string | null; p_block_type: string; p_name: string; p_description: string | null; p_holiday_scope: HolidayScope | null; p_recurrence: Recurrence | null; p_start_date: string; p_end_date: string | null; p_start_time: string | null; p_end_time: string | null };
+type PendingSave = { values: SaveValues; conflictIds: string[]; conflicts: ConfirmationConflict[] };
 
 function todayYear(timezone: string) {
   return Number(new Intl.DateTimeFormat("en", { year: "numeric", timeZone: timezone }).format(new Date()));
@@ -31,7 +35,26 @@ export function DateBlocksEditor({ organizationId, timezone, blocks, onClose }: 
   const [editing, setEditing] = useState<OrganizationDateBlock | null>(null);
   const [type, setType] = useState<DateBlockType>("HOLIDAY");
   const [message, setMessage] = useState("");
+  const [conflicts, setConflicts] = useState<BookingConflict[]>([]);
+  const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const months = useMemo(() => buildYearCalendar(year), [year]);
+
+  async function refreshConflicts() {
+    const { data, error } = await connectedClient().rpc("list_organization_date_block_conflicts", { p_organization_id: organizationId });
+    if (error) { setMessage(error.message); return; }
+    setConflicts((data ?? []) as BookingConflict[]);
+  }
+
+  useEffect(() => {
+    let current = true;
+    void connectedClient().rpc("list_organization_date_block_conflicts", { p_organization_id: organizationId })
+      .then(({ data, error }) => {
+        if (!current) return;
+        if (error) { setMessage(error.message); return; }
+        setConflicts((data ?? []) as BookingConflict[]);
+      });
+    return () => { current = false; };
+  }, [blocks, organizationId]);
 
   function chooseDate(date: string) {
     const block = blocks.find((item) => dateBlockCoversDate(item, date)) ?? null;
@@ -39,6 +62,26 @@ export function DateBlocksEditor({ organizationId, timezone, blocks, onClose }: 
     setEditing(block);
     setType(block?.block_type ?? "HOLIDAY");
     setMessage("");
+  }
+
+  async function persist(values: SaveValues, confirmedConflictIds: string[] | null) {
+    const { data, error } = await connectedClient().rpc("save_organization_date_block_with_conflicts", {
+      p_organization_id: organizationId,
+      ...values,
+      p_confirmed_conflict_ids: confirmedConflictIds,
+    });
+    if (error) { setMessage(error.message); return; }
+    const result = data as { saved?: boolean; requires_confirmation?: boolean; id?: string; conflict_ids?: string[]; conflicts?: ConfirmationConflict[] };
+    if (result.requires_confirmation) {
+      setPendingSave({ values, conflictIds: result.conflict_ids ?? [], conflicts: result.conflicts ?? [] });
+      setMessage("");
+      return;
+    }
+    setPendingSave(null);
+    setSelectedDate(null);
+    setMessage("Bloqueio salvo. Agendamentos existentes foram mantidos.");
+    await refreshConflicts();
+    router.refresh();
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -49,22 +92,18 @@ export function DateBlocksEditor({ organizationId, timezone, blocks, onClose }: 
     const startDate = blockType === "RECESS" ? String(data.get("start_date") ?? selectedDate) : blockType === "HOLIDAY" && editing ? editing.start_date : selectedDate;
     const endDate = blockType === "RECESS" ? String(data.get("end_date") ?? selectedDate) : null;
     const recurrence = blockType === "HOLIDAY" ? String(data.get("recurrence") ?? "YEAR") as Recurrence : null;
-    const result = await runMutation(setMessage, async () => {
-      await assertResult(await connectedClient().rpc("save_organization_date_block", {
-        p_organization_id: organizationId,
-        p_id: editing?.id ?? null,
-        p_block_type: blockType,
-        p_name: String(data.get("name") ?? "").trim(),
-        p_description: String(data.get("description") ?? "").trim() || null,
-        p_holiday_scope: blockType === "HOLIDAY" ? String(data.get("holiday_scope") ?? "FEDERAL") as HolidayScope : null,
-        p_recurrence: recurrence,
-        p_start_date: startDate,
-        p_end_date: endDate,
-        p_start_time: blockType === "EVENT" ? String(data.get("start_time") ?? "") : null,
-        p_end_time: blockType === "EVENT" ? String(data.get("end_time") ?? "") : null,
-      }));
-    }, "Bloqueio salvo.");
-    if (result) { setSelectedDate(null); router.refresh(); }
+    await persist({
+      p_id: editing?.id ?? null,
+      p_block_type: blockType,
+      p_name: String(data.get("name") ?? "").trim(),
+      p_description: String(data.get("description") ?? "").trim() || null,
+      p_holiday_scope: blockType === "HOLIDAY" ? String(data.get("holiday_scope") ?? "FEDERAL") as HolidayScope : null,
+      p_recurrence: recurrence,
+      p_start_date: startDate,
+      p_end_date: endDate,
+      p_start_time: blockType === "EVENT" ? String(data.get("start_time") ?? "") : null,
+      p_end_time: blockType === "EVENT" ? String(data.get("end_time") ?? "") : null,
+    }, null);
   }
 
   async function remove() {
@@ -90,6 +129,16 @@ export function DateBlocksEditor({ organizationId, timezone, blocks, onClose }: 
       <div className={styles.legend}>
         <span><i className={styles.holidayDot} /> Feriado</span><span><i className={styles.recessDot} /> Recesso</span><span><i className={styles.eventDot} /> Evento</span>
       </div>
+      {conflicts.length > 0 && <section className={styles.conflictList} aria-labelledby="date-block-conflicts-title">
+        <h3 id="date-block-conflicts-title">Agendamentos em datas bloqueadas · {conflicts.length}</h3>
+        <p>Reagende ou cancele manualmente. O bloqueio preserva estes registros e impede novas reservas no período.</p>
+        {conflicts.map((conflict) => <article className={styles.conflictRow} key={`${conflict.block_id}:${conflict.booking_type}:${conflict.booking_id}`}>
+          <strong>{conflict.customer_name}</strong>
+          <span>{displayDate(new Date(conflict.starts_at).toLocaleDateString("sv-SE", { timeZone: timezone }))} · {new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(new Date(conflict.starts_at))}</span>
+          <small>{conflict.block_name}{conflict.professional_name ? ` · ${conflict.professional_name}` : ""}</small>
+          {conflict.booking_type === "APPOINTMENT" && <a href="/gestor/agenda">Abrir agenda</a>}
+        </article>)}
+      </section>}
       <div className={styles.calendar}>
         {months.map((month) => <section className={styles.month} key={month.month}>
           <h3>{month.label} / {year}</h3>
@@ -135,6 +184,14 @@ export function DateBlocksEditor({ organizationId, timezone, blocks, onClose }: 
             <button type="submit" className="button">Salvar</button>
           </footer>
         </form>
+      </div>}
+      {pendingSave && <div className={styles.confirmationBackdrop} role="presentation">
+        <section className={styles.confirmationDialog} role="alertdialog" aria-modal="true" aria-labelledby="date-block-confirm-title" aria-describedby="date-block-confirm-description">
+          <h3 id="date-block-confirm-title">Há agendamentos no período</h3>
+          <p id="date-block-confirm-description">Salvar o bloqueio mantém os agendamentos atuais. O sistema não cancelará nem reagendará estas sessões. Você poderá resolver cada conflito manualmente depois.</p>
+          <ul>{pendingSave.conflicts.map((conflict) => <li key={conflict.key}>{conflict.name} · {new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, dateStyle: "short", timeStyle: "short" }).format(new Date(conflict.starts_at))}{conflict.professional ? ` · ${conflict.professional}` : " · Reserva de fila"}</li>)}</ul>
+          <footer><button type="button" className="button button--soft" onClick={() => setPendingSave(null)}>Voltar</button><button type="button" className="button" onClick={() => void persist(pendingSave.values, pendingSave.conflictIds)}>Salvar e manter agendamentos</button></footer>
+        </section>
       </div>}
     </section>
   </div>;

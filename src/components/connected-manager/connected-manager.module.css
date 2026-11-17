@@ -106,6 +106,7 @@
 .modalBackdrop { position: absolute; inset: 0; border: 0; background: rgb(12 27 23 / 58%); backdrop-filter: blur(3px); }
 .modal { position: relative; width: min(100%, 28rem); max-height: calc(100dvh - 3rem); display: flex; flex-direction: column; padding: 1.5rem; border: 1px solid #e4e7df; border-radius: 1.25rem; background: #fffdf8; box-shadow: 0 1.5rem 4rem rgb(12 27 23 / 20%); }
 .modalWide { width: min(100%, 44rem); }
+.subscriptionPlanModal { width: min(100%, 56rem); }
 .receiptModal { width: min(100%, 52rem); max-height: calc(100dvh - 4rem); margin-block: 1rem; padding: 1.75rem; }
 .modalHeader { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .modalClose { display: inline-grid; place-items: center; width: 2.5rem; height: 2.5rem; border: 1px solid #d9dfd7; border-radius: .85rem; background: #fff; color: #243029; cursor: pointer; }
@@ -183,6 +184,12 @@
 .subscriptionPlanActions { justify-content: flex-start; align-items: center; }
 .subscriptionPlanArchive { display: inline-flex; min-width: 2.35rem; align-items: center; justify-content: center; padding-inline: .55rem; color: #7d4036; }
 .subscriptionPlanContractEditor { grid-column: 1 / -1; }
+.subscriptionPlanFilters { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.subscriptionPlanFilterSelected { background: #503326; color: #fff; }
+.fixedScheduleSlotList { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .75rem; margin-block: .75rem; }
+.fixedScheduleSlot { display: grid; gap: .65rem; min-width: 0; padding: .85rem; border: 1px solid var(--border, #ded8d0); border-radius: .8rem; }
+.fixedScheduleSlot legend { padding-inline: .25rem; font-weight: 700; }
+.fixedScheduleSlot small { color: var(--muted, #6d6258); }
 .catalogServiceRow { grid-template-columns: minmax(150px, 1.4fr) repeat(3, minmax(90px, 1fr)) auto; }
 .row:hover { background: #fafbf9; }
 .rowOverdue { border-color: #e7aaa4; background: #fff4f2; color: #8f2e28; }

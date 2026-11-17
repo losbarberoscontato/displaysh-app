@@ -1,6 +1,6 @@
 .backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 1rem; background: rgba(17, 29, 25, .58); }
 .dismiss, .formDismiss { position: absolute; inset: 0; border: 0; background: transparent; }
-.dialog { position: relative; z-index: 1; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; width: min(1160px, 100%); height: min(92vh, 940px); max-height: min(92vh, 940px); overflow: hidden; border: 1px solid #dce4dc; border-radius: 18px; background: #f8faf7; box-shadow: 0 24px 70px rgba(0, 0, 0, .26); }
+.dialog { position: relative; z-index: 1; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; width: min(1160px, 100%); height: min(92vh, 940px); max-height: min(92vh, 940px); overflow: hidden; border: 1px solid #dce4dc; border-radius: 18px; background: #f8faf7; box-shadow: 0 24px 70px rgba(0, 0, 0, .26); }
 .header { display: flex; align-items: center; gap: 1rem; padding: .9rem 1.1rem; border-bottom: 1px solid #e1e7e1; background: white; }
 .header > span, .formHeader > span { display: grid; gap: .18rem; }
 .header small, .formHeader small { color: #748078; font-size: .72rem; }
@@ -13,6 +13,13 @@
 .close { margin-left: .2rem; }
 .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 1.2rem; padding: .72rem 1rem; color: #3c4942; font-size: .78rem; }
 .legend span { display: inline-flex; align-items: center; gap: .42rem; }
+.conflictList { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .5rem; max-height: 11rem; overflow: auto; padding: .5rem 1rem .7rem; border-block: 1px solid #ead5b9; background: #fff8eb; }
+.conflictList h3, .conflictList > p { grid-column: 1 / -1; margin: 0; }
+.conflictList h3 { color: #79451b; font-size: .86rem; }
+.conflictList > p { color: #685b4b; font-size: .74rem; }
+.conflictRow { display: grid; gap: .1rem; padding: .55rem .65rem; border: 1px solid #efdfc9; border-radius: .65rem; background: white; font-size: .75rem; }
+.conflictRow span, .conflictRow small { color: #625f57; }
+.conflictRow a { color: #245e48; font-weight: 750; }
 .legend i, .day i { width: .62rem; height: .62rem; border-radius: 50%; }
 .holidayDot { background: #43a879; }.recessDot { background: #dc9e45; }.eventDot { background: #d66c6c; }
 .calendar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: max-content; align-content: start; min-width: 0; min-height: 0; gap: .7rem; overflow: auto; padding: .2rem 1rem 1rem; }
@@ -44,6 +51,11 @@
 .range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
 .formFooter { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .5rem; padding: .75rem 1rem; border-top: 1px solid #e8ece8; background: #f8faf8; }
 .formFooter p { flex: 1 0 100%; margin: 0; color: #a13e32; font-size: .77rem; line-height: 1.4; }
+.confirmationBackdrop { position: fixed; inset: 0; z-index: 130; display: grid; place-items: center; padding: 1rem; background: rgba(15, 26, 22, .66); }
+.confirmationDialog { display: grid; gap: .8rem; width: min(36rem, 100%); max-height: min(84vh, 44rem); overflow: auto; padding: 1.25rem; border: 1px solid #e4d8c8; border-radius: 16px; background: white; box-shadow: 0 24px 70px rgba(0,0,0,.3); }
+.confirmationDialog h3, .confirmationDialog p { margin: 0; }
+.confirmationDialog ul { display: grid; gap: .4rem; margin: 0; padding-left: 1.3rem; color: #5c625d; font-size: .82rem; }
+.confirmationDialog footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .5rem; }
 @media (max-width: 1100px) { .calendar { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .backdrop { padding: .5rem; }.dialog { height: min(94vh, 940px); max-height: 94vh; }.calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; padding: .15rem .55rem .7rem; }.day, .empty { min-height: 1.75rem; font-size: .65rem; }.month h3 { font-size: .69rem; }.legend { gap: .65rem; font-size: .7rem; }.header { padding: .7rem; }.range { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .calendar { grid-template-columns: minmax(0, 1fr); } }

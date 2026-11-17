@@ -12,6 +12,7 @@ import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import { centsFromInput, formatCents } from "./format";
 import styles from "./connected-manager.module.css";
 import { showManagerError } from "@/components/manager-error-dialog";
+import { FIXED_SCHEDULE_PATTERNS, fixedSchedulePattern, fixedSchedulePatternLabel, type FixedSchedulePattern } from "@/lib/subscription-plan-frequency";
 
 type Props = AwaitedReturn<typeof loadSubscriptionPlansData>;
 type Plan = Props["plans"][number];
@@ -25,7 +26,9 @@ export function SubscriptionPlansManager(props: Props) {
   const [newPlanOpen, setNewPlanOpen] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [schedulingMode, setSchedulingMode] = useState<"FREE" | "FIXED">("FREE");
-  const [fixedCadenceWeeks, setFixedCadenceWeeks] = useState("1");
+  const [billingPeriod, setBillingPeriod] = useState<"MONTHLY" | "BIWEEKLY">("MONTHLY");
+  const [fixedPattern, setFixedPattern] = useState<FixedSchedulePattern>("CYCLE_1");
+  const [planFilter, setPlanFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE" | "ARCHIVED">("ALL");
   const [frequencyConfirmed, setFrequencyConfirmed] = useState(false);
   const [frequencyDialogOpen, setFrequencyDialogOpen] = useState(false);
   const [omittedPlanServiceCount, setOmittedPlanServiceCount] = useState(0);
@@ -42,7 +45,8 @@ export function SubscriptionPlansManager(props: Props) {
     setEditingPlanId(null);
     setOmittedPlanServiceCount(0);
     setSchedulingMode("FREE");
-    setFixedCadenceWeeks("1");
+    setBillingPeriod("MONTHLY");
+    setFixedPattern("CYCLE_1");
     setFrequencyConfirmed(false);
     setFrequencyDialogOpen(false);
     setFormKey((current) => current + 1);
@@ -56,7 +60,8 @@ export function SubscriptionPlansManager(props: Props) {
     if (!planId) {
       setSelected([]);
       setSchedulingMode("FREE");
-      setFixedCadenceWeeks("1");
+      setBillingPeriod("MONTHLY");
+      setFixedPattern("CYCLE_1");
       setFrequencyConfirmed(false);
     } else {
       const version = props.versions.find((item) => item.plan_id === planId);
@@ -77,7 +82,11 @@ export function SubscriptionPlansManager(props: Props) {
       setOmittedPlanServiceCount(planServices.length - eligiblePlanServices.length);
       const mode = version.scheduling_mode === "FIXED" ? "FIXED" : "FREE";
       setSchedulingMode(mode);
-      setFixedCadenceWeeks(String(version.fixed_schedule_cadence_weeks ?? 1));
+      const period = version.billing_period === "BIWEEKLY" ? "BIWEEKLY" : "MONTHLY";
+      setBillingPeriod(period);
+      const legacyPattern = version.sessions_per_cycle === 1 ? "CYCLE_1" : version.sessions_per_cycle === 2 ? "CYCLE_2" : version.sessions_per_cycle === 8 ? "WEEKLY_2" : version.sessions_per_cycle === 12 ? "WEEKLY_3" : version.sessions_per_cycle === 20 ? "WEEKDAYS" : version.sessions_per_cycle === 24 ? "MON_SAT" : "WEEKLY_1";
+      const configuredPattern = fixedSchedulePattern(version.fixed_schedule_pattern) ?? fixedSchedulePattern(legacyPattern)!;
+      setFixedPattern(configuredPattern.monthlyOnly && period === "BIWEEKLY" ? "CYCLE_1" : configuredPattern.value);
       setFrequencyConfirmed(mode === "FIXED");
     }
 
@@ -110,10 +119,11 @@ export function SubscriptionPlansManager(props: Props) {
           p_price_cents: centsFromInput(data.get("price")),
           p_billing_period: String(data.get("billing_period")),
           p_duration_months: Number(data.get("duration_months")),
-          p_sessions_per_cycle: Number(data.get("sessions_per_cycle")),
+          p_sessions_per_cycle: schedulingMode === "FIXED" ? fixedSchedulePattern(fixedPattern)?.sessions ?? 1 : Number(data.get("sessions_per_cycle")),
           p_payment_method: String(data.get("payment_method")),
           p_scheduling_mode: schedulingMode,
-          p_fixed_schedule_cadence_weeks: schedulingMode === "FIXED" ? Number(fixedCadenceWeeks) : null,
+          p_fixed_schedule_cadence_weeks: schedulingMode === "FIXED" ? 1 : null,
+          p_fixed_schedule_pattern: schedulingMode === "FIXED" ? fixedPattern : null,
           p_cancellation_policy: String(data.get("cancellation_policy") ?? "").trim(),
           p_session_cancellation_policy: String(data.get("session_cancellation_policy") ?? "").trim(),
           p_services: selected.map((service_id, position) => ({ service_id, position })),
@@ -160,13 +170,21 @@ export function SubscriptionPlansManager(props: Props) {
     return version ? (version.price_cents / 100).toFixed(2).replace(".", ",") : "";
   }
 
+  const visiblePlans = props.plans.filter((plan) => planFilter === "ALL"
+    || (planFilter === "ARCHIVED" ? plan.archived_at !== null : plan.archived_at === null && (planFilter === "ACTIVE" ? plan.active : !plan.active)));
+  const fixedPatternOptions = FIXED_SCHEDULE_PATTERNS.filter((pattern) => !pattern.monthlyOnly || billingPeriod === "MONTHLY");
+  const activeFixedPattern = fixedSchedulePattern(fixedPattern);
+
   return <div className={styles.stack}>
     <PageHeader title="Planos de Assinatura" description="Crie planos compostos por serviços. Pacotes não entram na composição da assinatura na V1." />
     <Link className={styles.backLink} href="/gestor/catalogo"><ArrowLeft size={16} aria-hidden="true" /> Voltar para serviços</Link>
     <ActionMessage message={message} />
     {!props.subscriptionModuleEnabled && <div className={styles.notice}>Planos de Assinatura está inativo em Configurações → Módulos. Assinaturas existentes continuam; novas adesões e novos planos ficam bloqueados.</div>}
-    <Panel title="Planos cadastrados" description={`${props.plans.length} planos`} action={<button className={styles.button} type="button" disabled={!props.subscriptionModuleEnabled} onClick={() => openPlanForm()}>Novo plano</button>}>
-      <div className={styles.list}>{props.plans.map((plan) => {
+    <Panel title="Planos cadastrados" description={`${visiblePlans.length} de ${props.plans.length} planos`} action={<button className={styles.button} type="button" disabled={!props.subscriptionModuleEnabled} onClick={() => openPlanForm()}>Novo plano</button>}>
+      <div className={styles.subscriptionPlanFilters} role="group" aria-label="Filtrar planos">
+        {([["ALL", "Todos"], ["ACTIVE", "Ativos"], ["INACTIVE", "Inativos"], ["ARCHIVED", "Arquivados"]] as const).map(([value, label]) => <button key={value} type="button" className={`${styles.button} ${styles.buttonSoft} ${planFilter === value ? styles.subscriptionPlanFilterSelected : ""}`} aria-pressed={planFilter === value} onClick={() => setPlanFilter(value)}>{label}</button>)}
+      </div>
+      <div className={styles.list}>{visiblePlans.map((plan) => {
         const version = props.versions.find((item) => item.plan_id === plan.id);
         const editingContract = contractPlanId === plan.id;
         const archived = plan.archived_at !== null;
@@ -174,7 +192,7 @@ export function SubscriptionPlansManager(props: Props) {
           <span className={styles.rowTitle}><strong>{plan.name}</strong><small>{plan.description || "Sem descrição"}</small></span>
           <strong>{version ? formatCents(version.price_cents) : "—"}</strong>
           <span>{version?.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"}</span>
-          <span>{version?.scheduling_mode === "FIXED" ? `Agendamento fixo · ${version.fixed_schedule_cadence_weeks === 2 ? "quinzenal" : "semanal"}` : "Agendamento livre"}</span>
+          <span>{version?.scheduling_mode === "FIXED" ? `Agendamento fixo · ${fixedSchedulePatternLabel(version.fixed_schedule_pattern)}` : "Agendamento livre"}</span>
           <div className={`${styles.rowActions} ${styles.subscriptionPlanActions}`}>
             <StatusChip active={!archived && plan.active} label={archived ? "ARQUIVADO" : plan.active ? "ATIVO" : "INATIVO"} />
             {!archived && <>
@@ -187,13 +205,17 @@ export function SubscriptionPlansManager(props: Props) {
         </article>;
       })}</div>
     </Panel>
-    {newPlanOpen && <div className={styles.modalLayer} role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar cadastro de plano" onClick={() => { clearForm(); setNewPlanOpen(false); setMessage(""); }} /><form key={formKey} className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="new-subscription-plan-title" onSubmit={save}><header className={styles.modalHeader}><div><small>{editingPlan ? "Edição de plano" : "Cadastro de planos"}</small><h2 id="new-subscription-plan-title">{editingPlan ? "Editar plano" : "Novo plano"}</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => { clearForm(); setNewPlanOpen(false); setMessage(""); }}><X size={19} /></button></header><div className={styles.form}>
+    {newPlanOpen && <div className={styles.modalLayer} role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar cadastro de plano" onClick={() => { clearForm(); setNewPlanOpen(false); setMessage(""); }} /><form key={formKey} className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionPlanModal}`} role="dialog" aria-modal="true" aria-labelledby="new-subscription-plan-title" onSubmit={save}><header className={styles.modalHeader}><div><small>{editingPlan ? "Edição de plano" : "Cadastro de planos"}</small><h2 id="new-subscription-plan-title">{editingPlan ? "Editar plano" : "Novo plano"}</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => { clearForm(); setNewPlanOpen(false); setMessage(""); }}><X size={19} /></button></header><div className={styles.form}>
         <Field label="Nome"><input name="name" defaultValue={editingPlan?.name ?? ""} required minLength={2} /></Field>
         <Field label="Valor do ciclo (R$)"><input name="price" defaultValue={priceInputValue(editingVersion)} required inputMode="decimal" /></Field>
         <div className={`${styles.formWide} ${styles.formCompactRow}`}>
-          <Field label="Periodicidade"><select name="billing_period" defaultValue={editingVersion?.billing_period ?? "MONTHLY"}><option value="MONTHLY">Mensal</option><option value="BIWEEKLY">Quinzenal (15 dias)</option></select></Field>
+          <Field label="Periodicidade"><select name="billing_period" value={billingPeriod} onChange={(event) => {
+            const period = event.target.value === "BIWEEKLY" ? "BIWEEKLY" : "MONTHLY";
+            setBillingPeriod(period);
+            if (period === "BIWEEKLY" && fixedSchedulePattern(fixedPattern)?.monthlyOnly) setFixedPattern("CYCLE_1");
+          }}><option value="MONTHLY">Mensal</option><option value="BIWEEKLY">Quinzenal (15 dias)</option></select></Field>
           <Field label="Duração (meses)"><input name="duration_months" type="number" min={1} max={120} defaultValue={editingVersion?.duration_months ?? 1} required /></Field>
-          <Field label="Sessões por ciclo"><input name="sessions_per_cycle" type="number" min={1} max={100} defaultValue={editingVersion?.sessions_per_cycle ?? 2} required /></Field>
+          {schedulingMode === "FREE" ? <Field label="Sessões por ciclo"><input name="sessions_per_cycle" type="number" min={1} max={100} defaultValue={editingVersion?.sessions_per_cycle ?? 2} required /></Field> : <Field label="Sessões por ciclo"><select value={fixedPattern} onChange={(event) => setFixedPattern(event.target.value as FixedSchedulePattern)}>{fixedPatternOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>}
         </div>
         <Field label="Forma de pagamento"><select name="payment_method" defaultValue={editingVersion?.payment_method ?? "CARD"}><option value="CARD">Cartão de crédito (registro manual)</option><option value="PIX">PIX (registro manual)</option><option value="BOLETO">Boleto (registro manual)</option><option value="CASH">Dinheiro</option><option value="UPFRONT">À vista</option><option value="ONLINE">Link de pagamento (registro manual)</option></select></Field>
         <Field label="Forma de agendamento"><select name="scheduling_mode" value={schedulingMode} onChange={(event) => {
@@ -208,9 +230,9 @@ export function SubscriptionPlansManager(props: Props) {
         }}><option value="FREE">Livre</option><option value="FIXED">Fixo</option></select></Field>
         <div className={`${styles.formWide} ${styles.notice}`}>
           {schedulingMode === "FIXED" ? <>
-            <strong>Frequência das sessões: {frequencyConfirmed ? (fixedCadenceWeeks === "2" ? "Quinzenal" : "Semanal") : "a definir"}</strong>
-            <span>{frequencyConfirmed ? (fixedCadenceWeeks === "2" ? "A cada duas semanas, no mesmo dia e horário." : "Toda semana, no mesmo dia e horário.") : "A escolha da data inicial define o dia da semana; defina a frequência agora."}</span>
-            <button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => setFrequencyDialogOpen(true)}>Definir frequência</button>
+            <strong>{frequencyConfirmed ? activeFixedPattern?.label : "Frequência a definir"}</strong>
+            <span>{activeFixedPattern?.detail ?? "Escolha quantas sessões se repetem no ciclo."}</span>
+            <button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => setFrequencyDialogOpen(true)}>Configurar sessões</button>
           </> : <>
             <strong>Agendamento livre</strong>
             <span>O cliente escolhe as sessões no app, ou o gestor informa manualmente as datas de cada ciclo.</span>
@@ -225,6 +247,6 @@ export function SubscriptionPlansManager(props: Props) {
           <button className={styles.button} type="submit" disabled={!props.services.length}>{editingPlan ? "Salvar alterações" : "Criar plano"}</button>
         </div>
       </div></form></div>}
-    {newPlanOpen && frequencyDialogOpen && <div className={styles.modalLayer} style={{ zIndex: 60 }} role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar escolha de frequência" onClick={() => setFrequencyDialogOpen(false)} /><section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="plan-frequency-title"><header className={styles.modalHeader}><div><small>Agendamento fixo</small><h2 id="plan-frequency-title">Frequência das sessões</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setFrequencyDialogOpen(false)}><X size={19} /></button></header><p>Escolha como as sessões do plano se repetem. O dia e o horário serão definidos na adesão.</p><div className={styles.toolbarGroup}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" aria-pressed={fixedCadenceWeeks === "1"} onClick={() => { setFixedCadenceWeeks("1"); setFrequencyConfirmed(true); setFrequencyDialogOpen(false); }}><strong>Semanal</strong><span>Toda semana, no mesmo dia e horário.</span></button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" aria-pressed={fixedCadenceWeeks === "2"} onClick={() => { setFixedCadenceWeeks("2"); setFrequencyConfirmed(true); setFrequencyDialogOpen(false); }}><strong>Quinzenal</strong><span>A cada duas semanas, no mesmo dia e horário.</span></button></div><div className={styles.toolbarGroup}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setFrequencyDialogOpen(false)}>Voltar ao plano</button></div></section></div>}
+    {newPlanOpen && frequencyDialogOpen && <div className={styles.modalLayer} style={{ zIndex: 60 }} role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar escolha de frequência" onClick={() => setFrequencyDialogOpen(false)} /><section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="plan-frequency-title"><header className={styles.modalHeader}><div><small>Agendamento fixo</small><h2 id="plan-frequency-title">Sessões por ciclo</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setFrequencyDialogOpen(false)}><X size={19} /></button></header><p>Quinzenal permite 1 ou 2 sessões por ciclo. As demais frequências valem para ciclos mensais; semanas extras entram no preço do ciclo.</p><div className={styles.toolbarGroup}>{fixedPatternOptions.map((option) => <button key={option.value} className={`${styles.button} ${styles.buttonSoft}`} type="button" aria-pressed={fixedPattern === option.value} onClick={() => { setFixedPattern(option.value); setFrequencyConfirmed(true); setFrequencyDialogOpen(false); }}><strong>{option.label}</strong><span>{option.detail}</span></button>)}</div><div className={styles.toolbarGroup}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setFrequencyDialogOpen(false)}>Voltar ao plano</button></div></section></div>}
   </div>;
 }

@@ -6,6 +6,7 @@ import { useConnectedClient } from "./context";
 import { clientVocabulary } from "./vocabulary";
 import { barberSupportsServices, localToday } from "./format";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { billingCycleDayCount, dateForBillingCycleOffset, fixedSchedulePatternLabel, type FixedSchedulePattern } from "@/lib/subscription-plan-frequency";
 import styles from "./connected-client.module.css";
 
 type Row = {
@@ -27,6 +28,7 @@ type Row = {
     sessions_per_cycle: number;
     scheduling_mode: "FREE" | "FIXED";
     fixed_schedule_cadence_weeks: number | null;
+    fixed_schedule_pattern: FixedSchedulePattern | null;
     duration_months: number;
     cancellation_policy: string;
     session_cancellation_policy: string;
@@ -92,6 +94,7 @@ type AvailablePlan = {
     sessions_per_cycle: number;
     scheduling_mode: "FREE" | "FIXED";
     fixed_schedule_cadence_weeks: number | null;
+    fixed_schedule_pattern: FixedSchedulePattern | null;
     payment_method: string;
     cancellation_policy: string;
     session_cancellation_policy: string;
@@ -101,11 +104,73 @@ type AvailablePlan = {
 
 type FixedScheduleDraft = {
   plan: AvailablePlan;
-  cadenceWeeks: string;
+  pattern: FixedSchedulePattern;
   startDate: string;
-  localTime: string;
   barberId: string;
+  slots: Array<{ dayOffset: string; weekday: string; localTime: string; environmentId: string; environments: Array<{ id: string; name: string }>; loading: boolean }>;
 };
+
+function addLocalDays(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function nextWeekday(value: string, weekday: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const current = new Date(Date.UTC(year, month - 1, day));
+  const delta = (weekday - current.getUTCDay() + 7) % 7;
+  return addLocalDays(value, delta);
+}
+
+function FixedScheduleEnrollmentModal({
+  draft,
+  timezone,
+  barbers,
+  onClose,
+  onUpdate,
+  onUpdateSlot,
+  onLoadEnvironments,
+  onSubmit,
+}: {
+  draft: FixedScheduleDraft;
+  timezone: string;
+  barbers: Array<{ id: string; name: string; service_ids?: string[]; subscription_plan_ids?: string[] }>;
+  onClose(): void;
+  onUpdate(patch: Partial<FixedScheduleDraft>): void;
+  onUpdateSlot(index: number, patch: Partial<FixedScheduleDraft["slots"][number]>): void;
+  onLoadEnvironments(index: number): void;
+  onSubmit(event: FormEvent<HTMLFormElement>): void;
+}) {
+  const eligibleBarbers = barbers.filter((barber) => barberSupportsServices(draft.plan.service_ids, barber.service_ids)
+    && (barber.subscription_plan_ids === undefined || barber.subscription_plan_ids.includes(draft.plan.id)));
+  const perCycle = draft.pattern === "CYCLE_1" || draft.pattern === "CYCLE_2";
+  const dayNames = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  const billingPeriod = draft.plan.version?.billing_period === "BIWEEKLY" ? "BIWEEKLY" : "MONTHLY";
+  const maxOffset = draft.startDate ? billingCycleDayCount(draft.startDate, billingPeriod) - 1 : billingPeriod === "BIWEEKLY" ? 14 : 30;
+  return <div className={styles.modalLayer} role="presentation">
+    <button className={styles.backdrop} type="button" aria-label="Fechar escolha de agenda fixa" onClick={onClose} />
+    <form className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="fixed-subscription-title" onSubmit={onSubmit}>
+      <h2 id="fixed-subscription-title">Agendamento fixo</h2>
+      <p>Defina uma sala e horário para cada sessão da frequência. O sistema repete o padrão em cada ciclo. Ocorrência bloqueada por feriado ou recesso vira crédito disponível até o fim do ciclo.</p>
+      <label>Frequência do plano<span>{fixedSchedulePatternLabel(draft.pattern)}</span></label>
+      <label>Data inicial<input required type="date" min={localToday(timezone)} value={draft.startDate} onChange={(event) => {
+        const dayCount = event.target.value ? billingCycleDayCount(event.target.value, billingPeriod) : billingPeriod === "BIWEEKLY" ? 15 : 31;
+        onUpdate({ startDate: event.target.value, slots: draft.slots.map((slot) => ({ ...slot, dayOffset: perCycle ? String(Math.min(Number(slot.dayOffset), dayCount - 1)) : slot.dayOffset, environmentId: "", environments: [] })) });
+      }} /></label>
+      <label>Profissional<select required value={draft.barberId} onChange={(event) => onUpdate({ barberId: event.target.value, slots: draft.slots.map((slot) => ({ ...slot, environmentId: "", environments: [] }))})}><option value="">Selecione</option>{eligibleBarbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.name}</option>)}</select></label>
+      <div className={styles.fixedScheduleSlotList}>{draft.slots.map((slot, index) => <fieldset key={index} className={styles.fixedScheduleSlot}>
+        <legend>Sessão {index + 1}</legend>
+        {perCycle ? <label>Dia do ciclo<select value={slot.dayOffset} onChange={(event) => onUpdateSlot(index, { dayOffset: event.target.value, environmentId: "", environments: [] })}>{Array.from({ length: maxOffset + 1 }, (_, offset) => <option key={offset} value={String(offset)}>{offset + 1}º dia</option>)}</select></label> : <label>Dia da semana<select value={slot.weekday} onChange={(event) => onUpdateSlot(index, { weekday: event.target.value, environmentId: "", environments: [] })}>{dayNames.map((name, weekday) => <option key={weekday} value={String(weekday)}>{name}</option>)}</select></label>}
+        <label>Horário<input required type="time" step={900} value={slot.localTime} onChange={(event) => onUpdateSlot(index, { localTime: event.target.value, environmentId: "", environments: [] })} /></label>
+        <button className={styles.subscriptionSecondary} type="button" disabled={!draft.startDate || !slot.localTime || !draft.barberId || slot.loading} onClick={() => onLoadEnvironments(index)}>{slot.loading ? "Consultando…" : "Consultar salas disponíveis"}</button>
+        <label>Sala/ambiente<select required value={slot.environmentId} onChange={(event) => onUpdateSlot(index, { environmentId: event.target.value })} disabled={!slot.environments.length}><option value="">{slot.environments.length ? "Selecione" : "Consulte os horários"}</option>{slot.environments.map((environment) => <option key={environment.id} value={environment.id}>{environment.name}</option>)}</select></label>
+        {slot.environments.length === 0 && !slot.loading && <small>Consulte disponibilidade após escolher dia e horário.</small>}
+      </fieldset>)}</div>
+      <footer><button type="button" className={styles.subscriptionSecondary} onClick={onClose}>Cancelar</button><button type="submit" className={styles.subscriptionAction} disabled={!draft.startDate || !draft.barberId || draft.slots.some((slot) => !slot.environmentId)}>Solicitar plano</button></footer>
+    </form>
+  </div>;
+}
 type ProjectOffer = { id: string; project_id: string; package_id: string; status: string; contracted_cents: number; created_by: string; accepted_at: string | null; project: { name: string; description: string | null } | null; package: { name: string; description: string | null; sessions_count: number } | null };
 type ProjectInstallment = { id: string; engagement_id: string; installment_number: number; due_on: string; amount_cents: number; status: string; paid_at: string | null };
 type ProjectSession = { id: string; engagement_id: string; session_number: number; status: string; appointment_id: string | null; service_id: string | null; barber_id: string | null; appointment?: { status: string; service_period: string | null } | null };
@@ -161,7 +226,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       client
         .from("customer_subscriptions")
         .select(
-          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,duration_months,cancellation_policy,session_cancellation_policy,payment_method)",
+          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,duration_months,cancellation_policy,session_cancellation_policy,payment_method)",
         )
         .eq("organization_id", context.organization.id)
         .eq("customer_id", customer.id)
@@ -174,7 +239,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       client
         .from("subscription_plans")
         .select(
-          "id,name,description,version:subscription_plan_versions(id,version,price_cents,billing_period,duration_months,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,payment_method,cancellation_policy,session_cancellation_policy)",
+          "id,name,description,version:subscription_plan_versions(id,version,price_cents,billing_period,duration_months,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,payment_method,cancellation_policy,session_cancellation_policy)",
         )
         .eq("organization_id", context.organization.id)
         .eq("active", true)
@@ -364,10 +429,15 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       }
       setFixedScheduleDraft({
         plan,
-        cadenceWeeks: String(plan.version?.fixed_schedule_cadence_weeks ?? 1),
+        pattern: plan.version.fixed_schedule_pattern ?? (plan.version.sessions_per_cycle === 1 ? "CYCLE_1" : plan.version.sessions_per_cycle === 2 ? "CYCLE_2" : "WEEKLY_1"),
         startDate: localToday(context.organization.timezone),
-        localTime: "09:00",
         barberId: eligibleBarbers[0].id,
+        slots: (() => {
+          const pattern = plan.version!.fixed_schedule_pattern ?? (plan.version!.sessions_per_cycle === 1 ? "CYCLE_1" : plan.version!.sessions_per_cycle === 2 ? "CYCLE_2" : "WEEKLY_1");
+          const weekdays = pattern === "CYCLE_1" ? [] : pattern === "CYCLE_2" ? [] : pattern === "WEEKLY_1" ? [1] : pattern === "WEEKLY_2" ? [1, 3] : pattern === "WEEKLY_3" ? [1, 3, 5] : pattern === "WEEKDAYS" ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6];
+          const count = pattern === "CYCLE_1" ? 1 : pattern === "CYCLE_2" ? 2 : weekdays.length;
+          return Array.from({ length: count }, (_, index) => ({ dayOffset: String(index * 7), weekday: String(weekdays[index] ?? 1), localTime: "09:00", environmentId: "", environments: [], loading: false }));
+        })(),
       });
       return;
     }
@@ -407,14 +477,22 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     const draft = fixedScheduleDraft;
     const client = getSupabaseBrowserClient();
     if (!client) return;
-    const { error } = await client.rpc("request_customer_fixed_subscription", {
+    if (draft.slots.some((slot) => !slot.localTime || !slot.environmentId)) {
+      setMessage("Escolha horário e sala disponíveis para todas as sessões da frequência.");
+      return;
+    }
+    const perCycle = draft.pattern === "CYCLE_1" || draft.pattern === "CYCLE_2";
+    const { error } = await client.rpc("request_customer_fixed_subscription_pattern", {
       p_organization_id: context.organization.id,
       p_customer_id: customer.id,
       p_plan_id: draft.plan.id,
-      p_cadence_weeks: Number(draft.cadenceWeeks),
       p_start_date: draft.startDate,
-      p_local_time: draft.localTime,
       p_barber_id: draft.barberId,
+      p_slots: draft.slots.map((slot) => ({
+        ...(perCycle ? { day_offset: Number(slot.dayOffset) } : { weekday: Number(slot.weekday) }),
+        local_time: slot.localTime,
+        environment_id: slot.environmentId,
+      })),
       p_acceptance_source: "CLIENT",
       p_accept_contract: true,
     });
@@ -428,6 +506,31 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       setFixedScheduleDraft(null);
       window.location.assign(route("/cliente/assinaturas/meus-planos"));
     }
+  }
+
+  async function loadFixedScheduleEnvironments(index: number) {
+    if (!context || !customer || !fixedScheduleDraft) return;
+    const draft = fixedScheduleDraft;
+    const slot = draft.slots[index];
+    if (!slot?.localTime || !draft.startDate) return;
+    const perCycle = draft.pattern === "CYCLE_1" || draft.pattern === "CYCLE_2";
+    const localDate = perCycle
+      ? dateForBillingCycleOffset(draft.startDate, Number(slot.dayOffset), draft.plan.version?.billing_period === "BIWEEKLY" ? "BIWEEKLY" : "MONTHLY")
+      : nextWeekday(draft.startDate, Number(slot.weekday));
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    setFixedScheduleDraft((current) => current ? { ...current, slots: current.slots.map((item, itemIndex) => itemIndex === index ? { ...item, loading: true, environments: [], environmentId: "" } : item) } : current);
+    const { data, error } = await client.rpc("get_fixed_subscription_schedule_slot_options", {
+      p_organization_id: context.organization.id,
+      p_customer_id: customer.id,
+      p_plan_version_id: draft.plan.version?.id,
+      p_barber_id: draft.barberId,
+      p_local_date: localDate,
+      p_local_time: slot.localTime,
+    });
+    const environments = error ? [] : (data ?? []) as Array<{ id: string; name: string }>;
+    setFixedScheduleDraft((current) => current ? { ...current, slots: current.slots.map((item, itemIndex) => itemIndex === index ? { ...item, loading: false, environments, environmentId: environments[0]?.id ?? "" } : item) } : current);
+    if (error) setMessage("Não foi possível consultar salas e horários. Escolha outro profissional, data ou horário.");
   }
   async function requestSubscriptionCancellation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -605,28 +708,23 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     <header><Link href={route("/cliente/assinaturas/novo-plano")} className={styles.subscriptionBack}>← Novo Plano</Link><span className={styles.planKind}>Plano</span><h1>{selectedPlan.name}</h1><p>{selectedPlan.description ?? "Sem descrição cadastrada."}</p></header>
     <article className={styles.subscriptionCard}>
       <h2>Detalhes do plano</h2><strong>{selectedPlan.version ? money(selectedPlan.version.price_cents) : "Valor sob consulta"}</strong>
-      {selectedPlan.version && <p>{selectedPlan.version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedPlan.version.duration_months} mês(es) · {selectedPlan.version.sessions_per_cycle} sessão(ões) por ciclo · {selectedPlan.version.scheduling_mode === "FIXED" ? `Agendamento fixo · ${selectedPlan.version.fixed_schedule_cadence_weeks === 2 ? "a cada duas semanas" : "toda semana"}, no mesmo dia e horário` : "Agendamento livre: cliente escolhe no app ou gestor agenda cada ciclo"} · pagamento: {paymentMethodLabel[selectedPlan.version.payment_method] ?? selectedPlan.version.payment_method}</p>}
+      {selectedPlan.version && <p>{selectedPlan.version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedPlan.version.duration_months} mês(es) · {selectedPlan.version.scheduling_mode === "FIXED" ? `Agendamento fixo · ${fixedSchedulePatternLabel(selectedPlan.version.fixed_schedule_pattern)}` : `${selectedPlan.version.sessions_per_cycle} sessão(ões) por ciclo · agendamento livre: cliente escolhe no app ou gestor agenda cada ciclo`} · pagamento: {paymentMethodLabel[selectedPlan.version.payment_method] ?? selectedPlan.version.payment_method}</p>}
       {selectedPlan.service_ids.length > 0 && <div><h3>Serviços incluídos</h3><ul>{selectedPlan.service_ids.map((id) => <li key={id}>{context?.services.find((service) => service.id === id)?.name ?? "Serviço incluído"}</li>)}</ul></div>}
       {selectedPlan.version?.cancellation_policy && <details><summary>Política do plano</summary><p>{selectedPlan.version.cancellation_policy}</p>{selectedPlan.version.session_cancellation_policy && <p>{selectedPlan.version.session_cancellation_policy}</p>}</details>}
       {contractBody && <details><summary>Contrato padrão</summary><p>{contractBody}</p></details>}
       <button className={styles.subscriptionAction} type="button" onClick={() => void requestPlan(selectedPlan)}>Solicitar plano</button>
     </article>
     {fixedScheduleDraft && <p role="status">Complete a escolha de agenda na janela aberta.</p>}
-    {fixedScheduleDraft && context && (() => {
-      const eligibleBarbers = context.barbers.filter((barber) => barberSupportsServices(fixedScheduleDraft.plan.service_ids, barber.service_ids)
-        && (barber.subscription_plan_ids === undefined || barber.subscription_plan_ids.includes(fixedScheduleDraft.plan.id)));
-      return <div className={styles.modalLayer} role="presentation">
-        <button className={styles.backdrop} type="button" aria-label="Fechar escolha de agenda fixa" onClick={() => setFixedScheduleDraft(null)} />
-        <form className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="fixed-subscription-title" onSubmit={(event) => void requestFixedPlan(event)}>
-          <h2 id="fixed-subscription-title">Agendamento fixo</h2><p>Escolha a recorrência, a primeira data, o horário e o profissional.</p>
-          <label>Frequência do plano<span>{fixedScheduleDraft.cadenceWeeks === "2" ? "Quinzenal · a cada duas semanas, no mesmo dia e horário" : "Semanal · toda semana, no mesmo dia e horário"}</span></label>
-          <label>Data inicial<input required type="date" min={localToday(context.organization.timezone)} value={fixedScheduleDraft.startDate} onChange={(event) => setFixedScheduleDraft((draft) => draft ? { ...draft, startDate: event.target.value } : draft)} /></label>
-          <label>Horário<input required type="time" step={900} value={fixedScheduleDraft.localTime} onChange={(event) => setFixedScheduleDraft((draft) => draft ? { ...draft, localTime: event.target.value } : draft)} /></label>
-          <label>Profissional<select required value={fixedScheduleDraft.barberId} onChange={(event) => setFixedScheduleDraft((draft) => draft ? { ...draft, barberId: event.target.value } : draft)}><option value="">Selecione</option>{eligibleBarbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.name}</option>)}</select></label>
-          <footer><button type="button" className={styles.subscriptionSecondary} onClick={() => setFixedScheduleDraft(null)}>Cancelar</button><button type="submit" className={styles.subscriptionAction}>Solicitar plano</button></footer>
-        </form>
-      </div>;
-    })()}
+    {fixedScheduleDraft && context && <FixedScheduleEnrollmentModal
+      draft={fixedScheduleDraft}
+      timezone={context.organization.timezone}
+      barbers={context.barbers}
+      onClose={() => setFixedScheduleDraft(null)}
+      onUpdate={(patch) => setFixedScheduleDraft((draft) => draft ? { ...draft, ...patch } : draft)}
+      onUpdateSlot={(index, patch) => setFixedScheduleDraft((draft) => draft ? { ...draft, slots: draft.slots.map((slot, slotIndex) => slotIndex === index ? { ...slot, ...patch } : slot) } : draft)}
+      onLoadEnvironments={(index) => void loadFixedScheduleEnvironments(index)}
+      onSubmit={(event) => void requestFixedPlan(event)}
+    />}
   </section>;
 
   if (view === "project" && selectedProject) return <section className={styles.subscriptionStack}>
@@ -845,22 +943,16 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       ))}
       {view === "my-plans" && !rows.some((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row)) && !projectOffers.some((offer) => offer.created_by === user?.id || offer.status === "ACTIVE" || offer.status === "DECLINED") && <p>Você ainda não possui planos neste estabelecimento.</p>}
       {view === "my-plans" && <Link className={styles.subscriptionCard} href={route("/cliente/assinaturas/meus-planos/encerrados")}><h2>Planos Encerrados</h2><p>Consulte planos cancelados e contratos finalizados.</p><span>Acessar planos encerrados</span></Link>}
-      {fixedScheduleDraft && context && (() => {
-        const eligibleBarbers = context.barbers.filter((barber) => barberSupportsServices(fixedScheduleDraft.plan.service_ids, barber.service_ids)
-          && (barber.subscription_plan_ids === undefined || barber.subscription_plan_ids.includes(fixedScheduleDraft.plan.id)));
-        return <div className={styles.modalLayer} role="presentation">
-          <button className={styles.backdrop} type="button" aria-label="Fechar escolha de agenda fixa" onClick={() => setFixedScheduleDraft(null)} />
-          <form className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="fixed-subscription-title" onSubmit={(event) => void requestFixedPlan(event)}>
-            <h2 id="fixed-subscription-title">Agendamento fixo</h2>
-            <p>Escolha a recorrência, a primeira data, o horário e o profissional. Após a aprovação e o primeiro pagamento, as sessões do plano serão agendadas automaticamente. Datas bloqueadas deslocam esta e as sessões seguintes.</p>
-            <label>Frequência do plano<span>{fixedScheduleDraft.cadenceWeeks === "2" ? "Quinzenal · a cada duas semanas, no mesmo dia e horário" : "Semanal · toda semana, no mesmo dia e horário"}</span></label>
-            <label>Data inicial<input required type="date" min={localToday(context.organization.timezone)} value={fixedScheduleDraft.startDate} onChange={(event) => setFixedScheduleDraft((draft) => draft ? { ...draft, startDate: event.target.value } : draft)} /></label>
-            <label>Horário<input required type="time" step={900} value={fixedScheduleDraft.localTime} onChange={(event) => setFixedScheduleDraft((draft) => draft ? { ...draft, localTime: event.target.value } : draft)} /></label>
-            <label>Profissional<select required value={fixedScheduleDraft.barberId} onChange={(event) => setFixedScheduleDraft((draft) => draft ? { ...draft, barberId: event.target.value } : draft)}><option value="">Selecione</option>{eligibleBarbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.name}</option>)}</select></label>
-            <footer><button type="button" className={styles.subscriptionSecondary} onClick={() => setFixedScheduleDraft(null)}>Cancelar</button><button type="submit" className={styles.subscriptionAction}>Solicitar plano</button></footer>
-          </form>
-        </div>;
-      })()}
+      {fixedScheduleDraft && context && <FixedScheduleEnrollmentModal
+        draft={fixedScheduleDraft}
+        timezone={context.organization.timezone}
+        barbers={context.barbers}
+        onClose={() => setFixedScheduleDraft(null)}
+        onUpdate={(patch) => setFixedScheduleDraft((draft) => draft ? { ...draft, ...patch } : draft)}
+        onUpdateSlot={(index, patch) => setFixedScheduleDraft((draft) => draft ? { ...draft, slots: draft.slots.map((slot, slotIndex) => slotIndex === index ? { ...slot, ...patch } : slot) } : draft)}
+        onLoadEnvironments={(index) => void loadFixedScheduleEnvironments(index)}
+        onSubmit={(event) => void requestFixedPlan(event)}
+      />}
       {cancellationDraft && (() => {
         const rowCycles = cycles.filter((cycle) => cycle.subscription_id === cancellationDraft.subscriptionId);
         const finalSessions = rowCycles.flatMap((cycle) => cycle.sessions
