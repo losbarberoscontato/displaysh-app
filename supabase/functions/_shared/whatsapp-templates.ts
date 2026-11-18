@@ -3,16 +3,20 @@ type Job = { job_type: string; payload: Record<string, unknown> };
 const fixedConfirmationReplyPrompt =
   "Responda somente com um número:\n1 — Confirmar\n2 — Cancelar\n3 — Falar com atendente";
 
-function withFixedConfirmationReply(template: string): string {
+function withFixedConfirmationReply(
+  template: string,
+  heading?: string,
+): string {
   const normalized = template.replaceAll("\\n", "\n");
   const fixedSectionStart =
     /(?:^|\r?\n)\s*(?:Responda somente com um número\s*:|1\s*(?:[—–-]|[.)]))/i;
   const marker = fixedSectionStart.exec(normalized);
   const header = (marker ? normalized.slice(0, marker.index) : normalized)
     .replace(/[\s\r\n]+$/, "");
-  return header
-    ? `${header}\n\n${fixedConfirmationReplyPrompt}`
+  const prompt = heading
+    ? `${heading}\n${fixedConfirmationReplyPrompt}`
     : fixedConfirmationReplyPrompt;
+  return header ? `${header}\n\n${prompt}` : prompt;
 }
 
 function hasFixedConfirmationReply(job: Job): boolean {
@@ -202,13 +206,33 @@ export function textFor(job: Job): string {
           ? job.payload.body
           : "Encontrei mais de um agendamento. Responda com o número correspondente:\n\n{reservas}";
       } else if (messageKind === "PROJECT_CONTRACT_CREATED_CLIENT") {
-        fallback = "Olá! {cliente}, passando para informar que foi criado um novo plano de serviços para você. Para mais detalhes e aceite do plano, acesse o app do cliente na aba Assinaturas: {link_app_cliente}. Você deve fazer login no app com o e-mail {email_cliente}.";
+        fallback =
+          "Olá! {cliente}, passando para informar que foi criado um novo plano de serviços para você. Para mais detalhes e aceite do plano, acesse o app do cliente na aba Assinaturas: {link_app_cliente}. Você deve fazer login no app com o e-mail {email_cliente}.";
       } else if (messageKind === "SUBSCRIPTION_CREATED_CLIENT") {
-        fallback = "Olá! {cliente}, passando para informar que foi criada uma nova assinatura para você. Para mais detalhes e aceite desta assinatura, acesse o app do cliente na aba Assinaturas: {link_app_cliente}. Você deve fazer login no app com o e-mail {email_cliente}.";
+        fallback =
+          "Olá! {cliente}, passando para informar que foi criada uma nova assinatura para você. Para mais detalhes e aceite desta assinatura, acesse o app do cliente na aba Assinaturas: {link_app_cliente}. Você deve fazer login no app com o e-mail {email_cliente}.";
       } else fallback = `Atualização do agendamento de ${name} com ${barber}.`;
       break;
     default:
       fallback = `Atualização do agendamento de ${name} com ${barber}.`;
+  }
+  if (
+    job.payload.immediate_booking_confirmation === true &&
+    job.job_type.startsWith("REMINDER_")
+  ) {
+    const bookingJob: Job = { ...job, job_type: "BOOKING_CREATED_CLIENT" };
+    const bookingFallback =
+      `${name}, seu agendamento foi confirmado para ${when}.`;
+    const bookingTemplate = configuredTemplate(bookingJob) ?? bookingFallback;
+    const bookingNotice = applyTemplate(
+      bookingTemplate,
+      job,
+      bookingFallback,
+    );
+    return withFixedConfirmationReply(
+      bookingNotice,
+      "Para confirmar sua presença:",
+    );
   }
   let template = configuredTemplate(job) ?? fallback;
   if (hasFixedConfirmationReply(job)) {

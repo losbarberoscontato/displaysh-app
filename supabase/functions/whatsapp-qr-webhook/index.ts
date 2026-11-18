@@ -130,6 +130,12 @@ Deno.serve((request) =>
         requiredEnv("EVOLUTION_WEBHOOK_SECRET"),
       )
     ) {
+      console.warn("whatsapp_qr_webhook_rejected", {
+        reason: "INVALID_SIGNATURE",
+        auth_header_present: Boolean(
+          request.headers.get("x-evolution-webhook-secret"),
+        ),
+      });
       throw new IntegrationError(401, "INVALID_SIGNATURE");
     }
     let payload: EvolutionPayload;
@@ -138,9 +144,15 @@ Deno.serve((request) =>
     } catch {
       throw new IntegrationError(400, "INVALID_JSON");
     }
-    if (!payload.instance) return json(request, { received: true });
     const event = payload.event?.toUpperCase().replaceAll(".", "_") ??
       "UNKNOWN";
+    if (!payload.instance) {
+      console.warn("whatsapp_qr_webhook_rejected", {
+        event,
+        reason: "INSTANCE_MISSING",
+      });
+      return json(request, { received: true, queued: false });
+    }
     if (event === "QRCODE_UPDATED") {
       const code = payload.data?.base64 ?? payload.data?.qrcode?.base64;
       if (code) {
@@ -171,21 +183,57 @@ Deno.serve((request) =>
       payload.instance!,
       payload.data,
     );
+    const instanceFingerprint = (await sha256Hex(payload.instance)).slice(
+      0,
+      12,
+    );
+    if (events.length === 0) {
+      const data = payload.data && typeof payload.data === "object"
+        ? payload.data as Record<string, unknown>
+        : null;
+      console.warn("whatsapp_qr_webhook_unparsed", {
+        event,
+        instance_fingerprint: instanceFingerprint,
+        data_is_array: Array.isArray(payload.data),
+        data_keys: data ? Object.keys(data).slice(0, 24) : [],
+      });
+    }
     let queued = false;
+    let persistedCount = 0;
     for (const item of events) {
       const fingerprint = await sha256Hex(eventIdentity(item));
-      const eventId = await rpc<string | null>(
-        "record_whatsapp_v2_webhook_event",
-        {
-          p_gateway_instance_id: payload.instance,
-          p_event_name: item.event_name,
-          p_provider_event_id: item.external_id,
-          p_fingerprint: fingerprint,
-          p_payload: item,
-        },
-      );
+      let eventId: string | null;
+      try {
+        eventId = await rpc<string | null>(
+          "record_whatsapp_v2_webhook_event",
+          {
+            p_gateway_instance_id: payload.instance,
+            p_event_name: item.event_name,
+            p_provider_event_id: item.external_id,
+            p_fingerprint: fingerprint,
+            p_payload: item,
+          },
+        );
+      } catch (error) {
+        console.error("whatsapp_qr_webhook_persist_failed", {
+          event,
+          instance_fingerprint: instanceFingerprint,
+          error_code: error instanceof IntegrationError
+            ? error.code
+            : "WEBHOOK_EVENT_PERSIST_FAILED",
+        });
+        throw error;
+      }
       queued = queued || Boolean(eventId);
+      if (eventId) persistedCount += 1;
     }
+    console.info("whatsapp_qr_webhook_processed", {
+      event,
+      instance_fingerprint: instanceFingerprint,
+      normalized_count: events.length,
+      persisted_count: persistedCount,
+      queued,
+    });
     // Low-latency path. The minute cron remains the durable fallback.
     if (queued) {
       const dispatch = triggerV2Dispatcher();
@@ -195,6 +243,10 @@ Deno.serve((request) =>
       if (edgeRuntime) edgeRuntime.waitUntil(dispatch);
       else void dispatch;
     }
-    return json(request, { received: true, queued: true });
+    return json(request, {
+      received: true,
+      normalized: events.length,
+      queued,
+    });
   })
 );
