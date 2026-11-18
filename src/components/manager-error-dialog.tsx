@@ -8,6 +8,7 @@ const EVENT_NAME = "displaysh:manager-error";
 type ErrorNotice = {
   message: string;
   title: string;
+  actionColor?: string;
   action?: { label: string; onClick: () => void };
 };
 
@@ -23,6 +24,7 @@ export function showManagerError(
   const notice: ErrorNotice = {
     message: cleanMessage,
     title: options?.title?.trim() || "Não foi possível concluir",
+    actionColor: options?.action ? resolveActionColor() : undefined,
     action: options?.action,
   };
   if (listeners.size === 0) {
@@ -32,8 +34,19 @@ export function showManagerError(
   window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: notice }));
 }
 
+function resolveActionColor() {
+  const themedPage = document.querySelector<HTMLElement>('dialog[aria-labelledby="booking-step-title"][open]')
+    ?? document.querySelector<HTMLElement>(".manager-shell, .productTheme")
+    ?? document.documentElement;
+  const styles = window.getComputedStyle(themedPage);
+  return styles.getPropertyValue("--manager-action-bg").trim()
+    || styles.getPropertyValue("--forest-900").trim()
+    || undefined;
+}
+
 export function ManagerErrorDialog() {
   const [messages, setMessages] = useState<ErrorNotice[]>([]);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const okButtonRef = useRef<HTMLButtonElement>(null);
   const notice = messages[0] ?? null;
 
@@ -54,26 +67,40 @@ export function ManagerErrorDialog() {
   }, []);
 
   useEffect(() => {
-    if (notice) okButtonRef.current?.focus();
+    const dialog = dialogRef.current;
+    if (!dialog || !notice) return;
+    if (!dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    okButtonRef.current?.focus();
   }, [notice]);
 
   if (!notice) return null;
 
   return (
-    <div className={styles.overlay}>
-      <section className={styles.dialog} role="alertdialog" aria-modal="true" aria-labelledby="manager-error-title" aria-describedby="manager-error-message">
+    <dialog
+      ref={dialogRef}
+      className={styles.overlay}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="manager-error-title"
+      aria-describedby="manager-error-message"
+      onCancel={(event) => event.preventDefault()}
+    >
+      <section className={styles.dialog}>
         <span className={styles.icon}><AlertCircle size={22} aria-hidden="true" /></span>
         <div className={styles.content}>
           <h2 id="manager-error-title">{notice.title}</h2>
           <p id="manager-error-message">{notice.message}</p>
         </div>
-        <button ref={okButtonRef} type="button" className={styles.okButton} onClick={() => {
+        <button ref={okButtonRef} type="button" className={styles.okButton} style={notice.actionColor ? { backgroundColor: notice.actionColor } : undefined} onClick={() => {
           setMessages((current) => current.slice(1));
           notice.action?.onClick();
         }}>
           {notice.action?.label ?? "OK"}
         </button>
       </section>
-    </div>
+    </dialog>
   );
 }

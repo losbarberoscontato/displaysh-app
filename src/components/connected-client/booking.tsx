@@ -598,6 +598,7 @@ function BookingContent() {
             label: "Escolher outro horário",
             onClick: () => {
               setStep(3);
+              setStartsAt("");
               releaseReviewHold(() => setAvailabilityRetry((current) => current + 1));
             },
           },
