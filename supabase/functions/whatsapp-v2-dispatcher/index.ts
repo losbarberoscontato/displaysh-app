@@ -164,9 +164,18 @@ async function dispatchEvent(event: Event): Promise<void> {
     const sender = event.payload.sender_e164;
     const text = event.payload.text;
     if (
-      event.event_name_normalized === "MESSAGES_UPSERT" && sender && text &&
+      event.event_name_normalized === "MESSAGES_UPSERT" &&
       !event.payload.from_me
     ) {
+      if (!sender || !text) {
+        await completeEvent(
+          event.id,
+          false,
+          sender ? "INBOUND_TEXT_UNRESOLVED" : "INBOUND_SENDER_UNRESOLVED",
+          true,
+        );
+        return;
+      }
       await rpc("record_whatsapp_v2_inbound_message", {
         p_connection_id: event.connection_id,
         p_sender_e164: sender,

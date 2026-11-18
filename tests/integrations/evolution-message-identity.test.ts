@@ -19,6 +19,13 @@ describe("identidade de mensagens Evolution", () => {
     })).toBe("+5511988888888");
   });
 
+  it("ignora campos de JID malformados sem interromper a leitura do identificador alternativo", () => {
+    expect(senderPhoneFromMessageKey({
+      remoteJid: { unexpected: true },
+      remoteJidAlt: "5511999999999@s.whatsapp.net",
+    })).toBe("+5511999999999");
+  });
+
   it("nunca converte LID em telefone", () => {
     expect(phoneFromWhatsappJid("123456789012345@lid")).toBeNull();
     expect(senderPhoneFromMessageKey({ remoteJid: "123456789012345@lid" })).toBeNull();

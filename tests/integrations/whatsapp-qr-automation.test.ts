@@ -12,6 +12,8 @@ describe("automação WhatsApp QR v2", () => {
   const managerNotificationMigration = read("supabase/migrations/20260819143928_whatsapp_v2_manager_notification_phone.sql");
   const managerPhoneValidationMigration = read("supabase/migrations/20260819163816_fix_whatsapp_v2_manager_notification_phone_validation.sql");
   const agendaStatusMigration = read("supabase/migrations/20260821115548_whatsapp_agenda_response_statuses.sql");
+  const auxiliaryWebhookMigration = read("supabase/migrations/20261101152207_appointment_auxiliaries.sql");
+  const auxiliaryTemplateMigration = read("supabase/migrations/20261101204721_whatsapp_auxiliary_editable_templates.sql");
   const manualConfirmationRepairMigration = read("supabase/migrations/20261014180506_fix_whatsapp_qr_activation_and_legacy_manual_confirmation.sql");
   const manualConfirmationWindowMigration = read("supabase/migrations/20261014181006_extend_manual_confirmation_delivery_window.sql");
   const runtimeMigration = read("supabase/migrations/20260906230249_whatsapp_reliable_runtime.sql");
@@ -61,6 +63,11 @@ describe("automação WhatsApp QR v2", () => {
     expect(migration).toContain("perform public.cancel_appointment");
     expect(agendaStatusMigration).toContain("'CONFIRMED_BY_WHATSAPP'");
     expect(agendaStatusMigration).toContain("'CANCELED_BY_WHATSAPP'");
+    expect(agendaStatusMigration).toContain("'CONFIRMATION_ACK_CLIENT'");
+    expect(agendaStatusMigration).toContain("'APPOINTMENT_CONFIRMED_STAFF'");
+    expect(auxiliaryWebhookMigration).toContain("whatsapp_jobs_clone_staff_notice_to_auxiliaries");
+    expect(auxiliaryTemplateMigration).toContain("new.job_type in ('APPOINTMENT_CONFIRMED_STAFF'");
+    expect(auxiliaryTemplateMigration).toContain("'message_audience', 'AUXILIARY'");
     expect(agendaStatusMigration).toContain("'CONTACT_REQUESTED_BY_WHATSAPP'");
   });
 
@@ -129,6 +136,8 @@ describe("automação WhatsApp QR v2", () => {
     expect(dispatcher).toContain("ACTION_NOT_APPLIED");
     expect(dispatcher).toContain("reason !== \"UNKNOWN_CONNECTION\"");
     expect(dispatcher).toContain("GATEWAY_INSTANCE_MISSING");
+    expect(dispatcher).toContain("INBOUND_SENDER_UNRESOLVED");
+    expect(dispatcher).toContain("INBOUND_TEXT_UNRESOLVED");
   });
 
   it("finaliza webhooks por uma assinatura RPC e recupera leases vencidos", () => {

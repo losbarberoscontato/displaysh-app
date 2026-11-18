@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { normalizeEvolutionMessages, eventIdentity } from "../../supabase/functions/_shared/whatsapp-normalize";
+import { normalizeEvolutionEventName, normalizeEvolutionMessages, eventIdentity } from "../../supabase/functions/_shared/whatsapp-normalize";
 import { sendEvolutionText, validateImage } from "../../supabase/functions/_shared/whatsapp-delivery";
 import { dispatchRuntimeJob, type RuntimeDependencies } from "../../supabase/functions/_shared/whatsapp-runtime";
 import { textFor } from "../../supabase/functions/_shared/whatsapp-templates";
@@ -19,6 +19,28 @@ describe("Evolution transport contract", () => {
     expect(events[0].quoted_id).toBe("quoted");
     expect(JSON.stringify(events)).not.toContain("127.0.0.1");
     expect(events[0].media?.key.id).toBe("a");
+  });
+  it("normaliza resposta numerica encapsulada mesmo com campos Evolution inesperados", () => {
+    const events = normalizeEvolutionMessages("MESSAGES_UPSERT", "tenant", {
+      key: {
+        id: "reply-1",
+        remoteJid: { malformed: true },
+        remoteJidAlt: "5511999999999@s.whatsapp.net",
+        fromMe: "false",
+      },
+      message: { ephemeralMessage: { message: { conversation: "1" } } },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      sender_e164: "+5511999999999",
+      from_me: false,
+      text: "1",
+    });
+  });
+  it("normaliza eventos sem chamar metodos em valores externos nao textuais", () => {
+    expect(normalizeEvolutionEventName("messages.upsert")).toBe("MESSAGES_UPSERT");
+    expect(normalizeEvolutionEventName({ event: "messages.upsert" })).toBeNull();
   });
   it("ignora mensagens próprias e de grupos", () => {
     expect(normalizeEvolutionMessages("MESSAGES_UPSERT", "t", { key: { id: "a", fromMe: true } })).toEqual([]);

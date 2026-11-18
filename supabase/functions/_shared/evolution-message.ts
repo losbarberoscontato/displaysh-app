@@ -1,20 +1,20 @@
 export type EvolutionMessageKey = {
-  id?: string;
-  remoteJid?: string;
-  remoteJidAlt?: string;
-  participant?: string;
-  participantAlt?: string;
-  fromMe?: boolean;
-  addressingMode?: string;
+  id?: unknown;
+  remoteJid?: unknown;
+  remoteJidAlt?: unknown;
+  participant?: unknown;
+  participantAlt?: unknown;
+  fromMe?: unknown;
+  addressingMode?: unknown;
 };
 
-const ignoredJid = (value: string | undefined) => {
-  const normalized = value?.trim().toLowerCase() ?? "";
+const ignoredJid = (value: unknown) => {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   return normalized.endsWith("@g.us") || normalized.endsWith("@broadcast");
 };
 
-export function phoneFromWhatsappJid(value: string | undefined): string | null {
-  const normalized = value?.trim() ?? "";
+export function phoneFromWhatsappJid(value: unknown): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
   if (normalized.toLowerCase().endsWith("@lid")) return null;
   const match = /^(\d{10,15})(?::\d+)?(?:@(s\.whatsapp\.net|c\.us))?$/iu.exec(
     normalized,
