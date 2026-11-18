@@ -16,6 +16,7 @@ import {
   MapPin,
   MessageCircle,
   Scissors,
+  Trash2,
   UserRound,
   X,
 } from "lucide-react";
@@ -152,6 +153,8 @@ export function AgendaManager(props: Props) {
   const [barberFilter, setBarberFilter] = useState("ALL");
   const [status, setStatus] = useState<AgendaStatusFilter>("ALL");
   const [selected, setSelected] = useState<AppointmentRecord | null>(null);
+  const [deleteExpiredTarget, setDeleteExpiredTarget] = useState<AppointmentRecord | null>(null);
+  const [deleteExpiredSaving, setDeleteExpiredSaving] = useState(false);
   const [lockedCancellation, setLockedCancellation] = useState<AppointmentRecord | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [newAppointmentSelection, setNewAppointmentSelection] = useState("");
@@ -583,6 +586,24 @@ export function AgendaManager(props: Props) {
     if (saved) { setSelected(null); router.refresh(); }
   }
 
+  async function deleteExpiredAppointment() {
+    if (!deleteExpiredTarget || deleteExpiredTarget.status !== "EXPIRED" || deleteExpiredSaving) return;
+    setDeleteExpiredSaving(true);
+    const appointmentId = deleteExpiredTarget.id;
+    const saved = await runMutation(setMessage, async () => {
+      await assertResult(await connectedClient().rpc("delete_expired_appointment", {
+        p_organization_id: props.organizationId,
+        p_appointment_id: appointmentId,
+      }));
+    }, "Agendamento expirado excluído das agendas e do histórico do cliente.");
+    setDeleteExpiredSaving(false);
+    if (saved) {
+      setDeleteExpiredTarget(null);
+      setSelected(null);
+      router.refresh();
+    }
+  }
+
   async function confirmWithoutPayment(appointment: AppointmentRecord) {
     const reason = window.prompt("Motivo para confirmar mantendo o saldo pendente:", "Pagamento combinado no balcão");
     if (!reason?.trim()) return;
@@ -770,8 +791,11 @@ export function AgendaManager(props: Props) {
         {["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(selected.status) && <button type="button" className="button button--soft" disabled={blocked} onClick={() => setRescheduling(selected)}>Reagendar</button>}
         {selected.status === "CONFIRMED" && <button type="button" className="button button--soft" onClick={() => transition(selected, "NO_SHOW")}>Não compareceu</button>}
         {["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(selected.status) && <button type="button" className="button button--soft" onClick={() => cancel(selected)}>Cancelar</button>}
+        {selected.status === "EXPIRED" && <button type="button" className="button button--danger" onClick={() => setDeleteExpiredTarget(selected)}><Trash2 size={16} /> Excluir agendamento</button>}
       </div>
     </section></div>}
+
+    {deleteExpiredTarget && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Cancelar exclusão do agendamento" disabled={deleteExpiredSaving} onClick={() => setDeleteExpiredTarget(null)} /><section className="form-modal" role="alertdialog" aria-modal="true" aria-label="Confirmar exclusão de agendamento expirado"><div className="form-modal__head"><span><small>Exclusão irreversível</small><strong>Excluir agendamento expirado?</strong></span><button type="button" className="icon-button" disabled={deleteExpiredSaving} onClick={() => setDeleteExpiredTarget(null)} aria-label="Fechar confirmação"><X size={19} /></button></div><div className="form-modal__body"><p>Esta ação não poderá ser desfeita. O agendamento desaparecerá da agenda do gestor, da agenda do profissional e do histórico do cliente.</p><p>Os registros financeiros e de auditoria serão preservados.</p></div><div className="form-modal__footer"><button type="button" className="button button--ghost" disabled={deleteExpiredSaving} onClick={() => setDeleteExpiredTarget(null)}>Cancelar</button><button type="button" className="button button--danger" disabled={deleteExpiredSaving} onClick={() => void deleteExpiredAppointment()}>{deleteExpiredSaving ? "Excluindo…" : "Confirmar exclusão"}</button></div></section></div>}
 
     {auxiliaryEditorAppointment && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Fechar auxiliares" onClick={() => setAuxiliaryEditorAppointment(null)} /><section className="form-modal" role="dialog" aria-modal="true" aria-label="Auxiliares e comissões"><div className="form-modal__head"><span><small>Atendimento {auxiliaryEditorAppointment.id.slice(0, 8)}</small><strong>Auxiliares e comissões</strong></span><button type="button" className="icon-button" onClick={() => setAuxiliaryEditorAppointment(null)} aria-label="Fechar"><X size={19} /></button></div><div className="form-modal__body"><p>Defina comissão por serviço. Esses valores ficam separados do preço cobrado ao cliente.</p><AppointmentAuxiliaryFields barbers={props.barbers} excludedBarberId={auxiliaryEditorAppointment.barber_id} services={(props.appointmentItems ?? []).filter((item) => item.appointment_id === auxiliaryEditorAppointment.id && item.service_id).map((item) => ({ service_id: item.service_id as string, name: item.service_name_snapshot, quantity: item.quantity ?? 1 }))} value={auxiliaryEditDrafts} onChange={setAuxiliaryEditDrafts} /></div><div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={() => setAuxiliaryEditorAppointment(null)}>Cancelar</button><button type="button" className="button button--dark" onClick={() => void saveAuxiliaryEdits()}>Salvar auxiliares</button></div></section></div>}
 

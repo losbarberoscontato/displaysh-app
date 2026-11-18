@@ -283,8 +283,9 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           ? await client.from("appointments").select("id,status,service_period").in("id", appointmentIds)
           : { data: [] as Array<{ id: string; status: string; service_period: string | null }>, error: null };
         if (appointmentResult.error) { setMessage(appointmentResult.error.message); return; }
+        const visibleProjectAppointmentIds = new Set((appointmentResult.data ?? []).map((appointment) => appointment.id));
         setProjectInstallments((installmentResult.data ?? []) as ProjectInstallment[]);
-        setProjectSessions(sessionRows.map((session) => ({
+        setProjectSessions(sessionRows.filter((session) => !session.appointment_id || visibleProjectAppointmentIds.has(session.appointment_id)).map((session) => ({
           ...session,
           appointment: session.appointment_id ? (appointmentResult.data ?? []).find((appointment) => appointment.id === session.appointment_id) ?? null : null,
         })));
@@ -356,14 +357,19 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       const appointmentIds = (sessionRows ?? []).map((session) => session.appointment_id).filter(Boolean) as string[];
       const appointmentResult = appointmentIds.length
         ? await client.from("appointments").select("id,status,service_period,cancellation_outcome,cancelled_at").in("id", appointmentIds)
-        : { data: [] as Array<{ id: string; status: string; service_period?: string }> };
+        : { data: [] as Array<{ id: string; status: string; service_period?: string; cancellation_outcome?: string | null; cancelled_at?: string | null }>, error: null };
+      if (appointmentResult.error) {
+        setMessage(appointmentResult.error.message);
+        return;
+      }
+      const visibleSubscriptionAppointmentIds = new Set((appointmentResult.data ?? []).map((appointment) => appointment.id));
       setCycles(normalizedCycles.map((cycle) => ({
         ...cycle,
-        sessions: (sessionRows ?? []).filter((session) => session.cycle_id === cycle.id).map((session) => ({
+        sessions: (sessionRows ?? []).filter((session) => session.cycle_id === cycle.id && (!session.appointment_id || visibleSubscriptionAppointmentIds.has(session.appointment_id))).map((session) => ({
           id: session.id,
           session_number: session.session_number,
           status: session.status,
-          appointment: session.appointment_id ? (appointmentResult.data ?? []).find((appointment) => appointment.id === session.appointment_id) ?? { status: "CONFIRMED" } : null,
+          appointment: session.appointment_id ? (appointmentResult.data ?? []).find((appointment) => appointment.id === session.appointment_id) ?? null : null,
         })),
       })));
       setSubscriptionDetailsLoadedFor(customerDetailsKey);
