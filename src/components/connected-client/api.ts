@@ -20,6 +20,7 @@ import type {
 import { parseProductKey } from "@/lib/product-routes";
 import { ATELIE_PRO_IDENTITY_FALLBACK, isProductIdentityConfig, LE_GRAS_IDENTITY_FALLBACK, MUSIC_PRO_IDENTITY_FALLBACK, PRO_STETIC_IDENTITY_FALLBACK, type ProductIdentityConfig } from "@/lib/product-identity";
 import type { ProductKey } from "@/lib/product-routes";
+import { APPOINTMENT_SCHEDULE_CONFLICT_MESSAGE, isAppointmentOutsideCurrentSchedule } from "@/lib/appointment-errors";
 
 type DatabaseError = { message: string; code?: string } | null;
 
@@ -29,9 +30,10 @@ function assertData<T>(data: T | null, error: DatabaseError, fallback: string): 
   return data;
 }
 
-export type BookingErrorKind = "CONFLICT" | "EXPIRED" | "ACTIVE_IN_ANOTHER_TAB" | null;
+export type BookingErrorKind = "CONFLICT" | "EXPIRED" | "ACTIVE_IN_ANOTHER_TAB" | "OUTSIDE_SCHEDULE" | null;
 
 export function bookingErrorKind(error: unknown): BookingErrorKind {
+  if (isAppointmentOutsideCurrentSchedule(error)) return "OUTSIDE_SCHEDULE";
   if (!(error instanceof Error)) return null;
   const message = error.message.toLowerCase();
   if (message.includes("requested slot is no longer available") || error.message.includes("23P01")) return "CONFLICT";
@@ -41,6 +43,7 @@ export function bookingErrorKind(error: unknown): BookingErrorKind {
 }
 
 export function toClientError(error: unknown, fallback: string): string {
+  if (isAppointmentOutsideCurrentSchedule(error)) return APPOINTMENT_SCHEDULE_CONFLICT_MESSAGE;
   if (!(error instanceof Error)) return fallback;
   const message = error.message.toLowerCase();
   if (bookingErrorKind(error) === "CONFLICT") {

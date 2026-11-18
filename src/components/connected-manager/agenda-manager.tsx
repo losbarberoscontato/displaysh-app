@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Avatar, PageHeader } from "@/components/ui";
 import { showManagerError } from "@/components/manager-error-dialog";
+import { APPOINTMENT_SCHEDULE_CONFLICT_MESSAGE, isAppointmentOutsideCurrentSchedule } from "@/lib/appointment-errors";
 import type { loadAgendaData } from "./server";
 import type { AwaitedReturn } from "./utility-types";
 import type { AppointmentRecord, AppointmentAuxiliaryRecord, AppointmentAuxiliaryCommissionRuleRecord, AppointmentItemRecord } from "./types";
@@ -144,6 +145,7 @@ export function AgendaManager(props: Props) {
   const [newAppointmentEnvironmentId, setNewAppointmentEnvironmentId] = useState("");
   const [newAppointmentSlotStart, setNewAppointmentSlotStart] = useState("");
   const [managerAvailability, setManagerAvailability] = useState<{ key: string; slots: ManagerAppointmentEnvironmentSlot[]; error: string | null } | null>(null);
+  const [availabilityRefresh, setAvailabilityRefresh] = useState(0);
   const dateBlock = props.dateBlocks?.find((item) => dateBlockCoversDate(item, date));
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState(todayKey);
@@ -233,7 +235,7 @@ export function AgendaManager(props: Props) {
     ? [{ type: newSelectionType, id: newSelectionId, quantity: 1, ...(selectedAppointmentOffer ? { offer_id: selectedAppointmentOffer.id } : {}) }]
     : null, [appointmentOffers.length, newAppointmentSelection, newSelectionId, newSelectionType, selectedAppointmentOffer]);
   const availabilityRequestKey = newOpen && availabilitySelections && newAppointmentBarberId && newAppointmentDate
-    ? JSON.stringify([props.organizationId, newAppointmentBarberId, newAppointmentDate, availabilitySelections])
+    ? JSON.stringify([props.organizationId, newAppointmentBarberId, newAppointmentDate, availabilitySelections, availabilityRefresh])
     : "";
   const currentManagerAvailability = managerAvailability?.key === availabilityRequestKey ? managerAvailability : null;
   const managerAvailabilitySlots = currentManagerAvailability?.slots ?? [];
@@ -491,7 +493,21 @@ export function AgendaManager(props: Props) {
         p_environment_id: newAppointmentEnvironmentId,
         ...(hasAuxiliaries ? { p_auxiliaries: auxiliaryDraftToServicePayload(newAuxiliaryDrafts) } : {}),
       }));
-    }, "Agendamento criado com saldo pendente para o balcão.");
+    }, "Agendamento criado com saldo pendente para o balcão.", (error) => {
+      if (!isAppointmentOutsideCurrentSchedule(error)) return false;
+      showManagerError(APPOINTMENT_SCHEDULE_CONFLICT_MESSAGE, {
+        title: "Horário indisponível",
+        action: {
+          label: "Escolher outro horário",
+          onClick: () => {
+            setNewAppointmentEnvironmentId("");
+            setNewAppointmentSlotStart("");
+            setAvailabilityRefresh((current) => current + 1);
+          },
+        },
+      });
+      return true;
+    });
     if (saved) {
       setDate(String(data.get("date")));
       setView("day");

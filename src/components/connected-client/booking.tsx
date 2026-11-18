@@ -35,6 +35,8 @@ import { AuthPrompt, ConnectedClientGate } from "@/components/connected-client/s
 import type { AvailableDateOption, AvailableSlot, CatalogChoice, CustomerDependent, PublicBarber } from "@/components/connected-client/types";
 import styles from "@/components/connected-client/connected-client.module.css";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { APPOINTMENT_SCHEDULE_CONFLICT_MESSAGE } from "@/lib/appointment-errors";
+import { showManagerError } from "@/components/manager-error-dialog";
 import { CATALOG_AUDIENCES, audienceLabel, filterByAudience, type CatalogAudience } from "@/lib/catalog-audiences";
 import { clientVocabulary } from "@/components/connected-client/vocabulary";
 
@@ -546,7 +548,23 @@ function BookingContent() {
     } catch (cause: unknown) {
       const errorKind = bookingErrorKind(cause);
       const clientError = toClientError(cause, "Não foi possível proteger horário.");
-      setError(clientError);
+      if (errorKind === "OUTSIDE_SCHEDULE") {
+        setError("");
+        showManagerError(APPOINTMENT_SCHEDULE_CONFLICT_MESSAGE, {
+          title: "Horário indisponível",
+          action: {
+            label: "Escolher outro horário",
+            onClick: () => {
+              window.sessionStorage.removeItem(holdStorageKey);
+              setWalkinQueueHoldId(null);
+              resetBookingHold({ clearSlot: true, refreshAvailability: true });
+              setStep(3);
+            },
+          },
+        });
+      } else {
+        setError(clientError);
+      }
       if (errorKind === "CONFLICT" || errorKind === "EXPIRED") {
         window.sessionStorage.removeItem(holdStorageKey);
         setWalkinQueueHoldId(null);
@@ -572,7 +590,21 @@ function BookingContent() {
     } catch (cause: unknown) {
       const errorKind = bookingErrorKind(cause);
       const clientError = toClientError(cause, "Não foi possível concluir reserva.");
-      setError(clientError);
+      if (errorKind === "OUTSIDE_SCHEDULE") {
+        setError("");
+        showManagerError(APPOINTMENT_SCHEDULE_CONFLICT_MESSAGE, {
+          title: "Horário indisponível",
+          action: {
+            label: "Escolher outro horário",
+            onClick: () => {
+              setStep(3);
+              releaseReviewHold(() => setAvailabilityRetry((current) => current + 1));
+            },
+          },
+        });
+      } else {
+        setError(clientError);
+      }
       if (errorKind === "EXPIRED" || errorKind === "CONFLICT") {
         resetBookingHold({ clearSlot: true, refreshAvailability: true });
         setStep(3);

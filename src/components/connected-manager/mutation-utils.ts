@@ -19,6 +19,7 @@ export async function runMutation(
   setMessage: (message: string) => void,
   mutation: () => Promise<void>,
   success: string,
+  onError?: (error: unknown) => boolean,
 ) {
   setMessage("Salvando…");
   try {
@@ -27,6 +28,7 @@ export async function runMutation(
     return true;
   } catch (error) {
     setMessage("");
+    if (onError?.(error)) return false;
     showManagerError(humanizeError(error));
     return false;
   }

@@ -111,6 +111,7 @@ export function humanizeError(error: unknown) {
     [/appointment customer not found/i, "O cliente deste agendamento não foi encontrado neste estabelecimento."],
     [/appointment barber not found/i, "O profissional deste agendamento não foi encontrado neste estabelecimento."],
     [/barber cannot perform selected service/i, "O profissional selecionado não está habilitado para este serviço. Confira os vínculos em Equipe."],
+    [/appointment is outside the current barber schedule/i, "A duração do serviço ultrapassa o fim da escala deste profissional. Escolha outro horário."],
     [/start time is not aligned to slot interval/i, "Escolha um horário alinhado ao intervalo de slots da agenda."],
     [/requested slot is no longer available|exclusion constraint/i, "Esse horário acabou de ser ocupado."],
     [/organization_date_block_conflict/i, "Há agendamento ativo neste período. Reagende ou cancele antes de bloquear."],
