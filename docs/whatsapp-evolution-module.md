@@ -1,5 +1,11 @@
 # Módulo WhatsApp Evolution
 
+## Lembrete só após confirmação e encerramento de pedidos — 18/11/2026
+
+- A migration compartilhada `20261118145132_booking_whatsapp_schedule_guardrails.sql` só enfileira lembrete de presença quando o agendamento transita para `CONFIRMED`. Inserções `HELD`/`PENDING_PAYMENT` não disparam presença; lembretes ainda não enviados dessas reservas são cancelados.
+- Quando a reserva entra em estado terminal, pedidos de confirmação pendentes passam a `EXPIRED`. A migration também corrige pedidos e lembretes pendentes de reservas existentes sem confirmação. Mensagens submetidas ao provedor permanecem irrecuperáveis.
+- Não houve alteração de Edge Function. Validação remota confirmou as funções SQL e contagens pendentes zeradas; o recebimento real em aparelho deve ser validado separadamente.
+
 ## Auxiliares de atendimento — 01/11/2026
 
 - Auxiliares usam a fila operacional existente e as mesmas configurações de notificação da equipe. Atributos de comissão não entram no payload de cobrança do cliente.

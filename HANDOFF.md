@@ -1,5 +1,12 @@
 # Handoff — Los Barberos
 
+## Proteções compartilhadas de agenda e WhatsApp — 18/11/2026
+
+- A migration `20261118145132_booking_whatsapp_schedule_guardrails.sql` altera os triggers comuns do banco, alcançando todos os sistemas Display por organização. Lembrete de presença só é enfileirado na transição para `CONFIRMED`; pedidos pendentes expiram ao encerrar a reserva; lembretes não enviados e pedidos de reservas existentes sem confirmação são limpos.
+- A validação da escala agora exclui a própria reserva em atualização, mantendo os limites da escala, exceções e ambientes. A migration foi aplicada no Supabase `bwdjkhqshmppescunwer`; consultas remotas confirmaram as três funções ativas, zero lembretes pendentes para reservas não confirmadas e zero pedidos de confirmação pendentes nesse estado.
+- Nenhuma Edge Function mudou; a correção está nos triggers SQL, sem necessidade de republicar dispatcher/webhook. Envios já submetidos ao provedor não podem ser cancelados retroativamente.
+- Testes focados: 4/4; ESLint sem erros (13 avisos); TypeScript e build passaram. `npm.cmd run verify` não concluiu: 28 testes falharam em 10 arquivos de UI fora desta alteração (799 passaram, 1 ignorado; 3 erros não tratados em `date-blocks-editor`). `supabase db lint` reportou erros em funções legadas `process_expired_organization_retention` e `create_payment_checkout_order`; não apontou erro nas funções adicionadas nesta migration.
+
 ## Ativação provisória de assinaturas — 16/11/2026
 
 - Correção nos componentes compartilhados de gestor e cliente para os produtos Display. O gestor pode ativar operacionalmente uma oferta pendente sem registrar aceite contratual; a confirmação exibe “Sim” e “Não” e informa que a validação depende do aceite no app.
