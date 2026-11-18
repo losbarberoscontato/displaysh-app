@@ -3,7 +3,7 @@ import { DEFAULT_PUBLIC_SITE_ORIGIN, resolvePublicSiteOrigin } from "@/lib/publi
 
 describe("public site origin", () => {
   it("uses the current production domain by default", () => {
-    expect(DEFAULT_PUBLIC_SITE_ORIGIN).toBe("https://losbarberos-app.vercel.app");
+    expect(DEFAULT_PUBLIC_SITE_ORIGIN).toBe("https://displaysh-app.vercel.app");
     expect(resolvePublicSiteOrigin()).toBe(DEFAULT_PUBLIC_SITE_ORIGIN);
   });
 
