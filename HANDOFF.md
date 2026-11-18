@@ -1,5 +1,12 @@
 # Handoff — Los Barberos
 
+## Exclusão de agendamento expirado — 18/11/2026
+
+- Na agenda do gestor, o botão de excluir aparece somente para compromissos `EXPIRED`; pede confirmação explícita e informa que a ação é irreversível. A RPC valida usuário, organização e estado novamente no servidor. O registro é tombstoned, preservando referências financeiras/auditoria, e deixa de aparecer nas políticas RLS de cliente, profissional e gestor. Sessões de assinatura/projeto vinculadas voltam a `AVAILABLE`/`OPEN` atomicamente.
+- Migration `20261118163402_hide_deleted_expired_appointments.sql` aplicada em `bwdjkhqshmppescunwer`; a RPC `delete_expired_appointment` e as políticas foram verificadas remotamente, dry-run alinhado e advisor sem problemas. Sem Edge Function alterada. A implementação fica na base/componentes compartilhados dos produtos Display.
+- Commit `808699f2fb277b06bc0ce99a7518e26062b2ef7e` publicado em `main`. Deployment Vercel `dpl_98oq7mwhmpBZ62kKUHE5HphfUvbH` `READY` para esse SHA, com alias `displaysh-app.vercel.app`; smoke `/`, `/entrar`, `/privacidade`, `/termos` retornou 200 e `/gestor` 307.
+- Validação local: typecheck, ESLint focado, build e `git diff --check` passaram; testes locais não foram executados. CI `44352332604`: E2E passou; `verify` falhou (11 arquivos, 134 testes passaram e 1 ignorado, com 4 erros não tratados); `edge-functions` falhou por formatação preexistente de `_shared/whatsapp-templates.ts`; `database` falhou em `supabase start`. Fluxo visual autenticado não foi validado. Os diretórios locais `outputs/` e `tmp/` foram preservados.
+
 ## Proteções compartilhadas de agenda e WhatsApp — 18/11/2026
 
 - A migration `20261118145132_booking_whatsapp_schedule_guardrails.sql` altera os triggers comuns do banco, alcançando todos os sistemas Display por organização. Lembrete de presença só é enfileirado na transição para `CONFIRMED`; pedidos pendentes expiram ao encerrar a reserva; lembretes não enviados e pedidos de reservas existentes sem confirmação são limpos.
