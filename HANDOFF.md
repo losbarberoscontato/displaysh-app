@@ -1,5 +1,15 @@
 # Handoff — Los Barberos
 
+## WhatsApp: confirmação em reserva recente — 18/11/2026
+
+- Para reservas cujo lembrete de presença já venceu no momento da criação, o cliente recebe uma única mensagem: confirmação do agendamento usando o template configurado, seguida das opções de confirmação de presença. A mensagem separada de confirmação do agendamento é cancelada antes do dispatcher poder enviá-la.
+- Lembretes só entram na fila se a reserva estiver `CONFIRMED`; `whatsapp_runtime_prepare` valida esse estado novamente antes do envio. A expiração de pedidos e a exclusão da própria reserva na validação de escala continuam cobertas pela migration compartilhada `20261118145132_booking_whatsapp_schedule_guardrails.sql`.
+- O health check e a criação/reconexão QR leem de volta a configuração da Evolution e exigem URL ativa com `MESSAGES_UPSERT`. O webhook registra contagens, campos recebidos e códigos de falha sem registrar número ou conteúdo da conversa; a resposta segue ao dispatcher V2 existente para atualizar a agenda e responder ao cliente.
+- As filas de `BOOKING_CREATED_STAFF` e as cópias para auxiliares não foram alteradas. Confirmação/cancelamento de presença e avisos de equipe continuam nos fluxos existentes, conforme controles ativos por organização.
+- Migration `20261118182956_whatsapp_same_day_client_presence_confirmation.sql` aplicada ao Supabase `bwdjkhqshmppescunwer`; dry-run alinhado. Functions ativas: `whatsapp-qr-webhook` v66, `whatsapp-v2-dispatcher` v68, `whatsapp-qr-health` v36 e `whatsapp-qr-start` v47.
+- Commit `eb6d95ff951a71f99e6da810449eff432c291a13` publicado em `main`. Vercel deployment `dpl_CyuVbSscYdvdQMJvk6bLB1J916XA` `READY`, no projeto de ID `prj_ySE0Ae9hDdcS1remlJDCKHacw6vh` e alias `displaysh-app.vercel.app`; smoke da raiz e `/entrar` respondeu HTTP 200.
+- `deno check` das quatro Functions passou. CI `44372497075`: E2E e Edge Functions passaram; lint e typecheck passaram; `verify` falhou em testes de UI preexistentes, e o build/audit foram pulados após a falha. `database` falhou em `supabase start` por `Rate exceeded` do registry Docker. Não foi feito envio artificial nem teste de recebimento em aparelho; validar uma resposta real de cliente continua necessário para provar entrega ponta a ponta.
+
 ## Exclusão de agendamento expirado — 18/11/2026
 
 - Na agenda do gestor, o botão de excluir aparece somente para compromissos `EXPIRED`; pede confirmação explícita e informa que a ação é irreversível. A RPC valida usuário, organização e estado novamente no servidor. O registro é tombstoned, preservando referências financeiras/auditoria, e deixa de aparecer nas políticas RLS de cliente, profissional e gestor. Sessões de assinatura/projeto vinculadas voltam a `AVAILABLE`/`OPEN` atomicamente.

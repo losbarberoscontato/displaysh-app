@@ -1,5 +1,12 @@
 # Módulo WhatsApp Evolution
 
+## Confirmação da presença em reservas próximas — 18/11/2026
+
+- Quando o lembrete configurado já venceu no momento da reserva, apenas o cliente recebe uma mensagem combinada: confirmação do agendamento com template configurado e opções para confirmar presença. O segundo aviso de cliente fica cancelado; notificações do profissional e dos auxiliares não são alteradas.
+- `whatsapp_v2_enqueue_presence_reminder` e a validação no dispatcher exigem estado `CONFIRMED`. Assim, reservas em proteção/pagamento não geram pedido de presença antes da confirmação operacional.
+- `whatsapp-qr-start` e `whatsapp-qr-health` conferem a configuração persistida da Evolution, incluindo URL, estado ativo e evento `MESSAGES_UPSERT`. O webhook registra rejeição, payload não reconhecido e falha RPC com dados minimizados e encaminha eventos persistidos ao `whatsapp-v2-dispatcher`.
+- Migration `20261118182956_whatsapp_same_day_client_presence_confirmation.sql` aplicada no Supabase `bwdjkhqshmppescunwer`; Functions ativas: webhook v66, dispatcher v68, health v36, start v47. Commit `eb6d95f` em `main`; Vercel `READY` no alias `displaysh-app.vercel.app`. CI `44372497075`: E2E/Edge Functions passaram; lint/typecheck passaram; verify falhou em testes UI preexistentes e database em `supabase start` por rate limit Docker Hub. Recebimento real em aparelho não foi testado.
+
 ## Lembrete só após confirmação e encerramento de pedidos — 18/11/2026
 
 - A migration compartilhada `20261118145132_booking_whatsapp_schedule_guardrails.sql` só enfileira lembrete de presença quando o agendamento transita para `CONFIRMED`. Inserções `HELD`/`PENDING_PAYMENT` não disparam presença; lembretes ainda não enviados dessas reservas são cancelados.
