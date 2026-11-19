@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { Archive, ArrowLeft, X } from "lucide-react";
+import { Archive, X } from "lucide-react";
 import { PageHeader } from "@/components/ui";
 import type { loadSubscriptionPlansData } from "./server";
 import type { AwaitedReturn } from "./utility-types";
@@ -177,7 +176,6 @@ export function SubscriptionPlansManager(props: Props) {
 
   return <div className={styles.stack}>
     <PageHeader title="Planos de Assinatura" description="Crie planos compostos por serviços. Pacotes não entram na composição da assinatura na V1." />
-    <Link className={styles.backLink} href="/gestor/catalogo"><ArrowLeft size={16} aria-hidden="true" /> Voltar para serviços</Link>
     <ActionMessage message={message} />
     {!props.subscriptionModuleEnabled && <div className={styles.notice}>Planos de Assinatura está inativo em Configurações → Módulos. Assinaturas existentes continuam; novas adesões e novos planos ficam bloqueados.</div>}
     <Panel title="Planos cadastrados" description={`${visiblePlans.length} de ${props.plans.length} planos`} action={<button className={styles.button} type="button" disabled={!props.subscriptionModuleEnabled} onClick={() => openPlanForm()}>Novo plano</button>}>
