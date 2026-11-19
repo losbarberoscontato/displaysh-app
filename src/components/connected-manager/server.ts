@@ -97,7 +97,6 @@ export async function loadCustomersData() {
     subscriptionCancellationRequests,
     subscriptionCycles,
     subscriptionSessions,
-    subscriptionPlans,
     subscriptionPlanServices,
     barberServices,
     barberSubscriptionPlans,
@@ -200,15 +199,6 @@ export async function loadCustomersData() {
       .eq("organization_id", organizationId)
       .order("session_number")
       .limit(MANAGER_ROW_LIMIT * 20),
-    supabase
-      .from("subscription_plans")
-      .select(
-        "id,name,description,version:subscription_plan_versions(id,version,price_cents,billing_period,duration_months,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern)",
-      )
-      .eq("organization_id", organizationId)
-      .eq("active", true)
-      .is("archived_at", null)
-      .order("name"),
     supabase
       .from("subscription_plan_services")
       .select("plan_version_id,service_id,service_name_snapshot,duration_minutes_snapshot,position")
@@ -320,11 +310,6 @@ export async function loadCustomersData() {
     subscriptionSessions: subscriptionSessions.error
       ? []
       : (requireData(subscriptionSessions, "Sessões de assinatura") as Array<
-          Record<string, unknown>
-        >),
-    subscriptionPlans: subscriptionPlans.error
-      ? []
-      : (requireData(subscriptionPlans, "Planos de assinatura") as Array<
           Record<string, unknown>
         >),
     subscriptionPlanServices: subscriptionPlanServices.error
@@ -1780,7 +1765,7 @@ export async function loadSubscriptionPlansData() {
     supabase
       .from("subscription_plan_versions")
       .select(
-        "id,plan_id,version,price_cents,billing_period,duration_months,sessions_per_cycle,payment_method,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,cancellation_policy,session_cancellation_policy,contract_version",
+        "id,plan_id,version,price_cents,billing_period,duration_months,sessions_per_cycle,payment_method,cancellation_policy,session_cancellation_policy,contract_version",
       )
       .eq("organization_id", organizationId)
       .order("version", { ascending: false }),
@@ -1824,9 +1809,6 @@ export async function loadSubscriptionPlansData() {
     duration_months: number;
     sessions_per_cycle: number;
     payment_method: string;
-    scheduling_mode: "FREE" | "FIXED";
-    fixed_schedule_cadence_weeks: number | null;
-    fixed_schedule_pattern: string | null;
     cancellation_policy: string;
     session_cancellation_policy: string;
     contract_version: string;
