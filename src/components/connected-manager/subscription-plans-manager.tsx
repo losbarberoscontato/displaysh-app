@@ -17,6 +17,9 @@ type Props = AwaitedReturn<typeof loadSubscriptionPlansData>;
 type Plan = Props["plans"][number];
 type PlanVersion = Props["versions"][number];
 
+const defaultCancellationPolicy = "Cancelamento encerra no fim do ciclo pago; ciclos futuros são cancelados sem renovação automática.";
+const defaultSessionCancellationPolicy = "Cancelamento dentro do prazo devolve a sessão. Cancelamento tardio ou no-show consome a sessão, sem cobrança adicional.";
+
 export function SubscriptionPlansManager(props: Props) {
   const router = useRouter();
   const [message, setMessage] = useState("");
@@ -123,8 +126,8 @@ export function SubscriptionPlansManager(props: Props) {
           p_scheduling_mode: schedulingMode,
           p_fixed_schedule_cadence_weeks: schedulingMode === "FIXED" ? 1 : null,
           p_fixed_schedule_pattern: schedulingMode === "FIXED" ? fixedPattern : null,
-          p_cancellation_policy: String(data.get("cancellation_policy") ?? "").trim(),
-          p_session_cancellation_policy: String(data.get("session_cancellation_policy") ?? "").trim(),
+          p_cancellation_policy: editingVersion?.cancellation_policy ?? defaultCancellationPolicy,
+          p_session_cancellation_policy: editingVersion?.session_cancellation_policy ?? defaultSessionCancellationPolicy,
           p_services: selected.map((service_id, position) => ({ service_id, position })),
         }));
       },
@@ -237,8 +240,6 @@ export function SubscriptionPlansManager(props: Props) {
           </>}
         </div>
         <Field label="Descrição" wide><textarea name="description" defaultValue={editingPlan?.description ?? ""} /></Field>
-        <Field label="Regra de cancelamento" wide><textarea name="cancellation_policy" required defaultValue={editingVersion?.cancellation_policy ?? "Cancelamento encerra no fim do ciclo pago; ciclos futuros são cancelados sem renovação automática."} /></Field>
-        <Field label="Política de cancelamento de sessão" wide><textarea name="session_cancellation_policy" required defaultValue={editingVersion?.session_cancellation_policy ?? "Cancelamento dentro do prazo devolve a sessão. Cancelamento tardio ou no-show consome a sessão, sem cobrança adicional."} /></Field>
         <div className={styles.formWide}><span className={styles.muted}>Serviços da sessão (combo completo)</span><div className={styles.inlineMeta}>{props.services.map((service) => <label className={styles.check} key={service.id}><input type="checkbox" checked={selected.includes(service.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, service.id] : current.filter((id) => id !== service.id))} />{service.name} · {formatCents(service.price_cents)}</label>)}</div>{omittedPlanServiceCount > 0 && <small className={styles.muted} role="status">{omittedPlanServiceCount} serviço(s) da versão atual não está(ão) mais ativo(s) ou elegível(is) para assinatura e não entrará(ão) na nova versão.</small>}</div>
         <div className={`${styles.toolbarGroup} ${styles.formWide}`}>
           <button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => { clearForm(); setNewPlanOpen(false); setMessage(""); }}>Cancelar</button>

@@ -30,8 +30,6 @@ type Row = {
     fixed_schedule_cadence_weeks: number | null;
     fixed_schedule_pattern: FixedSchedulePattern | null;
     duration_months: number;
-    cancellation_policy: string;
-    session_cancellation_policy: string;
     payment_method: string;
   } | null;
 };
@@ -96,8 +94,6 @@ type AvailablePlan = {
     fixed_schedule_cadence_weeks: number | null;
     fixed_schedule_pattern: FixedSchedulePattern | null;
     payment_method: string;
-    cancellation_policy: string;
-    session_cancellation_policy: string;
   } | null;
   service_ids: string[];
 };
@@ -226,7 +222,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       client
         .from("customer_subscriptions")
         .select(
-          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,duration_months,cancellation_policy,session_cancellation_policy,payment_method)",
+          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,duration_months,payment_method)",
         )
         .eq("organization_id", context.organization.id)
         .eq("customer_id", customer.id)
@@ -239,7 +235,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       client
         .from("subscription_plans")
         .select(
-          "id,name,description,version:subscription_plan_versions(id,version,price_cents,billing_period,duration_months,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,payment_method,cancellation_policy,session_cancellation_policy)",
+          "id,name,description,version:subscription_plan_versions(id,version,price_cents,billing_period,duration_months,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,payment_method)",
         )
         .eq("organization_id", context.organization.id)
         .eq("active", true)
@@ -622,7 +618,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       !context ||
       !customer ||
       !window.confirm(
-        "Cancelar esta sessão? A política do plano será aplicada e você receberá um aviso sobre o resultado.",
+        "Cancelar esta sessão? Você receberá um aviso com o resultado.",
       )
     )
       return;
@@ -637,7 +633,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     setMessage(
       error
         ? error.message
-        : "Cancelamento de sessão registrado. A política do plano foi aplicada.",
+        : "Cancelamento de sessão registrado.",
     );
     if (!error) window.location.reload();
   }
@@ -716,7 +712,6 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       <h2>Detalhes do plano</h2><strong>{selectedPlan.version ? money(selectedPlan.version.price_cents) : "Valor sob consulta"}</strong>
       {selectedPlan.version && <p>{selectedPlan.version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedPlan.version.duration_months} mês(es) · {selectedPlan.version.scheduling_mode === "FIXED" ? `Agendamento fixo · ${fixedSchedulePatternLabel(selectedPlan.version.fixed_schedule_pattern)}` : `${selectedPlan.version.sessions_per_cycle} sessão(ões) por ciclo · agendamento livre: cliente escolhe no app ou gestor agenda cada ciclo`} · pagamento: {paymentMethodLabel[selectedPlan.version.payment_method] ?? selectedPlan.version.payment_method}</p>}
       {selectedPlan.service_ids.length > 0 && <div><h3>Serviços incluídos</h3><ul>{selectedPlan.service_ids.map((id) => <li key={id}>{context?.services.find((service) => service.id === id)?.name ?? "Serviço incluído"}</li>)}</ul></div>}
-      {selectedPlan.version?.cancellation_policy && <details><summary>Política do plano</summary><p>{selectedPlan.version.cancellation_policy}</p>{selectedPlan.version.session_cancellation_policy && <p>{selectedPlan.version.session_cancellation_policy}</p>}</details>}
       {contractBody && <details><summary>Contrato padrão</summary><p>{contractBody}</p></details>}
       <button className={styles.subscriptionAction} type="button" onClick={() => void requestPlan(selectedPlan)}>Solicitar plano</button>
     </article>
@@ -742,7 +737,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   if (view === "subscription-offer" && selectedSubscriptionOffer) return <section className={styles.subscriptionStack}>
     <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link><span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><span className={styles.planKind}>Plano enviado pelo gestor</span><h1>{selectedSubscriptionOffer.plan?.name ?? "Plano"}</h1><p>{selectedSubscriptionOffer.plan?.description ?? "Confira os detalhes antes de aceitar ou recusar."}</p></header>
     <article className={styles.subscriptionCard}>{selectedSubscriptionOffer.plan_version && <><h2>{money(selectedSubscriptionOffer.plan_version.price_cents)}</h2><p>{selectedSubscriptionOffer.plan_version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedSubscriptionOffer.plan_version.duration_months} mês(es) · {selectedSubscriptionOffer.plan_version.sessions_per_cycle} sessão(ões) por ciclo · {selectedSubscriptionOffer.plan_version.scheduling_mode === "FIXED" ? "Agendamento fixo" : "Agendamento livre"} · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.plan_version.payment_method] ?? selectedSubscriptionOffer.plan_version.payment_method}</p>
-      {selectedSubscriptionOffer.plan_version.cancellation_policy && <details><summary>Políticas</summary><p>{selectedSubscriptionOffer.plan_version.cancellation_policy}</p>{selectedSubscriptionOffer.plan_version.session_cancellation_policy && <p>{selectedSubscriptionOffer.plan_version.session_cancellation_policy}</p>}</details>}</>}
+      </>}
       {selectedSubscriptionOffer.contract_body_snapshot && <details><summary>Contrato</summary><p>{selectedSubscriptionOffer.contract_body_snapshot}</p></details>}
       {message && <p role="alert">{message}</p>}
       <div className={styles.planActions}><button className={styles.subscriptionAction} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void acceptSubscriptionOffer(selectedSubscriptionOffer.id)}>{acceptingSubscriptionOffer ? "Confirmando…" : "Confirmar assinatura"}</button><button className={styles.subscriptionSecondary} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void declineSubscriptionOffer(selectedSubscriptionOffer.id)}>Recusar</button></div>
