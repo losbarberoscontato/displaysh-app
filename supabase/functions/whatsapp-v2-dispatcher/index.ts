@@ -15,6 +15,7 @@ type Job = {
   organization_id: string;
   connection_id: string;
   job_type: string;
+  status: string;
   recipient_e164: string;
   payload: Record<string, unknown>;
   appointment_id: string | null;
@@ -75,6 +76,17 @@ function providerMessageId(value: unknown): string | null {
 type ConfirmationRequestResult = { skipped?: boolean };
 
 async function dispatchJob(job: Job): Promise<void> {
+  if (job.status !== "PROCESSING") return;
+  const subscriptionAllowed = await rpc<boolean>(
+    "whatsapp_v2_subscription_job_allowed",
+    {
+      p_job_id: job.id,
+      p_worker_id: workerId,
+      p_lease_token: null,
+    },
+  );
+  if (!subscriptionAllowed) return;
+
   if (job.payload.transactional_plan_notice === true) {
     const valid = await rpc<boolean>(
       "whatsapp_v2_validate_plan_notice_dispatch",
