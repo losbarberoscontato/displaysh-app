@@ -14,6 +14,7 @@ describe("automação WhatsApp QR v2", () => {
   const agendaStatusMigration = read("supabase/migrations/20260821115548_whatsapp_agenda_response_statuses.sql");
   const auxiliaryWebhookMigration = read("supabase/migrations/20261101152207_appointment_auxiliaries.sql");
   const auxiliaryTemplateMigration = read("supabase/migrations/20261101204721_whatsapp_auxiliary_editable_templates.sql");
+  const subscriptionDeclineAckMigration = read("supabase/migrations/20261119145024_whatsapp_skip_repeated_subscription_decline_acks.sql");
   const manualConfirmationRepairMigration = read("supabase/migrations/20261014180506_fix_whatsapp_qr_activation_and_legacy_manual_confirmation.sql");
   const manualConfirmationWindowMigration = read("supabase/migrations/20261014181006_extend_manual_confirmation_delivery_window.sql");
   const runtimeMigration = read("supabase/migrations/20260906230249_whatsapp_reliable_runtime.sql");
@@ -148,6 +149,14 @@ describe("automação WhatsApp QR v2", () => {
     expect(claimRepairMigration).toContain("drop function if exists public.claim_whatsapp_v2_webhook_events(integer, text)");
     expect(claimRepairMigration).toContain("drop function if exists public.claim_whatsapp_v2_webhook_events(integer, text, integer)");
     expect(dispatcher).toContain("p_lease_seconds: 90");
+  });
+
+  it("suprime o ack por sessão quando o cliente recusa uma assinatura provisória", () => {
+    expect(subscriptionDeclineAckMigration).toContain("j.job_type = 'CANCELLATION_ACK_CLIENT'");
+    expect(subscriptionDeclineAckMigration).toContain("event.reason = 'subscription_offer_declined'");
+    expect(subscriptionDeclineAckMigration).toContain("'SUBSCRIPTION_OFFER_DECLINED'");
+    expect(subscriptionDeclineAckMigration).toContain("when 'APPOINTMENT_CANCELED_STAFF' then s.staff_notifications_enabled");
+    expect(subscriptionDeclineAckMigration).toContain("grant execute on function public.whatsapp_runtime_prepare(uuid, uuid) to service_role");
   });
 
   it("persiste webhook antes de processar e mantém QR", () => {
