@@ -105,11 +105,14 @@ npm.cmd run dev
 
 ## Sistemas conectados
 
-- GitHub: `https://github.com/losbarberoscontato/losbarberos-app`; produção na branch `main`.
-- Vercel: scope `losbarberoscontatos-projects`, projeto `losbarberos-app`, URL `https://losbarberos-app.vercel.app`.
-- Supabase ref: `bwdjkhqshmppescunwer`.
-- Migrations locais/remotas verificadas até `20260821145726` em 25/08/2026.
-- `whatsapp-v2-dispatcher` verificado `ACTIVE`, versão 13, em 25/08/2026.
+- GitHub: `https://github.com/losbarberoscontato/displaysh-app`; produção na branch `main`.
+- Conta Vercel: `Display Name` `Display SH`; username `displaysh` (`vercel.com/displaysh`).
+- Team Vercel: `DisplaySH Team Vercel`; slug `displaysh-team` (`vercel.com/displaysh-team`); ID `team_ug1qHFYbjsRSnpjXqzOhYOw2`.
+- Projeto Vercel: `displaysh-app` (`vercel.com/displaysh-team/displaysh-app`), ID `prj_ySE0Ae9hDdcS1remlJDCKHacw6vh`; domínios de produção `https://displaysh-app.vercel.app` e `https://losbarberos-app.vercel.app` (ambos verificados).
+- Vínculo Vercel/GitHub (verificado em 19/11/2026): Git link do projeto ainda informa slug `losbarberos-app`; repositório GitHub `losbarberoscontato/displaysh-app` está visível para a integração Vercel. Deploy de produção `dpl_7Q2FLfkCn1VroAetpTuMwnqivykD` está `READY` no commit `bb71bc1`, igual a `origin/main`; alias `displaysh-app.vercel.app` respondeu HTTP 200. Push posterior à renomeação ainda não validou entrega do webhook. IDs e `projectName` de `.vercel/project.json` coincidem com Vercel.
+- Supabase: username `displaysh-userdb`; organization `Display SH - Supabase Org`; project `Displaysh-db`; ref `bwdjkhqshmppescunwer`. Nomes são rótulos administrativos; conexão do app continua usando o ref.
+- Migrations (19/11/2026): 268 locais/remotas alinhadas até `20261119145024`; zero pendentes.
+- Edge Functions (19/11/2026): 22 locais e remotas, todas `ACTIVE`; `whatsapp-v2-dispatcher` versão 69.
 - Supabase Auth: Google ativo; `Site URL` em produção; callbacks com `**` para produção, localhost e `127.0.0.1`.
 
 ## Entregas atuais preservadas
