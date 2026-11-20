@@ -398,6 +398,7 @@ export function CustomersManager({
   const [subscriptionOverdueReason, setSubscriptionOverdueReason] = useState("");
   const [bundleOfferDraft, setBundleOfferDraft] = useState<BundleOfferDraft | null>(null);
   const [bundleOfferSending, setBundleOfferSending] = useState(false);
+  const [bundleOfferConfirmationOpen, setBundleOfferConfirmationOpen] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<{ kind: "LEGACY"; subscriptionId: string; cycleId: string; amountCents: number; method: string; dueOn: string } | { kind: "BUNDLE"; subscriptionId: string; installmentId: string; amountCents: number; method: string; dueOn: string } | null>(null);
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [paymentAccountId, setPaymentAccountId] = useState("");
@@ -1091,6 +1092,7 @@ export function CustomersManager({
       ...financialDraft,
       activeTab: "SESSIONS",
     });
+    setBundleOfferConfirmationOpen(false);
     setMessage("");
   }
 
@@ -1140,10 +1142,26 @@ export function CustomersManager({
     });
   }
 
-  async function submitBundleOffer(event: FormEvent<HTMLFormElement>) {
+  function advanceBundleOffer() {
+    setBundleOfferDraft((current) => current ? {
+      ...current,
+      activeTab: current.activeTab === "SESSIONS" ? "FINANCIAL" : "REVIEW",
+    } : current);
+  }
+
+  function handleBundleOfferFormSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (bundleOfferDraft?.activeTab !== "REVIEW") {
+      advanceBundleOffer();
+      return;
+    }
+    setBundleOfferConfirmationOpen(true);
+  }
+
+  async function submitBundleOffer(sendWhatsAppNotice: boolean) {
     const draft = bundleOfferDraft;
     if (!draft) return;
+    setBundleOfferConfirmationOpen(false);
     const plan = subscriptionBundlePlans.find((item) => item.id === draft.planId);
     if (!plan) return;
     let entryCents: number;
@@ -1230,9 +1248,10 @@ export function CustomersManager({
       return;
     }
     setBundleOfferSending(true);
+    let whatsappNoticeQueued = false;
     try {
       const saved = await runMutation(setMessage, async () => {
-        await assertResult(await connectedClient().rpc("create_subscription_bundle_offer", {
+        const result = await connectedClient().rpc("create_subscription_bundle_offer_with_notice", {
           p_organization_id: organizationId,
           p_customer_id: draft.customerId,
           p_plan_id: draft.planId,
@@ -1241,10 +1260,19 @@ export function CustomersManager({
           p_first_installment_due_on: draft.firstInstallmentDueDate,
           p_fixed_slots: { slots: fixedSlots, financial: financialOverrides },
           p_idempotency_key: draft.idempotencyKey,
-        }));
-      }, "Oferta enviada ao app do cliente. O aceite ativa o contrato.");
+          p_send_whatsapp_notice: sendWhatsAppNotice,
+        });
+        await assertResult(result);
+        const response = result.data as { whatsapp_notice_queued?: boolean } | null;
+        whatsappNoticeQueued = response?.whatsapp_notice_queued === true;
+      }, "Oferta criada no app do cliente.");
       if (saved) {
         setBundleOfferDraft(null);
+        setMessage(sendWhatsAppNotice
+          ? whatsappNoticeQueued
+            ? "Oferta criada e aviso adicionado à fila do WhatsApp."
+            : "Oferta criada. O aviso não entrou na fila: confira o consentimento do cliente, o telefone e a conexão do WhatsApp."
+          : "Oferta criada no app do cliente.");
         router.refresh();
       }
     } finally {
@@ -2138,9 +2166,9 @@ export function CustomersManager({
             { value: 6, label: "Sábado" },
           ];
           return <div className={`${styles.modalLayer} ${styles.subscriptionBundleOfferLayer}`} role="presentation">
-            <button className={styles.modalBackdrop} type="button" aria-label="Fechar oferta de assinatura" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)} />
-            <form className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionPlanModal}`} role="dialog" aria-modal="true" aria-labelledby="bundle-offer-title" onSubmit={(event) => void submitBundleOffer(event)}>
-              <header className={styles.modalHeader}><div><small>Oferta para {customers.find((item) => item.id === bundleOfferDraft.customerId)?.full_name ?? "cliente"}</small><h2 id="bundle-offer-title">Nova assinatura</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)}><X size={19} /></button></header>
+            <button className={styles.modalBackdrop} type="button" aria-label="Fechar oferta de assinatura" disabled={bundleOfferSending} onClick={() => { setBundleOfferConfirmationOpen(false); setBundleOfferDraft(null); }} />
+            <form className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionPlanModal}`} role="dialog" aria-modal="true" aria-labelledby="bundle-offer-title" onSubmit={handleBundleOfferFormSubmit}>
+              <header className={styles.modalHeader}><div><small>Oferta para {customers.find((item) => item.id === bundleOfferDraft.customerId)?.full_name ?? "cliente"}</small><h2 id="bundle-offer-title">Nova assinatura</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" disabled={bundleOfferSending} onClick={() => { setBundleOfferConfirmationOpen(false); setBundleOfferDraft(null); }}><X size={19} /></button></header>
               <div className={styles.form}>
                 <nav className={`${styles.formWide} ${styles.subscriptionBundleTabs}`} role="tablist" aria-label="Etapas da nova assinatura">
                   {([ ["SESSIONS", "Sessões"], ["FINANCIAL", "Financeiro"], ["REVIEW", "Revisão"] ] as const).map(([tab, label]) => <button key={tab} id={`bundle-offer-tab-${tab.toLowerCase()}`} className={bundleOfferDraft.activeTab === tab ? styles.subscriptionBundleTabActive : styles.subscriptionBundleTab} type="button" role="tab" aria-selected={bundleOfferDraft.activeTab === tab} aria-controls="bundle-offer-tab-panel" onClick={() => setBundleOfferDraft((current) => current ? { ...current, activeTab: tab } : current)}>{label}</button>)}
@@ -2212,12 +2240,26 @@ export function CustomersManager({
                   </div>}
                 </section>
                 <div className={`${styles.toolbarGroup} ${styles.formWide}`}>
-                  <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)}>Cancelar</button>
+                  <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => { setBundleOfferConfirmationOpen(false); setBundleOfferDraft(null); }}>Cancelar</button>
                   {bundleOfferDraft.activeTab !== "SESSIONS" && <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft((current) => current ? { ...current, activeTab: current.activeTab === "REVIEW" ? "FINANCIAL" : "SESSIONS" } : current)}>Voltar</button>}
-                  {bundleOfferDraft.activeTab !== "REVIEW" ? <button className={styles.button} type="button" disabled={bundleOfferSending || (fixed && eligible.length === 0)} onClick={() => setBundleOfferDraft((current) => current ? { ...current, activeTab: current.activeTab === "SESSIONS" ? "FINANCIAL" : "REVIEW" } : current)}>Continuar</button> : <button className={styles.button} type="submit" disabled={bundleOfferSending || (fixed && eligible.length === 0)}>{bundleOfferSending ? "Enviando…" : "Enviar oferta"}</button>}
+                  {bundleOfferDraft.activeTab !== "REVIEW" ? <button className={styles.button} type="button" disabled={bundleOfferSending || (fixed && eligible.length === 0)} onClick={advanceBundleOffer}>Continuar</button> : <button className={styles.button} type="submit" disabled={bundleOfferSending || (fixed && eligible.length === 0)}>Enviar oferta</button>}
                 </div>
               </div>
             </form>
+            {bundleOfferConfirmationOpen && <div className={`${styles.modalLayer} ${styles.subscriptionBundleConfirmLayer}`} role="presentation">
+              <button className={styles.modalBackdrop} type="button" aria-label="Fechar confirmação" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)} />
+              <section className={styles.modal} role="alertdialog" aria-modal="true" aria-labelledby="bundle-offer-confirm-title" aria-describedby="bundle-offer-confirm-description">
+                <header className={styles.modalHeader}><div><small>Nova assinatura</small><h2 id="bundle-offer-confirm-title">Como deseja avisar o cliente?</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar confirmação" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)}><X size={19} /></button></header>
+                <div className={styles.form}>
+                  <p id="bundle-offer-confirm-description">A oferta será criada no app do cliente. Se escolher WhatsApp, o aviso configurado em “Mensagens de contratos” será colocado na fila, respeitando o consentimento do cliente e a conexão ativa.</p>
+                  <div className={styles.subscriptionBundleConfirmActions}>
+                    <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)}>Voltar</button>
+                    <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => void submitBundleOffer(false)}>{bundleOfferSending ? "Criando…" : "Apenas criar o plano"}</button>
+                    <button className={styles.button} type="button" disabled={bundleOfferSending} onClick={() => void submitBundleOffer(true)}>{bundleOfferSending ? "Criando…" : "Enviar Aviso pelo WhatsApp"}</button>
+                  </div>
+                </div>
+              </section>
+            </div>}
           </div>;
         })()}
         {approvalDraft && (

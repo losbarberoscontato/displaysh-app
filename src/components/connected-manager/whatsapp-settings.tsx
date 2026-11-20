@@ -107,7 +107,7 @@ const responseMessages: FixedMessageDefinition[] = [
 ];
 
 const contractMessages: FixedMessageDefinition[] = [
-  { key: "PROJECT_CONTRACT_CREATED_CLIENT", title: "Aviso de criação de contratos de projetos", description: "Enviada ao cliente quando o gestor cria um novo contrato de projeto." },
+  { key: "PROJECT_CONTRACT_CREATED_CLIENT", title: "Aviso de criação de contrato ou assinatura", description: "Enviada quando um contrato de projeto é criado ou quando o gestor solicita aviso de uma nova assinatura." },
 ];
 
 const appointmentMessageVariables = ["{cliente}", "{profissional}", "{profissional_principal}", "{horario}", "{servico}", "{telefone}"] as const;
@@ -612,7 +612,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
   return <div className={`${styles.stack} settings-page ${productCopy.rootClass ? styles[productCopy.rootClass] : ""}`}>
     <PageHeader title="WhatsApp" description={`Conecte o WhatsApp da ${organizationName} e automatize avisos transacionais.`} />
     <ActionMessage message={message} />
-    <div className={styles.notice} role="status"><strong>WhatsApp de Planos de Assinatura pausado.</strong> Avisos e confirmações ligados a sessões de assinatura não serão enviados. Agendamentos simples seguem com WhatsApp ativo.</div>
+    <div className={styles.notice} role="status"><strong>Automatizações de sessões de assinatura pausadas.</strong> Avisos automáticos e confirmações de sessões seguem desligados. O aviso de criação de uma nova assinatura é enviado somente quando o gestor escolhe essa opção; agendamentos simples seguem com WhatsApp ativo.</div>
     {!schemaReady && <p className={styles.message}>A estrutura conectada desta integração ainda aguarda a migration remota. A tela está pronta, mas salvar e conectar ficará disponível após a aplicação autorizada.</p>}
 
     <section className={`${styles.whatsappHero} ${productCopy.heroClass ? styles[productCopy.heroClass] : ""}`} aria-labelledby="whatsapp-title">
@@ -707,7 +707,7 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
           </div>
         </details>
         <details className={styles.whatsappMessageGroup}>
-          <summary className={styles.whatsappMessageGroupSummary}><span className={styles.whatsappMessageChevron} aria-hidden="true">›</span><span><strong>Mensagens de contratos</strong><small>Avisos enviados aos clientes quando o gestor cria um contrato de projeto.</small></span></summary>
+          <summary className={styles.whatsappMessageGroupSummary}><span className={styles.whatsappMessageChevron} aria-hidden="true">›</span><span><strong>Mensagens de contratos</strong><small>Avisos de contratos de projeto e novas assinaturas, quando o gestor optar por enviar.</small></span></summary>
           <div className={styles.whatsappMessageGroupContent}>
             {contractMessages.map((definition) => fixedMessageCard(definition))}
           </div>
