@@ -270,7 +270,7 @@ function bundleFinancialDraft(plan: LoadedProps["subscriptionBundlePlans"][numbe
     pricePerSession: bundleMoneyInput(
       plan.version.bundle_price_per_session_cents ?? Math.ceil(Number(plan.version.price_cents) / sessions),
     ),
-    entry: bundleMoneyInput(plan.version.bundle_entry_cents),
+    entry: Number(plan.version.bundle_entry_cents ?? 0) > 0 ? bundleMoneyInput(plan.version.bundle_entry_cents) : "",
     paymentMethod: plan.version.payment_method,
     installmentCount: String(plan.version.bundle_installment_count ?? 1),
     discountType: (plan.version.bundle_discount_type === "FIXED" || plan.version.bundle_discount_type === "PERCENT"
@@ -1079,15 +1079,16 @@ export function CustomersManager({
       return;
     }
     const count = plan.version.bundle_scheduling_mode === "FIXED" ? Number(plan.version.bundle_sessions_per_week ?? 1) : 0;
+    const financialDraft = bundleFinancialDraft(plan);
     setBundleOfferDraft({
       customerId,
       planId: plan.id,
       firstSessionDate: todayInOrganization,
-      entryDueDate: todayInOrganization,
+      entryDueDate: safeBundleCentsInput(financialDraft.entry) > 0 ? todayInOrganization : "",
       firstInstallmentDueDate: addMonthClamped(todayInOrganization),
       idempotencyKey: `manager-bundle-offer-${crypto.randomUUID()}`,
       slots: Array.from({ length: count }, (_, index) => ({ slotNumber: index + 1, barberId: "", weekday: "", localTime: "", environmentId: "" })),
-      ...bundleFinancialDraft(plan),
+      ...financialDraft,
       activeTab: "SESSIONS",
     });
     setMessage("");
@@ -1097,13 +1098,46 @@ export function CustomersManager({
     const plan = subscriptionBundlePlans.find((item) => item.id === planId);
     if (!plan) return;
     const count = plan.version.bundle_scheduling_mode === "FIXED" ? Number(plan.version.bundle_sessions_per_week ?? 1) : 0;
+    const financialDraft = bundleFinancialDraft(plan);
     setBundleOfferDraft((current) => current ? {
       ...current,
       planId,
       slots: Array.from({ length: count }, (_, index) => current.slots[index] ?? ({ slotNumber: index + 1, barberId: "", weekday: "", localTime: "", environmentId: "" })),
-      ...bundleFinancialDraft(plan),
+      entryDueDate: safeBundleCentsInput(financialDraft.entry) > 0 ? current.entryDueDate || todayInOrganization : "",
+      firstInstallmentDueDate: safeBundleCentsInput(financialDraft.entry) > 0
+        && current.firstInstallmentDueDate < (current.entryDueDate || todayInOrganization)
+        ? addMonthClamped(current.entryDueDate || todayInOrganization)
+        : current.firstInstallmentDueDate,
+      ...financialDraft,
       activeTab: "SESSIONS",
     } : current);
+  }
+
+  function updateBundleOfferEntry(value: string) {
+    let entryCents: number | null = null;
+    if (!value.trim()) {
+      entryCents = 0;
+    } else {
+      try {
+        entryCents = centsFromInput(value);
+      } catch {
+        // Keep the date as-is while the manager is entering a partial amount.
+      }
+    }
+    setBundleOfferDraft((current) => {
+      if (!current) return current;
+      if (entryCents === null) return { ...current, entry: value };
+      if (entryCents <= 0) return { ...current, entry: value, entryDueDate: "" };
+      const entryDueDate = current.entryDueDate || todayInOrganization;
+      return {
+        ...current,
+        entry: value,
+        entryDueDate,
+        firstInstallmentDueDate: current.firstInstallmentDueDate < entryDueDate
+          ? addMonthClamped(entryDueDate)
+          : current.firstInstallmentDueDate,
+      };
+    });
   }
 
   async function submitBundleOffer(event: FormEvent<HTMLFormElement>) {
@@ -1112,10 +1146,31 @@ export function CustomersManager({
     if (!draft) return;
     const plan = subscriptionBundlePlans.find((item) => item.id === draft.planId);
     if (!plan) return;
-    if (!draft.firstSessionDate || !draft.entryDueDate || !draft.firstInstallmentDueDate
-      || draft.firstInstallmentDueDate < draft.entryDueDate || draft.firstSessionDate < todayInOrganization
-      || draft.entryDueDate < todayInOrganization) {
-      showManagerError("A primeira parcela deve vencer na data da entrada ou depois, e a primeira sessão não pode estar no passado.");
+    let entryCents: number;
+    try {
+      entryCents = draft.entry.trim() ? centsFromInput(draft.entry) : 0;
+    } catch {
+      showManagerError("Informe um valor de entrada válido ou deixe o campo vazio.");
+      return;
+    }
+    if (!draft.firstSessionDate || draft.firstSessionDate < todayInOrganization) {
+      showManagerError("A primeira sessão deve ser hoje ou em uma data futura.");
+      return;
+    }
+    if (!draft.firstInstallmentDueDate || draft.firstInstallmentDueDate < todayInOrganization) {
+      showManagerError("A primeira parcela deve vencer hoje ou em uma data futura.");
+      return;
+    }
+    if (entryCents > 0 && !draft.entryDueDate) {
+      showManagerError("Informe o vencimento da entrada ou deixe o valor da entrada zerado.");
+      return;
+    }
+    if (entryCents > 0 && draft.entryDueDate < todayInOrganization) {
+      showManagerError("O vencimento da entrada não pode estar no passado.");
+      return;
+    }
+    if (entryCents > 0 && draft.firstInstallmentDueDate < draft.entryDueDate) {
+      showManagerError("A primeira parcela deve vencer na data da entrada ou depois.");
       return;
     }
     const fixedSlots = plan.version.bundle_scheduling_mode === "FIXED"
@@ -1137,7 +1192,6 @@ export function CustomersManager({
     try {
       const totalSessions = Number(draft.totalSessions);
       const pricePerSessionCents = centsFromInput(draft.pricePerSession);
-      const entryCents = centsFromInput(draft.entry);
       const installmentCount = Number(draft.installmentCount);
       const discountValue = draft.discountType === "PERCENT"
         ? Math.round(Number(draft.discountValue.replace(",", ".")) * 100)
@@ -1183,7 +1237,7 @@ export function CustomersManager({
           p_customer_id: draft.customerId,
           p_plan_id: draft.planId,
           p_first_session_date: draft.firstSessionDate,
-          p_entry_due_on: draft.entryDueDate,
+          p_entry_due_on: financialOverrides.entry_cents > 0 ? draft.entryDueDate : null,
           p_first_installment_due_on: draft.firstInstallmentDueDate,
           p_fixed_slots: { slots: fixedSlots, financial: financialOverrides },
           p_idempotency_key: draft.idempotencyKey,
@@ -2064,6 +2118,7 @@ export function CustomersManager({
           const totalSessions = Number(bundleOfferDraft.totalSessions) || 0;
           const pricePerSessionCents = safeBundleCentsInput(bundleOfferDraft.pricePerSession);
           const totalPriceCents = pricePerSessionCents * totalSessions;
+          const entryCents = safeBundleCentsInput(bundleOfferDraft.entry);
           const installmentCount = Math.max(1, Number(bundleOfferDraft.installmentCount) || 1);
           const installmentCents = Math.floor(totalPriceCents / installmentCount);
           const discountValue = bundleOfferDraft.discountType === "PERCENT"
@@ -2129,9 +2184,9 @@ export function CustomersManager({
                     <Field label={bundleOfferDraft.discountType === "PERCENT" ? "Desconto (%)" : "Desconto (R$)"}><input inputMode="decimal" value={bundleOfferDraft.discountValue} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, discountValue: event.target.value } : current)} disabled={bundleOfferDraft.discountType === "NONE"} placeholder={bundleOfferDraft.discountType === "NONE" ? "Sem desconto" : "0,00"} /></Field>
                     <Field label="Valor da parcela"><input value={formatCents(installmentCents)} readOnly /></Field>
                     <Field label="Valor da parcela com desconto"><input value={formatCents(discountedInstallmentCents)} readOnly /></Field>
-                    <Field label="Valor da entrada (R$)"><input inputMode="decimal" value={bundleOfferDraft.entry} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, entry: event.target.value } : current)} /></Field>
+                    <Field label="Valor da entrada (R$)"><input inputMode="decimal" value={bundleOfferDraft.entry} onChange={(event) => updateBundleOfferEntry(event.target.value)} /></Field>
                     <Field label="Forma de pagamento"><select value={bundleOfferDraft.paymentMethod} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, paymentMethod: event.target.value } : current)}><option value="PIX">PIX</option><option value="CARD">Cartão</option><option value="BOLETO">Boleto</option><option value="CASH">Dinheiro</option><option value="CRYPTO">Cripto</option><option value="ONLINE">Link de pagamento</option></select></Field>
-                    <Field label="Vencimento da entrada"><input type="date" min={todayInOrganization} value={bundleOfferDraft.entryDueDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, entryDueDate: event.target.value, firstInstallmentDueDate: current.firstInstallmentDueDate < event.target.value ? addMonthClamped(event.target.value) : current.firstInstallmentDueDate } : current)} /></Field>
+                    <Field label="Vencimento da entrada"><input type="date" min={todayInOrganization} disabled={safeBundleCentsInput(bundleOfferDraft.entry) <= 0} value={bundleOfferDraft.entryDueDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, entryDueDate: event.target.value, firstInstallmentDueDate: event.target.value && current.firstInstallmentDueDate < event.target.value ? addMonthClamped(event.target.value) : current.firstInstallmentDueDate } : current)} /></Field>
                     <Field label="Vencimento da 1ª parcela"><input type="date" min={bundleOfferDraft.entryDueDate || todayInOrganization} value={bundleOfferDraft.firstInstallmentDueDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, firstInstallmentDueDate: event.target.value } : current)} /></Field>
                   </>}
                   {bundleOfferDraft.activeTab === "REVIEW" && <div className={`${styles.formWide} ${styles.subscriptionBundleReview}`}>
@@ -2148,7 +2203,9 @@ export function CustomersManager({
                     <div className={styles.subscriptionBundleReviewFinance}>
                       <p><strong>Total do plano:</strong> {formatCents(totalPriceCents)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Parcelas:</strong> {installmentCount} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Desconto por parcela:</strong> {discountValueLabel}</p>
                       <p><strong>Valor por sessão:</strong> {formatCents(pricePerSessionCents)}</p>
-                      <p><strong>Entrada:</strong> {formatCents(safeBundleCentsInput(bundleOfferDraft.entry))} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Venc.:</strong> {formatBundleDate(bundleOfferDraft.entryDueDate)}</p>
+                      {entryCents > 0
+                        ? <p><strong>Entrada:</strong> {formatCents(entryCents)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Venc.:</strong> {formatBundleDate(bundleOfferDraft.entryDueDate)}</p>
+                        : <p><strong>Entrada:</strong> Sem entrada</p>}
                       <p><strong>Parcela:</strong> {formatCents(discountedInstallmentCents)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Venc.:</strong> {formatBundleDate(bundleOfferDraft.firstInstallmentDueDate)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Recorrência:</strong> Mensal</p>
                       <p><strong>Forma de pagamento:</strong> {bundlePaymentMethodLabels[bundleOfferDraft.paymentMethod] ?? bundleOfferDraft.paymentMethod}</p>
                     </div>

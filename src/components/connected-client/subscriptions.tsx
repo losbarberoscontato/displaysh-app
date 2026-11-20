@@ -78,7 +78,7 @@ type BundleContract = {
   installment_count: number;
   discount_type: "NONE" | "FIXED" | "PERCENT";
   discount_value: number;
-  entry_due_on: string;
+  entry_due_on: string | null;
   first_installment_due_on: string;
   first_session_date: string;
 };
@@ -649,7 +649,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
         <p>{totalSessions} sessões · {sessionsPerWeek} por semana · {sessionDuration} min por sessão · agendamento {schedulingMode === "FIXED" ? "fixo" : "livre"}</p>
         <p>Valor por sessão: {money(pricePerSession)} · Entrada adicional: {money(entryCents)}</p>
         <p>{installmentCount} parcela(s) de {money(discountedInstallment)}{discount > 0 ? ` após desconto de ${discountType === "PERCENT" ? `${(discountValue / 100).toFixed(2).replace(".", ",")}%` : money(discount)} por parcela` : ""} · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.payment_method] ?? selectedSubscriptionOffer.payment_method}</p>
-        {contract && <p>Vencimento da entrada: {formatDate(contract.entry_due_on)} · 1ª parcela: {formatDate(contract.first_installment_due_on)} · primeira sessão: {formatDate(contract.first_session_date)}</p>}
+        {contract && <p>{contract.entry_cents > 0 ? `Vencimento da entrada: ${formatDate(contract.entry_due_on)} · ` : "Sem entrada · "}1ª parcela: {formatDate(contract.first_installment_due_on)} · primeira sessão: {formatDate(contract.first_session_date)}</p>}
         {schedulingMode === "FIXED" && <div><strong>Horários semanais</strong>{selectedBundleOfferSlots.map((slot) => <p key={slot.id}>Sessão semanal {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {days[slot.weekday]} às {slot.local_time.slice(0, 5)}</p>)}</div>}
         {schedulingMode === "FREE" && <p>As sessões são liberadas mês a mês, com limite de {sessionsPerWeek} por semana. Novos agendamentos ficam bloqueados enquanto houver parcela vencida.</p>}
       </>;
