@@ -889,12 +889,22 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
 .modalProjectWide { width: min(1100px, 100%); max-height: min(92vh, 900px); }
 .modal.serviceModal { width: min(70rem, 100%); max-height: calc(100dvh - 3rem); overflow-x: hidden; }
 .modal.subscriptionPlanModal { width: min(80rem, 100%); }
+.subscriptionBundleOfferLayer { z-index: 130; }
 .subscriptionPlanScheduleRow { grid-template-columns: 1.25fr repeat(3, minmax(0, 1fr)); }
 .subscriptionInstallmentValues { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; min-width: 0; }
 .subscriptionPlanValidation { color: #a3442d; font-size: .78rem; }
 .subscriptionBundleSlots { display: grid; gap: .8rem; }
 .subscriptionBundleSlot { display: grid; grid-template-columns: auto repeat(4, minmax(9rem, 1fr)); gap: .7rem; align-items: end; padding: .85rem; border: 1px solid #e3e9e1; border-radius: 12px; background: #fbfcfa; }
 .subscriptionBundleSlot > strong { align-self: center; color: #35443a; white-space: nowrap; }
+.subscriptionBundleTabs { display: flex; flex-wrap: wrap; gap: .5rem; padding-bottom: .85rem; border-bottom: 1px solid #e3e9e1; }
+.subscriptionBundleTab, .subscriptionBundleTabActive { padding: .65rem 1rem; border: 1px solid #e1e7df; border-radius: 999px; background: #f1f3ef; color: #526056; font: inherit; font-weight: 750; cursor: pointer; }
+.subscriptionBundleTabActive { border-color: #493123; background: #493123; color: #fff; }
+.subscriptionBundleTabPanel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; align-content: start; }
+.subscriptionFreeSessionList, .subscriptionBundleReview { display: grid; gap: .65rem; padding: 1rem; border: 1px solid #e3e9e1; border-radius: 12px; background: #fbfcfa; }
+.subscriptionFreeSessionList > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .5rem; max-height: 20rem; overflow-y: auto; }
+.subscriptionFreeSessionList > div > span { padding: .55rem .7rem; border: 1px solid #e3e9e1; border-radius: 9px; background: #fff; color: #35443a; font-size: .82rem; font-weight: 700; }
+.subscriptionBundleReview h3, .subscriptionBundleReview p { margin: 0; }
+.subscriptionBundleReview ul { margin: 0; padding-left: 1.2rem; color: #526056; }
 .modalHeader { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 1.25rem 1.25rem .75rem; }
 .modalHeader small { color: #7a837c; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .modalHeader h2 { margin: .25rem 0 0; color: #202a23; font-family: Georgia, serif; font-size: 1.5rem; font-weight: 500; }
@@ -909,6 +919,8 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
 }
 @media (max-width: 760px) {
   .serviceNameOfferRow { grid-template-columns: 1fr; }
+  .subscriptionBundleTabPanel { grid-template-columns: 1fr; }
+  .subscriptionBundleSlot { grid-template-columns: 1fr; }
   .serviceOfferToggleField { padding-bottom: 0; }
   .serviceOfferHead { display: none; }
   .serviceOfferRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }

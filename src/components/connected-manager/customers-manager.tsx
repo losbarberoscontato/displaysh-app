@@ -11,7 +11,7 @@ import { ActionMessage, EmptyState, Field, Panel, StatusChip } from "./shared";
 import { assertResult, connectedClient, runMutation } from "./mutation-utils";
 import styles from "./connected-manager.module.css";
 import { normalizePhoneE164 } from "@/lib/phone";
-import { formatCents, formatRange, localDateTimeToIso, parsePostgresRange } from "./format";
+import { centsFromInput, formatCents, formatRange, localDateTimeToIso, parsePostgresRange } from "./format";
 import { cpfCnpjDigits, formatCpfCnpj, isCpfCnpjValid } from "@/lib/cpf-cnpj";
 import { showManagerError } from "@/components/manager-error-dialog";
 
@@ -206,8 +206,69 @@ type ApprovalDraft = { subscriptionId: string; startDate: string; dueDate: strin
 type ManualSubscriptionActivationDraft = { subscriptionId: string; planName: string };
 type FixedScheduleEditDraft = { subscriptionId: string; cadenceWeeks: string; startDate: string; localTime: string; barberId: string; environmentId: string; serviceIds: string[] };
 type BundleOfferSlotDraft = { slotNumber: number; barberId: string; weekday: string; localTime: string; environmentId: string };
-type BundleOfferDraft = { customerId: string; planId: string; firstSessionDate: string; entryDueDate: string; firstInstallmentDueDate: string; idempotencyKey: string; slots: BundleOfferSlotDraft[] };
+type BundleOfferTab = "SESSIONS" | "FINANCIAL" | "REVIEW";
+type BundleDiscountType = "NONE" | "FIXED" | "PERCENT";
+type BundleOfferDraft = {
+  customerId: string;
+  planId: string;
+  firstSessionDate: string;
+  entryDueDate: string;
+  firstInstallmentDueDate: string;
+  idempotencyKey: string;
+  slots: BundleOfferSlotDraft[];
+  totalSessions: string;
+  pricePerSession: string;
+  entry: string;
+  paymentMethod: string;
+  installmentCount: string;
+  discountType: BundleDiscountType;
+  discountValue: string;
+  activeTab: BundleOfferTab;
+};
 type FixedScheduleSlot = { time: string; environmentId: string; environmentName: string };
+
+function bundleMoneyInput(cents: number | null | undefined) {
+  return ((Number(cents) || 0) / 100).toFixed(2).replace(".", ",");
+}
+
+function bundlePercentageInput(basisPoints: number | null | undefined) {
+  return ((Number(basisPoints) || 0) / 100).toFixed(2).replace(".", ",");
+}
+
+function safeBundleCentsInput(value: string) {
+  try {
+    return centsFromInput(value);
+  } catch {
+    return 0;
+  }
+}
+
+function safeBundlePercentageInput(value: string) {
+  const numeric = Number(value.replace(",", "."));
+  return Number.isFinite(numeric) ? Math.round(numeric * 100) : 0;
+}
+
+function bundleFinancialDraft(plan: LoadedProps["subscriptionBundlePlans"][number]) {
+  const sessions = Number(plan.version.bundle_total_sessions ?? 1);
+  return {
+    totalSessions: String(sessions),
+    pricePerSession: bundleMoneyInput(
+      plan.version.bundle_price_per_session_cents ?? Math.ceil(Number(plan.version.price_cents) / sessions),
+    ),
+    entry: bundleMoneyInput(plan.version.bundle_entry_cents),
+    paymentMethod: plan.version.payment_method,
+    installmentCount: String(plan.version.bundle_installment_count ?? 1),
+    discountType: (plan.version.bundle_discount_type === "FIXED" || plan.version.bundle_discount_type === "PERCENT"
+      ? plan.version.bundle_discount_type
+      : "NONE") as BundleDiscountType,
+    discountValue: plan.version.bundle_discount_type === "PERCENT"
+      ? bundlePercentageInput(plan.version.bundle_discount_value)
+      : plan.version.bundle_discount_type === "FIXED"
+        ? bundleMoneyInput(plan.version.bundle_discount_value)
+        : "",
+  };
+}
+
 type SubscriptionCancellationDraft = {
   subscriptionId: string;
   requestId: string | null;
@@ -1011,6 +1072,8 @@ export function CustomersManager({
       firstInstallmentDueDate: addMonthClamped(todayInOrganization),
       idempotencyKey: `manager-bundle-offer-${crypto.randomUUID()}`,
       slots: Array.from({ length: count }, (_, index) => ({ slotNumber: index + 1, barberId: "", weekday: "", localTime: "", environmentId: "" })),
+      ...bundleFinancialDraft(plan),
+      activeTab: "SESSIONS",
     });
     setMessage("");
   }
@@ -1023,6 +1086,8 @@ export function CustomersManager({
       ...current,
       planId,
       slots: Array.from({ length: count }, (_, index) => current.slots[index] ?? ({ slotNumber: index + 1, barberId: "", weekday: "", localTime: "", environmentId: "" })),
+      ...bundleFinancialDraft(plan),
+      activeTab: "SESSIONS",
     } : current);
   }
 
@@ -1032,7 +1097,9 @@ export function CustomersManager({
     if (!draft) return;
     const plan = subscriptionBundlePlans.find((item) => item.id === draft.planId);
     if (!plan) return;
-    if (draft.firstInstallmentDueDate < draft.entryDueDate || draft.firstSessionDate < todayInOrganization) {
+    if (!draft.firstSessionDate || !draft.entryDueDate || !draft.firstInstallmentDueDate
+      || draft.firstInstallmentDueDate < draft.entryDueDate || draft.firstSessionDate < todayInOrganization
+      || draft.entryDueDate < todayInOrganization) {
       showManagerError("A primeira parcela deve vencer na data da entrada ou depois, e a primeira sessão não pode estar no passado.");
       return;
     }
@@ -1041,6 +1108,56 @@ export function CustomersManager({
       : [];
     if (plan.version.bundle_scheduling_mode === "FIXED" && fixedSlots.some((slot) => !slot.barber_id || !slot.environment_id || !slot.local_time || !Number.isInteger(slot.weekday))) {
       showManagerError("Complete profissional, sala, dia e horário de cada sessão fixa.");
+      return;
+    }
+    let financialOverrides: {
+      total_sessions: number;
+      price_per_session_cents: number;
+      entry_cents: number;
+      installment_count: number;
+      discount_type: BundleDiscountType;
+      discount_value: number;
+      payment_method: string;
+    };
+    try {
+      const totalSessions = Number(draft.totalSessions);
+      const pricePerSessionCents = centsFromInput(draft.pricePerSession);
+      const entryCents = centsFromInput(draft.entry);
+      const installmentCount = Number(draft.installmentCount);
+      const discountValue = draft.discountType === "PERCENT"
+        ? Math.round(Number(draft.discountValue.replace(",", ".")) * 100)
+        : draft.discountType === "FIXED" ? centsFromInput(draft.discountValue) : 0;
+      const totalPriceCents = pricePerSessionCents * totalSessions;
+      const installmentBaseCents = Math.floor(totalPriceCents / installmentCount);
+      const discountCents = draft.discountType === "PERCENT"
+        ? Math.round(installmentBaseCents * discountValue / 10000)
+        : draft.discountType === "FIXED" ? discountValue : 0;
+      const paymentMethod = draft.paymentMethod.toUpperCase();
+      if (!Number.isInteger(totalSessions) || totalSessions < 1 || totalSessions > 300
+        || !Number.isSafeInteger(pricePerSessionCents) || pricePerSessionCents <= 0
+        || !Number.isSafeInteger(totalPriceCents) || totalPriceCents <= 0
+        || !Number.isSafeInteger(entryCents) || entryCents < 0
+        || !Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 24
+        || installmentBaseCents < 1
+        || !Number.isInteger(discountValue) || discountValue < 0
+        || (draft.discountType === "NONE" && discountValue !== 0)
+        || (draft.discountType === "FIXED" && (discountValue <= 0 || discountValue >= installmentBaseCents))
+        || (draft.discountType === "PERCENT" && (discountValue < 1 || discountValue > 9999 || discountCents >= installmentBaseCents))
+        || !["ONLINE", "CARD", "PIX", "BOLETO", "CASH", "CRYPTO"].includes(paymentMethod)) {
+        showManagerError("Confira os valores financeiros: sessões (1 a 300), parcelas (1 a 24), valores positivos e desconto menor que a parcela.");
+        return;
+      }
+      financialOverrides = {
+        total_sessions: totalSessions,
+        price_per_session_cents: pricePerSessionCents,
+        entry_cents: entryCents,
+        installment_count: installmentCount,
+        discount_type: draft.discountType,
+        discount_value: discountValue,
+        payment_method: paymentMethod,
+      };
+    } catch (error) {
+      showManagerError(error instanceof Error ? error.message : "Confira os valores financeiros da oferta.");
       return;
     }
     setBundleOfferSending(true);
@@ -1053,7 +1170,7 @@ export function CustomersManager({
           p_first_session_date: draft.firstSessionDate,
           p_entry_due_on: draft.entryDueDate,
           p_first_installment_due_on: draft.firstInstallmentDueDate,
-          p_fixed_slots: fixedSlots,
+          p_fixed_slots: { slots: fixedSlots, financial: financialOverrides },
           p_idempotency_key: draft.idempotencyKey,
         }));
       }, "Oferta enviada ao app do cliente. O aceite ativa o contrato.");
@@ -1758,8 +1875,7 @@ export function CustomersManager({
                     return (
                       <div className={styles.stack}>
                         {subscriptionModuleEnabled && subscriptionBundlePlans.length > 0 && <div className={styles.toolbarGroup}>
-                          <button type="button" className={styles.button} onClick={() => openBundleOffer(historyCustomer.id)}>Enviar oferta de plano V2</button>
-                          <small className={styles.muted}>O cliente aceita no app. A agenda fixa e as parcelas começam após o aceite.</small>
+                          <button type="button" className={styles.button} onClick={() => openBundleOffer(historyCustomer.id)}>Nova Assinatura</button>
                         </div>}
                         {active.length === 0 ? (
                           <EmptyState title="Sem assinaturas">
@@ -1907,9 +2023,6 @@ export function CustomersManager({
                             })}
                           </div>
                         )}
-                        <div>
-                          {subscriptionModuleEnabled && <p className={styles.pendingSubscriptionNotice}>Novas adesões estão temporariamente pausadas enquanto o agendamento de assinaturas é reestruturado. As assinaturas existentes continuam disponíveis.</p>}
-                        </div>
                       </div>
                     );
                   })()}
@@ -1933,49 +2046,100 @@ export function CustomersManager({
           const serviceId = plan.service.id;
           const sessionDuration = Number(plan.version.bundle_session_duration_minutes ?? plan.service.duration_minutes);
           const eligible = eligibleSubscriptionBarbers([serviceId], plan.id);
+          const totalSessions = Number(bundleOfferDraft.totalSessions) || 0;
+          const pricePerSessionCents = safeBundleCentsInput(bundleOfferDraft.pricePerSession);
+          const totalPriceCents = pricePerSessionCents * totalSessions;
+          const installmentCount = Math.max(1, Number(bundleOfferDraft.installmentCount) || 1);
+          const installmentCents = Math.floor(totalPriceCents / installmentCount);
+          const discountValue = bundleOfferDraft.discountType === "PERCENT"
+            ? safeBundlePercentageInput(bundleOfferDraft.discountValue)
+            : bundleOfferDraft.discountType === "FIXED" ? safeBundleCentsInput(bundleOfferDraft.discountValue) : 0;
+          const discountCents = bundleOfferDraft.discountType === "PERCENT"
+            ? Math.round(installmentCents * discountValue / 10000)
+            : bundleOfferDraft.discountType === "FIXED" ? discountValue : 0;
+          const discountedInstallmentCents = Math.max(0, installmentCents - discountCents);
+          const discountDescription = bundleOfferDraft.discountType === "PERCENT"
+            ? `${bundlePercentageInput(discountValue)}% por parcela`
+            : bundleOfferDraft.discountType === "FIXED" ? `${formatCents(discountValue)} por parcela` : "sem desconto";
           const weekdays = [
             { value: 0, label: "Domingo" }, { value: 1, label: "Segunda-feira" },
             { value: 2, label: "Terça-feira" }, { value: 3, label: "Quarta-feira" },
             { value: 4, label: "Quinta-feira" }, { value: 5, label: "Sexta-feira" },
             { value: 6, label: "Sábado" },
           ];
-          return <div className={styles.modalLayer} role="presentation">
+          return <div className={`${styles.modalLayer} ${styles.subscriptionBundleOfferLayer}`} role="presentation">
             <button className={styles.modalBackdrop} type="button" aria-label="Fechar oferta de assinatura" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)} />
             <form className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionPlanModal}`} role="dialog" aria-modal="true" aria-labelledby="bundle-offer-title" onSubmit={(event) => void submitBundleOffer(event)}>
-              <header className={styles.modalHeader}><div><small>Oferta para {customers.find((item) => item.id === bundleOfferDraft.customerId)?.full_name ?? "cliente"}</small><h2 id="bundle-offer-title">Enviar plano de assinatura</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)}><X size={19} /></button></header>
+              <header className={styles.modalHeader}><div><small>Oferta para {customers.find((item) => item.id === bundleOfferDraft.customerId)?.full_name ?? "cliente"}</small><h2 id="bundle-offer-title">Nova assinatura</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)}><X size={19} /></button></header>
               <div className={styles.form}>
-                <Field label="Plano"><select value={bundleOfferDraft.planId} onChange={(event) => updateBundleOfferPlan(event.target.value)}>{subscriptionBundlePlans.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCents(item.version.price_cents)}</option>)}</select></Field>
-                <Field label="Serviço"><input value={plan.service.name} readOnly /></Field>
-                <div className={`${styles.formWide} ${styles.notice}`}>
-                  <strong>{formatCents(plan.version.price_cents)} · {plan.version.bundle_total_sessions} sessões · {plan.version.bundle_sessions_per_week}/semana · {sessionDuration} min</strong>
-                  <small className={styles.muted}>Entrada {formatCents(plan.version.bundle_entry_cents)} · {plan.version.bundle_installment_count} parcela(s). Desconto configurado: {plan.version.bundle_discount_type === "PERCENT" ? `${(Number(plan.version.bundle_discount_value) / 100).toFixed(2).replace(".", ",")}%` : plan.version.bundle_discount_type === "FIXED" ? `${formatCents(plan.version.bundle_discount_value)}/parcela` : "sem desconto"}.</small>
+                <nav className={`${styles.formWide} ${styles.subscriptionBundleTabs}`} role="tablist" aria-label="Etapas da nova assinatura">
+                  {([ ["SESSIONS", "Sessões"], ["FINANCIAL", "Financeiro"], ["REVIEW", "Revisão"] ] as const).map(([tab, label]) => <button key={tab} id={`bundle-offer-tab-${tab.toLowerCase()}`} className={bundleOfferDraft.activeTab === tab ? styles.subscriptionBundleTabActive : styles.subscriptionBundleTab} type="button" role="tab" aria-selected={bundleOfferDraft.activeTab === tab} aria-controls="bundle-offer-tab-panel" onClick={() => setBundleOfferDraft((current) => current ? { ...current, activeTab: tab } : current)}>{label}</button>)}
+                </nav>
+                <section className={`${styles.formWide} ${styles.subscriptionBundleTabPanel}`} id="bundle-offer-tab-panel" role="tabpanel" aria-labelledby={`bundle-offer-tab-${bundleOfferDraft.activeTab.toLowerCase()}`}>
+                  {bundleOfferDraft.activeTab === "SESSIONS" && <>
+                    <Field label="Plano"><select value={bundleOfferDraft.planId} onChange={(event) => updateBundleOfferPlan(event.target.value)}>{subscriptionBundlePlans.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+                    <Field label="Serviço"><input value={plan.service.name} readOnly /></Field>
+                    <Field label="Primeira sessão"><input type="date" min={todayInOrganization} value={bundleOfferDraft.firstSessionDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, firstSessionDate: event.target.value } : current)} /></Field>
+                    {fixed ? <div className={`${styles.formWide} ${styles.subscriptionBundleSlots}`}>
+                      <strong>Agenda semanal fixa · {bundleOfferDraft.slots.length} sessões por semana</strong>
+                      {bundleOfferDraft.slots.map((slot, index) => {
+                        const availableWeekdays = slot.barberId ? weekdays.filter((day) => fixedScheduleSlots([serviceId], slot.barberId, dateForWeekday(day.value), sessionDuration).length > 0) : [];
+                        const slotOptions = slot.barberId && slot.weekday !== ""
+                          ? fixedScheduleSlots([serviceId], slot.barberId, dateForWeekday(Number(slot.weekday)), sessionDuration)
+                          : [];
+                        const times = [...new Set(slotOptions.map((item) => item.time))];
+                        const environments = slotOptions.filter((item) => item.time === slot.localTime);
+                        return <div className={styles.subscriptionBundleSlot} key={slot.slotNumber}>
+                          <strong>Sessão {index + 1}</strong>
+                          <Field label="Profissional"><select value={slot.barberId} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, barberId: event.target.value, weekday: "", localTime: "", environmentId: "" } : item) } : current)}><option value="">Selecione primeiro</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select></Field>
+                          <Field label="Dia da semana"><select disabled={!slot.barberId} value={slot.weekday} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, weekday: event.target.value, localTime: "", environmentId: "" } : item) } : current)}><option value="">Selecione</option>{availableWeekdays.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></Field>
+                          <Field label="Horário"><select disabled={!slot.weekday || !slot.barberId} value={slot.localTime} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, localTime: event.target.value, environmentId: "" } : item) } : current)}><option value="">Selecione</option>{times.map((time) => <option key={time} value={time}>{time}</option>)}</select></Field>
+                          <Field label="Sala"><select disabled={!slot.localTime} value={slot.environmentId} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, environmentId: event.target.value } : item) } : current)}><option value="">Selecione</option>{environments.map((environment) => <option key={`${environment.environmentId}-${environment.time}`} value={environment.environmentId}>{environment.environmentName}</option>)}</select></Field>
+                        </div>;
+                      })}
+                      {eligible.length === 0 && <p className={styles.muted}>Nenhum profissional elegível. Vincule serviço e plano à equipe e configure comissão do plano.</p>}
+                      <small className={styles.muted}>Cada horário será conferido novamente quando o cliente aceitar. Feriados e recessos são ignorados na geração das sessões fixas.</small>
+                    </div> : <div className={`${styles.formWide} ${styles.subscriptionFreeSessionList}`}>
+                      <strong>Sessões livres · {totalSessions} no total</strong>
+                      <small className={styles.muted}>O cliente agenda cada sessão pelo app. As sessões são liberadas conforme o calendário do plano.</small>
+                      <div>{Array.from({ length: Math.min(totalSessions, 300) }, (_, index) => <span key={index}>Sessão {String(index + 1).padStart(2, "0")}</span>)}</div>
+                    </div>}
+                  </>}
+                  {bundleOfferDraft.activeTab === "FINANCIAL" && <>
+                    <Field label="Total de sessões do plano"><input type="number" min={1} max={300} step={1} value={bundleOfferDraft.totalSessions} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, totalSessions: event.target.value } : current)} /></Field>
+                    <Field label="Valor por sessão (R$)"><input inputMode="decimal" value={bundleOfferDraft.pricePerSession} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, pricePerSession: event.target.value } : current)} /></Field>
+                    <Field label="Total do plano (R$)"><input value={formatCents(totalPriceCents)} readOnly /></Field>
+                    <Field label="Total de parcelas"><input type="number" min={1} max={24} step={1} value={bundleOfferDraft.installmentCount} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, installmentCount: event.target.value } : current)} /></Field>
+                    <Field label="Desconto por parcela"><select value={bundleOfferDraft.discountType} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, discountType: event.target.value as BundleDiscountType, discountValue: event.target.value === "NONE" ? "" : current.discountValue } : current)}><option value="NONE">Sem desconto</option><option value="FIXED">Valor em reais</option><option value="PERCENT">Percentual</option></select></Field>
+                    <Field label={bundleOfferDraft.discountType === "PERCENT" ? "Desconto (%)" : "Desconto (R$)"}><input inputMode="decimal" value={bundleOfferDraft.discountValue} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, discountValue: event.target.value } : current)} disabled={bundleOfferDraft.discountType === "NONE"} placeholder={bundleOfferDraft.discountType === "NONE" ? "Sem desconto" : "0,00"} /></Field>
+                    <Field label="Valor da parcela"><input value={formatCents(installmentCents)} readOnly /></Field>
+                    <Field label="Valor da parcela com desconto"><input value={formatCents(discountedInstallmentCents)} readOnly /></Field>
+                    <Field label="Valor da entrada (R$)"><input inputMode="decimal" value={bundleOfferDraft.entry} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, entry: event.target.value } : current)} /></Field>
+                    <Field label="Forma de pagamento"><select value={bundleOfferDraft.paymentMethod} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, paymentMethod: event.target.value } : current)}><option value="PIX">PIX</option><option value="CARD">Cartão</option><option value="BOLETO">Boleto</option><option value="CASH">Dinheiro</option><option value="CRYPTO">Cripto</option><option value="ONLINE">Link de pagamento</option></select></Field>
+                    <Field label="Vencimento da entrada"><input type="date" min={todayInOrganization} value={bundleOfferDraft.entryDueDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, entryDueDate: event.target.value, firstInstallmentDueDate: current.firstInstallmentDueDate < event.target.value ? addMonthClamped(event.target.value) : current.firstInstallmentDueDate } : current)} /></Field>
+                    <Field label="Vencimento da 1ª parcela"><input type="date" min={bundleOfferDraft.entryDueDate || todayInOrganization} value={bundleOfferDraft.firstInstallmentDueDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, firstInstallmentDueDate: event.target.value } : current)} /></Field>
+                  </>}
+                  {bundleOfferDraft.activeTab === "REVIEW" && <div className={`${styles.formWide} ${styles.subscriptionBundleReview}`}>
+                    <h3>Resumo da assinatura</h3>
+                    <p><strong>Plano:</strong> {plan.name} · <strong>Serviço:</strong> {plan.service.name}</p>
+                    <p><strong>Agendamento:</strong> {fixed ? `Fixo · ${bundleOfferDraft.slots.length} sessões por semana` : `Livre · ${totalSessions} sessões`}</p>
+                    <p><strong>Primeira sessão:</strong> {bundleOfferDraft.firstSessionDate || "—"} · <strong>Duração:</strong> {sessionDuration} min</p>
+                    {fixed && <ul>{bundleOfferDraft.slots.map((slot, index) => {
+                      const barber = eligible.find((item) => item.id === slot.barberId);
+                      const weekday = weekdays.find((item) => item.value === Number(slot.weekday))?.label ?? "Dia não definido";
+                      const environment = agendaEnvironments.find((item) => item.id === slot.environmentId);
+                      return <li key={slot.slotNumber}>Sessão {index + 1}: {barber?.display_name ?? "Profissional não definido"} · {environment?.name ?? "Sala não definida"} · {weekday} · {slot.localTime || "Horário não definido"}</li>;
+                    })}</ul>}
+                    <p><strong>{totalSessions} sessões</strong> · {formatCents(pricePerSessionCents)} por sessão · <strong>{formatCents(totalPriceCents)}</strong> no total</p>
+                    <p><strong>{installmentCount} parcela(s)</strong> de {formatCents(installmentCents)} · {discountDescription} · parcela com desconto: {formatCents(discountedInstallmentCents)}</p>
+                    <p>Entrada de {formatCents(safeBundleCentsInput(bundleOfferDraft.entry))} · pagamento por {bundleOfferDraft.paymentMethod} · vencimento {bundleOfferDraft.entryDueDate || "—"} · primeira parcela {bundleOfferDraft.firstInstallmentDueDate || "—"}</p>
+                  </div>}
+                </section>
+                <div className={`${styles.toolbarGroup} ${styles.formWide}`}>
+                  <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)}>Cancelar</button>
+                  {bundleOfferDraft.activeTab !== "SESSIONS" && <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft((current) => current ? { ...current, activeTab: current.activeTab === "REVIEW" ? "FINANCIAL" : "SESSIONS" } : current)}>Voltar</button>}
+                  {bundleOfferDraft.activeTab !== "REVIEW" ? <button className={styles.button} type="button" disabled={bundleOfferSending || (fixed && eligible.length === 0)} onClick={() => setBundleOfferDraft((current) => current ? { ...current, activeTab: current.activeTab === "SESSIONS" ? "FINANCIAL" : "REVIEW" } : current)}>Continuar</button> : <button className={styles.button} type="submit" disabled={bundleOfferSending || (fixed && eligible.length === 0)}>{bundleOfferSending ? "Enviando…" : "Enviar oferta"}</button>}
                 </div>
-                <Field label="Primeira sessão"><input required type="date" min={todayInOrganization} value={bundleOfferDraft.firstSessionDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, firstSessionDate: event.target.value } : current)} /></Field>
-                <Field label="Vencimento da entrada"><input required type="date" min={todayInOrganization} value={bundleOfferDraft.entryDueDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, entryDueDate: event.target.value, firstInstallmentDueDate: current.firstInstallmentDueDate < event.target.value ? addMonthClamped(event.target.value) : current.firstInstallmentDueDate } : current)} /></Field>
-                <Field label="Vencimento da 1ª parcela"><input required type="date" min={bundleOfferDraft.entryDueDate} value={bundleOfferDraft.firstInstallmentDueDate} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, firstInstallmentDueDate: event.target.value } : current)} /></Field>
-                {fixed && <div className={`${styles.formWide} ${styles.subscriptionBundleSlots}`}>
-                  <strong>Agenda semanal fixa · {bundleOfferDraft.slots.length} sessões por semana</strong>
-                  {bundleOfferDraft.slots.map((slot, index) => {
-                    const barberOptions = eligible;
-                    const availableWeekdays = slot.barberId ? weekdays.filter((day) => fixedScheduleSlots([serviceId], slot.barberId, dateForWeekday(day.value), sessionDuration).length > 0) : [];
-                    const slotOptions = slot.barberId && slot.weekday !== ""
-                      ? fixedScheduleSlots([serviceId], slot.barberId, dateForWeekday(Number(slot.weekday)), sessionDuration)
-                      : [];
-                    const times = [...new Set(slotOptions.map((item) => item.time))];
-                    const environments = slotOptions.filter((item) => item.time === slot.localTime);
-                    return <div className={styles.subscriptionBundleSlot} key={slot.slotNumber}>
-                      <strong>Sessão {index + 1}</strong>
-                      <Field label="Profissional"><select required value={slot.barberId} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, barberId: event.target.value, weekday: "", localTime: "", environmentId: "" } : item) } : current)}><option value="">Selecione primeiro</option>{barberOptions.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select></Field>
-                      <Field label="Dia da semana"><select required disabled={!slot.barberId} value={slot.weekday} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, weekday: event.target.value, localTime: "", environmentId: "" } : item) } : current)}><option value="">Selecione</option>{availableWeekdays.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></Field>
-                      <Field label="Horário"><select required disabled={!slot.weekday || !slot.barberId} value={slot.localTime} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, localTime: event.target.value, environmentId: "" } : item) } : current)}><option value="">Selecione</option>{times.map((time) => <option key={time} value={time}>{time}</option>)}</select></Field>
-                      <Field label="Sala"><select required disabled={!slot.localTime} value={slot.environmentId} onChange={(event) => setBundleOfferDraft((current) => current ? { ...current, slots: current.slots.map((item, i) => i === index ? { ...item, environmentId: event.target.value } : item) } : current)}><option value="">Selecione</option>{environments.map((environment) => <option key={`${environment.environmentId}-${environment.time}`} value={environment.environmentId}>{environment.environmentName}</option>)}</select></Field>
-                    </div>;
-                  })}
-                  {eligible.length === 0 && <p className={styles.muted}>Nenhum profissional elegível. Vincule serviço e plano à equipe e configure comissão do plano.</p>}
-                  <small className={styles.muted}>Cada horário será conferido novamente quando o cliente aceitar. Feriados e recessos são ignorados na geração das sessões fixas.</small>
-                </div>}
-                <p className={`${styles.formWide} ${styles.muted}`}>A oferta fica pendente no app do cliente. O aceite ativa o contrato e gera parcelas; pagamentos continuam sendo registrados manualmente no financeiro. WhatsApp de assinaturas permanece pausado.</p>
-                <div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft(null)}>Cancelar</button><button className={styles.button} type="submit" disabled={bundleOfferSending || (fixed && eligible.length === 0)}>{bundleOfferSending ? "Enviando…" : "Enviar oferta"}</button></div>
               </div>
             </form>
           </div>;

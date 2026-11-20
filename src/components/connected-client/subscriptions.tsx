@@ -578,7 +578,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       <h2>Planos aguardando sua decisão</h2>
       {requestedOffers.map((row) => <Link className={styles.subscriptionCard} key={row.id} href={route(`/cliente/assinaturas/ofertas/assinatura/${row.id}`)}>
       <span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><h3>{row.plan?.name ?? "Plano"}</h3><p>O gestor enviou este plano para você aceitar.</p>
-        {row.plan_version && <strong>{money(row.plan_version.price_cents)}</strong>}
+        {row.plan_version && <strong>{money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents)}</strong>}
         <span>Ver detalhes e decidir</span>
       </Link>)}
       {pendingProjectOffers.map((offer) => <Link className={styles.subscriptionCard} key={offer.id} href={route(`/cliente/assinaturas/ofertas/projeto/${offer.id}`)}>
@@ -594,7 +594,6 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
 
   if (view === "new-plan") return <section className={styles.subscriptionStack}>
     <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link><h1>Planos e projetos</h1><p>Consulte as opções disponíveis deste estabelecimento.</p></header>
-    {user && <p role="status">Novas adesões a planos de assinatura estão temporariamente pausadas enquanto o módulo de agendamento é reestruturado. Suas assinaturas atuais continuam disponíveis.</p>}
     {message && <p>{message}</p>}
     {!user && <p>Entre na sua conta para consultar e solicitar planos.</p>}
     {user && publicProjects.filter((project) => project.package.length > 0).map((project) => {
@@ -614,7 +613,6 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       {selectedPlan.version && <p>{selectedPlan.version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedPlan.version.duration_months} mês(es) · {selectedPlan.version.sessions_per_cycle} sessão(ões) por ciclo · pagamento: {paymentMethodLabel[selectedPlan.version.payment_method] ?? selectedPlan.version.payment_method}</p>}
       {selectedPlan.service_ids.length > 0 && <div><h3>Serviços incluídos</h3><ul>{selectedPlan.service_ids.map((id) => <li key={id}>{context?.services.find((service) => service.id === id)?.name ?? "Serviço incluído"}</li>)}</ul></div>}
       {contractBody && <details><summary>Contrato padrão</summary><p>{contractBody}</p></details>}
-      <p role="status">Novas adesões a planos de assinatura estão temporariamente pausadas enquanto o módulo de agendamento é reestruturado. Suas assinaturas atuais continuam disponíveis.</p>
     </article>
 
   </section>;
@@ -630,22 +628,30 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     <article className={styles.subscriptionCard}>{selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" ? (() => {
       const version = selectedSubscriptionOffer.plan_version;
       const contract = selectedBundleOfferContract;
-      const total = Number(version.bundle_price_per_session_cents ?? 0) * Number(version.bundle_total_sessions ?? 0);
-      const installmentCount = Math.max(1, Number(version.bundle_installment_count ?? 1));
+      const totalSessions = Number(contract?.total_sessions ?? version.bundle_total_sessions ?? 0);
+      const sessionsPerWeek = Number(contract?.sessions_per_week ?? version.bundle_sessions_per_week ?? 1);
+      const sessionDuration = Number(contract?.session_duration_minutes ?? version.bundle_session_duration_minutes ?? 0);
+      const schedulingMode = contract?.scheduling_mode ?? version.bundle_scheduling_mode;
+      const pricePerSession = Number(contract?.price_per_session_cents ?? version.bundle_price_per_session_cents ?? 0);
+      const entryCents = Number(contract?.entry_cents ?? version.bundle_entry_cents ?? 0);
+      const total = Number(contract?.total_price_cents ?? pricePerSession * totalSessions);
+      const installmentCount = Math.max(1, Number(contract?.installment_count ?? version.bundle_installment_count ?? 1));
       const baseInstallment = Math.floor(total / installmentCount);
-      const discount = version.bundle_discount_type === "PERCENT"
-        ? Math.round(baseInstallment * Number(version.bundle_discount_value ?? 0) / 10000)
-        : version.bundle_discount_type === "FIXED" ? Number(version.bundle_discount_value ?? 0) : 0;
-      const discountedInstallment = baseInstallment - discount;
+      const discountType = contract?.discount_type ?? version.bundle_discount_type;
+      const discountValue = Number(contract?.discount_value ?? version.bundle_discount_value ?? 0);
+      const discount = discountType === "PERCENT"
+        ? Math.round(baseInstallment * discountValue / 10000)
+        : discountType === "FIXED" ? discountValue : 0;
+      const discountedInstallment = Math.max(0, baseInstallment - discount);
       const days = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
       return <>
         <h2>{money(total)}</h2>
-        <p>{version.bundle_total_sessions} sessões · {version.bundle_sessions_per_week} por semana · {version.bundle_session_duration_minutes} min por sessão · agendamento {version.bundle_scheduling_mode === "FIXED" ? "fixo" : "livre"}</p>
-        <p>Valor por sessão: {money(Number(version.bundle_price_per_session_cents ?? 0))} · Entrada adicional: {money(Number(version.bundle_entry_cents ?? 0))}</p>
-        <p>{installmentCount} parcela(s) de {money(discountedInstallment)}{discount > 0 ? ` após desconto de ${version.bundle_discount_type === "PERCENT" ? `${(Number(version.bundle_discount_value) / 100).toFixed(2).replace(".", ",")}%` : money(discount)} por parcela` : ""} · pagamento: {paymentMethodLabel[version.payment_method] ?? version.payment_method}</p>
+        <p>{totalSessions} sessões · {sessionsPerWeek} por semana · {sessionDuration} min por sessão · agendamento {schedulingMode === "FIXED" ? "fixo" : "livre"}</p>
+        <p>Valor por sessão: {money(pricePerSession)} · Entrada adicional: {money(entryCents)}</p>
+        <p>{installmentCount} parcela(s) de {money(discountedInstallment)}{discount > 0 ? ` após desconto de ${discountType === "PERCENT" ? `${(discountValue / 100).toFixed(2).replace(".", ",")}%` : money(discount)} por parcela` : ""} · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.payment_method] ?? selectedSubscriptionOffer.payment_method}</p>
         {contract && <p>Vencimento da entrada: {formatDate(contract.entry_due_on)} · 1ª parcela: {formatDate(contract.first_installment_due_on)} · primeira sessão: {formatDate(contract.first_session_date)}</p>}
-        {version.bundle_scheduling_mode === "FIXED" && <div><strong>Horários semanais</strong>{selectedBundleOfferSlots.map((slot) => <p key={slot.id}>Sessão semanal {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {days[slot.weekday]} às {slot.local_time.slice(0, 5)}</p>)}</div>}
-        {version.bundle_scheduling_mode === "FREE" && <p>As sessões são liberadas mês a mês, com limite de {version.bundle_sessions_per_week} por semana. Novos agendamentos ficam bloqueados enquanto houver parcela vencida.</p>}
+        {schedulingMode === "FIXED" && <div><strong>Horários semanais</strong>{selectedBundleOfferSlots.map((slot) => <p key={slot.id}>Sessão semanal {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {days[slot.weekday]} às {slot.local_time.slice(0, 5)}</p>)}</div>}
+        {schedulingMode === "FREE" && <p>As sessões são liberadas mês a mês, com limite de {sessionsPerWeek} por semana. Novos agendamentos ficam bloqueados enquanto houver parcela vencida.</p>}
       </>;
     })() : selectedSubscriptionOffer.plan_version && <><h2>{money(selectedSubscriptionOffer.plan_version.price_cents)}</h2><p>{selectedSubscriptionOffer.plan_version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedSubscriptionOffer.plan_version.duration_months} mês(es) · {selectedSubscriptionOffer.plan_version.sessions_per_cycle} sessão(ões) por ciclo · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.plan_version.payment_method] ?? selectedSubscriptionOffer.plan_version.payment_method}</p></>}
       {selectedSubscriptionOffer.contract_body_snapshot && <details><summary>Contrato</summary><p>{selectedSubscriptionOffer.contract_body_snapshot}</p></details>}
@@ -736,8 +742,8 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
         {rows.filter((row) => row.status === "DECLINED").map((row) => <article className={styles.subscriptionCard} key={`declined-${row.id}`}><span className={styles.planStatus}>Recusado</span><h3>{row.plan?.name ?? "Plano"}</h3><p>Oferta recusada e arquivada.</p></article>)}
         {projectOffers.filter(projectCancellationArchiveReady).map((offer) => <article className={styles.subscriptionCard} key={`closed-project-${offer.id}`}><span className={styles.planStatus}>Encerrado</span><h3>{offer.project?.name ?? "Projeto"} · {offer.package?.name ?? "Pacote"}</h3><p>Plano de projeto encerrado. Não há parcelas ou sessões pendentes.</p><strong>{money(offer.contracted_cents)}</strong></article>)}
         {rows.filter((row) => row.status === "CANCELED" || cancellationArchiveReady(row)).map((row) => row.status === "CANCELED" && !cancellationArchiveReady(row) ? <Link className={`${styles.subscriptionCard} ${styles.subscriptionCardLink}`} href={route(`/cliente/assinaturas/meus-planos/${row.id}`)} key={`closed-subscription-${row.id}`}>
-          <span className={styles.planStatus}>Cancelada · finalizando pendências</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura cancelada."}</p><strong>{row.plan_version ? money(row.plan_version.price_cents) : "—"}</strong><small className={styles.subscriptionMeta}>{row.plan_version?.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · venc. {formatDate(row.first_due_date)} · pagamento: {paymentMethodLabel[row.payment_method] ?? row.payment_method} · {subscriptionStatusLabel[row.status] ?? row.status}</small><span>Ver detalhes do plano</span>
-        </Link> : <article className={styles.subscriptionCard} key={`closed-subscription-${row.id}`}><span className={styles.planStatus}>{row.status === "CANCELED" ? "Cancelado" : "Encerrado"}</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura encerrada sem pendências."}</p><strong>{row.plan_version ? money(row.plan_version.price_cents) : "—"}</strong></article>)}
+          <span className={styles.planStatus}>Cancelada · finalizando pendências</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura cancelada."}</p><strong>{row.plan_version ? money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents) : "—"}</strong><small className={styles.subscriptionMeta}>{row.plan_version?.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · venc. {formatDate(row.first_due_date)} · pagamento: {paymentMethodLabel[row.payment_method] ?? row.payment_method} · {subscriptionStatusLabel[row.status] ?? row.status}</small><span>Ver detalhes do plano</span>
+        </Link> : <article className={styles.subscriptionCard} key={`closed-subscription-${row.id}`}><span className={styles.planStatus}>{row.status === "CANCELED" ? "Cancelado" : "Encerrado"}</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura encerrada sem pendências."}</p><strong>{row.plan_version ? money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents) : "—"}</strong></article>)}
         {!projectOffers.some(projectCancellationArchiveReady) && !rows.some((row) => row.status === "DECLINED" || row.status === "CANCELED" || cancellationArchiveReady(row)) && <p>Nenhum plano encerrado disponível.</p>}
       </div>}
       {(view === "my-plan" ? rows.filter((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row)) : view === "closed-plans" ? [] : rows.filter((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row))).map((row) => view === "my-plan" && row.plan_version?.model === "SESSION_BUNDLE_V1" ? (() => {
@@ -751,7 +757,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
         return <article className={styles.subscriptionCard} key={row.id}>
           {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
           <h2>{row.plan?.name ?? "Plano"}</h2><p>{row.plan?.description ?? "Plano de sessões."}</p>
-          <strong>{money(Number(row.plan_version?.price_cents ?? 0))}</strong>
+          <strong>{money(Number(contract?.total_price_cents ?? row.plan_version?.price_cents ?? 0))}</strong>
           <small className={styles.subscriptionMeta}>{subscriptionStatusLabel[row.status] ?? row.status} · {contract?.total_sessions ?? row.plan_version.bundle_total_sessions} sessões · {contract?.sessions_per_week ?? row.plan_version.bundle_sessions_per_week}/semana · {contract?.session_duration_minutes ?? row.plan_version.bundle_session_duration_minutes} min · {paymentMethodLabel[row.payment_method] ?? row.payment_method}</small>
           {contract && <>
             <p>Serviço: {context?.services.find((service) => service.id === contract.service_id)?.name ?? "Serviço do plano"} · {contract.scheduling_mode === "FIXED" ? "Agendamento fixo" : "Agendamento livre"}</p>
@@ -878,7 +884,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
           {row.status === "CANCELED" && <span className={styles.planStatus}>Cancelada · finalizando pendências</span>}
           <p>{row.plan?.description ?? "Sem descrição"}</p>
-          <strong>{row.plan_version ? money(row.plan_version.price_cents) : "—"}</strong>
+          <strong>{row.plan_version ? money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents) : "—"}</strong>
           <small className={styles.subscriptionMeta}>{row.plan_version?.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · venc. {formatDate(row.first_due_date)} · pagamento: {paymentMethodLabel[row.payment_method] ?? row.payment_method} · {subscriptionStatusLabel[row.status] ?? row.status}</small>
           <span>Ver detalhes do plano</span>
         </Link>
