@@ -194,6 +194,16 @@ const subscriptionFilterLabels: Record<SubscriptionFilter, string> = {
   canceled: "Canceladas",
 };
 
+const bundlePaymentMethodLabels: Record<string, string> = {
+  ONLINE: "Link de pagamento",
+  CARD: "Cartão",
+  PIX: "Pix",
+  BOLETO: "Boleto",
+  CASH: "Dinheiro",
+  CRYPTO: "Cripto",
+  UPFRONT: "À vista",
+};
+
 const inactivationReasons = [
   ["NEIGHBORHOOD_CHANGE", "Mudança de bairro"],
   ["CITY_CHANGE", "Mudança de cidade"],
@@ -233,6 +243,11 @@ function bundleMoneyInput(cents: number | null | undefined) {
 
 function bundlePercentageInput(basisPoints: number | null | undefined) {
   return ((Number(basisPoints) || 0) / 100).toFixed(2).replace(".", ",");
+}
+
+function formatBundleDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "—";
 }
 
 function safeBundleCentsInput(value: string) {
@@ -2058,9 +2073,9 @@ export function CustomersManager({
             ? Math.round(installmentCents * discountValue / 10000)
             : bundleOfferDraft.discountType === "FIXED" ? discountValue : 0;
           const discountedInstallmentCents = Math.max(0, installmentCents - discountCents);
-          const discountDescription = bundleOfferDraft.discountType === "PERCENT"
-            ? `${bundlePercentageInput(discountValue)}% por parcela`
-            : bundleOfferDraft.discountType === "FIXED" ? `${formatCents(discountValue)} por parcela` : "sem desconto";
+          const discountValueLabel = bundleOfferDraft.discountType === "PERCENT"
+            ? `${bundlePercentageInput(discountValue)}%`
+            : bundleOfferDraft.discountType === "FIXED" ? formatCents(discountValue) : "Sem desconto";
           const weekdays = [
             { value: 0, label: "Domingo" }, { value: 1, label: "Segunda-feira" },
             { value: 2, label: "Terça-feira" }, { value: 3, label: "Quarta-feira" },
@@ -2123,16 +2138,20 @@ export function CustomersManager({
                     <h3>Resumo da assinatura</h3>
                     <p><strong>Plano:</strong> {plan.name} · <strong>Serviço:</strong> {plan.service.name}</p>
                     <p><strong>Agendamento:</strong> {fixed ? `Fixo · ${bundleOfferDraft.slots.length} sessões por semana` : `Livre · ${totalSessions} sessões`}</p>
-                    <p><strong>Primeira sessão:</strong> {bundleOfferDraft.firstSessionDate || "—"} · <strong>Duração:</strong> {sessionDuration} min</p>
+                    <p><strong>Primeira sessão:</strong> {formatBundleDate(bundleOfferDraft.firstSessionDate)} · <strong>Duração:</strong> {sessionDuration} min</p>
                     {fixed && <ul>{bundleOfferDraft.slots.map((slot, index) => {
                       const barber = eligible.find((item) => item.id === slot.barberId);
                       const weekday = weekdays.find((item) => item.value === Number(slot.weekday))?.label ?? "Dia não definido";
                       const environment = agendaEnvironments.find((item) => item.id === slot.environmentId);
                       return <li key={slot.slotNumber}>Sessão {index + 1}: {barber?.display_name ?? "Profissional não definido"} · {environment?.name ?? "Sala não definida"} · {weekday} · {slot.localTime || "Horário não definido"}</li>;
                     })}</ul>}
-                    <p><strong>{totalSessions} sessões</strong> · {formatCents(pricePerSessionCents)} por sessão · <strong>{formatCents(totalPriceCents)}</strong> no total</p>
-                    <p><strong>{installmentCount} parcela(s)</strong> de {formatCents(installmentCents)} · {discountDescription} · parcela com desconto: {formatCents(discountedInstallmentCents)}</p>
-                    <p>Entrada de {formatCents(safeBundleCentsInput(bundleOfferDraft.entry))} · pagamento por {bundleOfferDraft.paymentMethod} · vencimento {bundleOfferDraft.entryDueDate || "—"} · primeira parcela {bundleOfferDraft.firstInstallmentDueDate || "—"}</p>
+                    <div className={styles.subscriptionBundleReviewFinance}>
+                      <p><strong>Total do plano:</strong> {formatCents(totalPriceCents)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Parcelas:</strong> {installmentCount} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Desconto por parcela:</strong> {discountValueLabel}</p>
+                      <p><strong>Valor por sessão:</strong> {formatCents(pricePerSessionCents)}</p>
+                      <p><strong>Entrada:</strong> {formatCents(safeBundleCentsInput(bundleOfferDraft.entry))} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Venc.:</strong> {formatBundleDate(bundleOfferDraft.entryDueDate)}</p>
+                      <p><strong>Parcela:</strong> {formatCents(discountedInstallmentCents)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Venc.:</strong> {formatBundleDate(bundleOfferDraft.firstInstallmentDueDate)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Recorrência:</strong> Mensal</p>
+                      <p><strong>Forma de pagamento:</strong> {bundlePaymentMethodLabels[bundleOfferDraft.paymentMethod] ?? bundleOfferDraft.paymentMethod}</p>
+                    </div>
                   </div>}
                 </section>
                 <div className={`${styles.toolbarGroup} ${styles.formWide}`}>

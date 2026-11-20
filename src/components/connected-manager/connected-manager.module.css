@@ -905,6 +905,9 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
 .subscriptionFreeSessionList > div > span { padding: .55rem .7rem; border: 1px solid #e3e9e1; border-radius: 9px; background: #fff; color: #35443a; font-size: .82rem; font-weight: 700; }
 .subscriptionBundleReview h3, .subscriptionBundleReview p { margin: 0; }
 .subscriptionBundleReview ul { margin: 0; padding-left: 1.2rem; color: #526056; }
+.subscriptionBundleReviewFinance { display: grid; gap: .5rem; }
+.subscriptionBundleReviewFinance > p { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .45rem; }
+.subscriptionBundleReviewSeparator { padding: 0 .2rem; color: #849087; }
 .modalHeader { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 1.25rem 1.25rem .75rem; }
 .modalHeader small { color: #7a837c; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .modalHeader h2 { margin: .25rem 0 0; color: #202a23; font-family: Georgia, serif; font-size: 1.5rem; font-weight: 500; }
