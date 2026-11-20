@@ -446,7 +446,7 @@ export interface FinancialCommissionDetailRecord {
   project_engagement_id?: string | null;
   project_id?: string | null;
   is_project?: boolean;
-  source_type?: "APPOINTMENT" | "PROJECT_INTERNAL" | "SUBSCRIPTION_SESSION";
+  source_type?: "APPOINTMENT" | "PROJECT_INTERNAL" | "SUBSCRIPTION_SESSION" | "SUBSCRIPTION_BUNDLE_SESSION";
   internal_service_id?: string | null;
 }
 

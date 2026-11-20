@@ -21,11 +21,22 @@ type Row = {
   contract_body_snapshot: string | null;
   plan: { name: string; description: string | null } | null;
   plan_version: {
+    model: string;
     price_cents: number;
     billing_period: string;
     sessions_per_cycle: number;
     duration_months: number;
     payment_method: string;
+    bundle_scheduling_mode: "FREE" | "FIXED" | null;
+    bundle_service_id: string | null;
+    bundle_sessions_per_week: number | null;
+    bundle_session_duration_minutes: number | null;
+    bundle_total_sessions: number | null;
+    bundle_price_per_session_cents: number | null;
+    bundle_entry_cents: number | null;
+    bundle_installment_count: number | null;
+    bundle_discount_type: "NONE" | "FIXED" | "PERCENT" | null;
+    bundle_discount_value: number | null;
   } | null;
 };
 type Cycle = {
@@ -53,6 +64,27 @@ type CancellationRequest = {
   last_session_id: string | null;
 };
 type CancellationDraft = { subscriptionId: string; reason: string; observations: string; lastSessionId: string };
+type BundleContract = {
+  id: string;
+  subscription_id: string;
+  scheduling_mode: "FREE" | "FIXED";
+  service_id: string;
+  sessions_per_week: number;
+  session_duration_minutes: number;
+  total_sessions: number;
+  price_per_session_cents: number;
+  total_price_cents: number;
+  entry_cents: number;
+  installment_count: number;
+  discount_type: "NONE" | "FIXED" | "PERCENT";
+  discount_value: number;
+  entry_due_on: string;
+  first_installment_due_on: string;
+  first_session_date: string;
+};
+type BundleInstallment = { id: string; subscription_id: string; installment_number: number; kind: "ENTRY" | "INSTALLMENT"; due_on: string; amount_cents: number; status: "OPEN" | "PAID" | "OVERDUE" | "CANCELED"; paid_at: string | null };
+type BundleSession = { id: string; subscription_id: string; session_number: number; release_on: string; scheduled_for: string | null; installment_number: number; status: "AVAILABLE" | "SCHEDULED" | "COMPLETED" | "CONSUMED" | "CANCELED"; appointment_id: string | null; appointment?: { status: string; service_period: string | null; cancellation_outcome?: string | null; cancelled_at?: string | null } | null };
+type BundleFixedSlot = { id: string; subscription_id: string; slot_number: number; weekday: number; local_time: string; barber_name_snapshot: string; environment_name_snapshot: string };
 
 function formatDate(value: string | null) {
   if (!value) return "—";
@@ -107,12 +139,17 @@ const paymentMethodLabel: Record<string, string> = {
   CASH: "Dinheiro",
   UPFRONT: "À vista",
   ONLINE: "Link de pagamento",
+  CRYPTO: "Cripto",
 };
 
 export function ConnectedSubscriptions({ view = "home", itemId }: { view?: SubscriptionView; itemId?: string }) {
   const { context, customer, user } = useConnectedClient();
   const [rows, setRows] = useState<Row[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [bundleContracts, setBundleContracts] = useState<BundleContract[]>([]);
+  const [bundleInstallments, setBundleInstallments] = useState<BundleInstallment[]>([]);
+  const [bundleSessions, setBundleSessions] = useState<BundleSession[]>([]);
+  const [bundleFixedSlots, setBundleFixedSlots] = useState<BundleFixedSlot[]>([]);
   const [subscriptionDetailsLoadedFor, setSubscriptionDetailsLoadedFor] = useState("");
   const [projectDetailsLoadedFor, setProjectDetailsLoadedFor] = useState("");
   const [cancellationRequests, setCancellationRequests] = useState<CancellationRequest[]>([]);
@@ -143,7 +180,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       client
         .from("customer_subscriptions")
         .select(
-          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(price_cents,billing_period,sessions_per_cycle,duration_months,payment_method)",
+          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(model,price_cents,billing_period,sessions_per_cycle,duration_months,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
         )
         .eq("organization_id", context.organization.id)
         .eq("customer_id", customer.id)
@@ -180,6 +217,46 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       }
       const subscriptions = (data ?? []) as unknown as Row[];
       setRows(subscriptions);
+      const bundleSubscriptionIds = subscriptions
+        .filter((item) => item.plan_version?.model === "SESSION_BUNDLE_V1")
+        .map((item) => item.id);
+      if (bundleSubscriptionIds.length) {
+        const [contractResult, installmentResult, bundleSessionResult, fixedSlotResult] = await Promise.all([
+          client.from("subscription_bundle_contracts")
+            .select("id,subscription_id,scheduling_mode,service_id,sessions_per_week,session_duration_minutes,total_sessions,price_per_session_cents,total_price_cents,entry_cents,installment_count,discount_type,discount_value,entry_due_on,first_installment_due_on,first_session_date")
+            .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds),
+          client.from("subscription_bundle_installments")
+            .select("id,subscription_id,installment_number,kind,due_on,amount_cents,status,paid_at")
+            .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).neq("status", "CANCELED").order("installment_number"),
+          client.from("subscription_bundle_sessions")
+            .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id")
+            .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).order("session_number"),
+          client.from("subscription_bundle_fixed_slots")
+            .select("id,subscription_id,slot_number,weekday,local_time,barber_name_snapshot,environment_name_snapshot")
+            .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).order("slot_number"),
+        ]);
+        const bundleError = contractResult.error ?? installmentResult.error ?? bundleSessionResult.error ?? fixedSlotResult.error;
+        if (bundleError) { setMessage(bundleError.message); return; }
+        const rawBundleSessions = (bundleSessionResult.data ?? []) as BundleSession[];
+        const bundleAppointmentIds = rawBundleSessions.map((session) => session.appointment_id).filter((id): id is string => Boolean(id));
+        const bundleAppointmentResult = bundleAppointmentIds.length
+          ? await client.from("appointments").select("id,status,service_period,cancellation_outcome,cancelled_at").in("id", bundleAppointmentIds)
+          : { data: [] as Array<{ id: string; status: string; service_period: string | null; cancellation_outcome?: string | null; cancelled_at?: string | null }>, error: null };
+        if (bundleAppointmentResult.error) { setMessage(bundleAppointmentResult.error.message); return; }
+        const bundleAppointmentMap = new Map((bundleAppointmentResult.data ?? []).map((appointment) => [appointment.id, appointment]));
+        setBundleContracts((contractResult.data ?? []) as BundleContract[]);
+        setBundleInstallments((installmentResult.data ?? []) as BundleInstallment[]);
+        setBundleSessions(rawBundleSessions.filter((session) => !session.appointment_id || bundleAppointmentMap.has(session.appointment_id)).map((session) => ({
+          ...session,
+          appointment: session.appointment_id ? bundleAppointmentMap.get(session.appointment_id) ?? null : null,
+        })));
+        setBundleFixedSlots((fixedSlotResult.data ?? []) as BundleFixedSlot[]);
+      } else {
+        setBundleContracts([]);
+        setBundleInstallments([]);
+        setBundleSessions([]);
+        setBundleFixedSlots([]);
+      }
       setCancellationRequests((cancellationResult.data ?? []) as CancellationRequest[]);
       const engagements = (projectResult.data ?? []) as unknown as ProjectOffer[];
       setProjectOffers(engagements);
@@ -445,6 +522,19 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     );
     if (!error) window.location.reload();
   }
+  async function cancelBundleSession(sessionId: string) {
+    if (!context || !customer || !window.confirm("Cancelar esta sessão do plano? A regra de prazo definirá se ela volta a ficar disponível ou é consumida.")) return;
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    const { error } = await client.rpc("cancel_customer_subscription_bundle_session", {
+      p_organization_id: context.organization.id,
+      p_customer_id: customer.id,
+      p_session_id: sessionId,
+      p_reason: "Cancelada pelo cliente",
+    });
+    setMessage(error ? error.message : "Cancelamento de sessão registrado.");
+    if (!error) window.location.reload();
+  }
   const route = (path: string) => `${path}${context?.organization.slug ? `?barbearia=${encodeURIComponent(context.organization.slug)}` : ""}`;
   const money = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
   const subscriptionStatusLabel: Record<string, string> = { REQUESTED: "Aguardando aprovação", PENDING_PAYMENT: "Aguardando pagamento", ACTIVE: "Ativa", CANCELED: "Cancelada", EXPIRED: "Encerrada", DECLINED: "Recusada" };
@@ -458,6 +548,10 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   const subscriptionHasPendingCancellation = (id: string) => cancellationRequestBySubscription.get(id)?.status === "PENDING";
   const cancellationArchiveReady = (row: Row) => {
     if (!["CANCELED", "EXPIRED"].includes(row.status) || !subscriptionDetailsLoaded) return false;
+    if (row.plan_version?.model === "SESSION_BUNDLE_V1") {
+      return !bundleInstallments.some((item) => item.subscription_id === row.id && ["OPEN", "OVERDUE"].includes(item.status))
+        && !bundleSessions.some((item) => item.subscription_id === row.id && ["AVAILABLE", "SCHEDULED"].includes(item.status));
+    }
     const rowCycles = cycles.filter((cycle) => cycle.subscription_id === row.id);
     return !rowCycles.some((cycle) => cycle.status === "OPEN" || cycle.status === "OVERDUE")
       && !rowCycles.some((cycle) => cycle.sessions.some((session) => session.status === "AVAILABLE" || session.status === "SCHEDULED"));
@@ -471,6 +565,8 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   const selectedPlan = plans.find((plan) => plan.id === itemId);
   const selectedProject = publicProjects.find((project) => project.id === itemId);
   const selectedSubscriptionOffer = requestedOffers.find((row) => row.id === itemId);
+  const selectedBundleOfferContract = bundleContracts.find((contract) => contract.subscription_id === selectedSubscriptionOffer?.id);
+  const selectedBundleOfferSlots = bundleFixedSlots.filter((slot) => slot.subscription_id === selectedSubscriptionOffer?.id);
   const selectedProjectOffer = pendingProjectOffers.find((offer) => offer.id === itemId);
   const selectedCustomerProject = projectOffers.find((offer) => offer.id === itemId && offer.status !== "DECLINED" && !projectCancellationArchiveReady(offer));
   const selectedCustomerSubscription = rows.find((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row));
@@ -531,11 +627,30 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
 
   if (view === "subscription-offer" && selectedSubscriptionOffer) return <section className={styles.subscriptionStack}>
     <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link><span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><span className={styles.planKind}>Plano enviado pelo gestor</span><h1>{selectedSubscriptionOffer.plan?.name ?? "Plano"}</h1><p>{selectedSubscriptionOffer.plan?.description ?? "Confira os detalhes antes de aceitar ou recusar."}</p></header>
-    <article className={styles.subscriptionCard}>{selectedSubscriptionOffer.plan_version && <><h2>{money(selectedSubscriptionOffer.plan_version.price_cents)}</h2><p>{selectedSubscriptionOffer.plan_version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedSubscriptionOffer.plan_version.duration_months} mês(es) · {selectedSubscriptionOffer.plan_version.sessions_per_cycle} sessão(ões) por ciclo · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.plan_version.payment_method] ?? selectedSubscriptionOffer.plan_version.payment_method}</p>
-      </>}
+    <article className={styles.subscriptionCard}>{selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" ? (() => {
+      const version = selectedSubscriptionOffer.plan_version;
+      const contract = selectedBundleOfferContract;
+      const total = Number(version.bundle_price_per_session_cents ?? 0) * Number(version.bundle_total_sessions ?? 0);
+      const installmentCount = Math.max(1, Number(version.bundle_installment_count ?? 1));
+      const baseInstallment = Math.floor(total / installmentCount);
+      const discount = version.bundle_discount_type === "PERCENT"
+        ? Math.round(baseInstallment * Number(version.bundle_discount_value ?? 0) / 10000)
+        : version.bundle_discount_type === "FIXED" ? Number(version.bundle_discount_value ?? 0) : 0;
+      const discountedInstallment = baseInstallment - discount;
+      const days = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+      return <>
+        <h2>{money(total)}</h2>
+        <p>{version.bundle_total_sessions} sessões · {version.bundle_sessions_per_week} por semana · {version.bundle_session_duration_minutes} min por sessão · agendamento {version.bundle_scheduling_mode === "FIXED" ? "fixo" : "livre"}</p>
+        <p>Valor por sessão: {money(Number(version.bundle_price_per_session_cents ?? 0))} · Entrada adicional: {money(Number(version.bundle_entry_cents ?? 0))}</p>
+        <p>{installmentCount} parcela(s) de {money(discountedInstallment)}{discount > 0 ? ` após desconto de ${version.bundle_discount_type === "PERCENT" ? `${(Number(version.bundle_discount_value) / 100).toFixed(2).replace(".", ",")}%` : money(discount)} por parcela` : ""} · pagamento: {paymentMethodLabel[version.payment_method] ?? version.payment_method}</p>
+        {contract && <p>Vencimento da entrada: {formatDate(contract.entry_due_on)} · 1ª parcela: {formatDate(contract.first_installment_due_on)} · primeira sessão: {formatDate(contract.first_session_date)}</p>}
+        {version.bundle_scheduling_mode === "FIXED" && <div><strong>Horários semanais</strong>{selectedBundleOfferSlots.map((slot) => <p key={slot.id}>Sessão semanal {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {days[slot.weekday]} às {slot.local_time.slice(0, 5)}</p>)}</div>}
+        {version.bundle_scheduling_mode === "FREE" && <p>As sessões são liberadas mês a mês, com limite de {version.bundle_sessions_per_week} por semana. Novos agendamentos ficam bloqueados enquanto houver parcela vencida.</p>}
+      </>;
+    })() : selectedSubscriptionOffer.plan_version && <><h2>{money(selectedSubscriptionOffer.plan_version.price_cents)}</h2><p>{selectedSubscriptionOffer.plan_version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedSubscriptionOffer.plan_version.duration_months} mês(es) · {selectedSubscriptionOffer.plan_version.sessions_per_cycle} sessão(ões) por ciclo · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.plan_version.payment_method] ?? selectedSubscriptionOffer.plan_version.payment_method}</p></>}
       {selectedSubscriptionOffer.contract_body_snapshot && <details><summary>Contrato</summary><p>{selectedSubscriptionOffer.contract_body_snapshot}</p></details>}
       {message && <p role="alert">{message}</p>}
-      <div className={styles.planActions}><button className={styles.subscriptionAction} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void acceptSubscriptionOffer(selectedSubscriptionOffer.id)}>{acceptingSubscriptionOffer ? "Confirmando…" : "Confirmar assinatura"}</button><button className={styles.subscriptionSecondary} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void declineSubscriptionOffer(selectedSubscriptionOffer.id)}>Recusar</button></div>
+      <div className={styles.planActions}><button className={styles.subscriptionAction} type="button" disabled={acceptingSubscriptionOffer || (selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" && !selectedBundleOfferContract)} onClick={() => void acceptSubscriptionOffer(selectedSubscriptionOffer.id)}>{acceptingSubscriptionOffer ? "Confirmando…" : "Confirmar assinatura"}</button><button className={styles.subscriptionSecondary} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void declineSubscriptionOffer(selectedSubscriptionOffer.id)}>Recusar</button></div>
     </article>
   </section>;
 
@@ -625,7 +740,55 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
         </Link> : <article className={styles.subscriptionCard} key={`closed-subscription-${row.id}`}><span className={styles.planStatus}>{row.status === "CANCELED" ? "Cancelado" : "Encerrado"}</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura encerrada sem pendências."}</p><strong>{row.plan_version ? money(row.plan_version.price_cents) : "—"}</strong></article>)}
         {!projectOffers.some(projectCancellationArchiveReady) && !rows.some((row) => row.status === "DECLINED" || row.status === "CANCELED" || cancellationArchiveReady(row)) && <p>Nenhum plano encerrado disponível.</p>}
       </div>}
-      {(view === "my-plan" ? rows.filter((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row)) : view === "closed-plans" ? [] : rows.filter((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row))).map((row) => view === "my-plan" ? (
+      {(view === "my-plan" ? rows.filter((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row)) : view === "closed-plans" ? [] : rows.filter((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row))).map((row) => view === "my-plan" && row.plan_version?.model === "SESSION_BUNDLE_V1" ? (() => {
+        const contract = bundleContracts.find((item) => item.subscription_id === row.id);
+        const sessions = bundleSessions.filter((item) => item.subscription_id === row.id).sort((a, b) => a.session_number - b.session_number);
+        const installments = bundleInstallments.filter((item) => item.subscription_id === row.id).sort((a, b) => a.installment_number - b.installment_number);
+        const fixedSlots = bundleFixedSlots.filter((item) => item.subscription_id === row.id).sort((a, b) => a.slot_number - b.slot_number);
+        const today = context ? localToday(context.organization.timezone) : new Date().toISOString().slice(0, 10);
+        const overdue = installments.some((item) => item.status === "OVERDUE" || (item.status === "OPEN" && item.due_on < today));
+        const weekdays = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+        return <article className={styles.subscriptionCard} key={row.id}>
+          {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
+          <h2>{row.plan?.name ?? "Plano"}</h2><p>{row.plan?.description ?? "Plano de sessões."}</p>
+          <strong>{money(Number(row.plan_version?.price_cents ?? 0))}</strong>
+          <small className={styles.subscriptionMeta}>{subscriptionStatusLabel[row.status] ?? row.status} · {contract?.total_sessions ?? row.plan_version.bundle_total_sessions} sessões · {contract?.sessions_per_week ?? row.plan_version.bundle_sessions_per_week}/semana · {contract?.session_duration_minutes ?? row.plan_version.bundle_session_duration_minutes} min · {paymentMethodLabel[row.payment_method] ?? row.payment_method}</small>
+          {contract && <>
+            <p>Serviço: {context?.services.find((service) => service.id === contract.service_id)?.name ?? "Serviço do plano"} · {contract.scheduling_mode === "FIXED" ? "Agendamento fixo" : "Agendamento livre"}</p>
+            <p>{money(contract.price_per_session_cents)} por sessão · entrada {money(contract.entry_cents)} · {contract.installment_count} parcela(s) com desconto configurado</p>
+            {contract.scheduling_mode === "FIXED" && <div className={styles.subscriptionStack}><strong>Agenda semanal</strong>{fixedSlots.map((slot) => <small key={slot.id}>Sessão semanal {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {weekdays[slot.weekday]} às {slot.local_time.slice(0, 5)}</small>)}</div>}
+          </>}
+          <div className={styles.subscriptionCycle}>
+            <strong>Cobranças</strong>
+            {installments.map((installment) => {
+              const late = installment.status === "OVERDUE" || (installment.status === "OPEN" && installment.due_on < today);
+              const label = installment.kind === "ENTRY" ? "Entrada" : `Parcela ${installment.installment_number}`;
+              const status = installment.status === "PAID" ? "Pago" : installment.status === "CANCELED" ? "Cancelada" : late ? "Em atraso" : "Em aberto";
+              return <small key={installment.id}>{label}: {money(installment.amount_cents)} · venc. {formatDate(installment.due_on)} · {status}{installment.paid_at ? ` em ${new Intl.DateTimeFormat("pt-BR").format(new Date(installment.paid_at))}` : ""}</small>;
+            })}
+          </div>
+          {overdue && <p className={styles.subscriptionHint} role="status">Há parcela vencida. Novos agendamentos ficam bloqueados até a regularização.</p>}
+          <div className={styles.subscriptionCycle}>
+            <strong>Sessões ({sessions.length}/{contract?.total_sessions ?? row.plan_version.bundle_total_sessions})</strong>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem" }}>
+              {sessions.map((session) => {
+                const title = `Sessão ${String(session.session_number).padStart(2, "0")}`;
+                const released = Boolean(contract?.first_session_date && session.release_on <= today && contract.first_session_date <= today);
+                if (session.status === "AVAILABLE" && released && !overdue && contract?.scheduling_mode === "FREE") {
+                  const query = new URLSearchParams({ subscriptionBundleSession: session.id });
+                  if (context?.organization.slug) query.set("barbearia", context.organization.slug);
+                  return <Link className={styles.subscriptionAction} key={session.id} href={`/cliente/agendar?${query.toString()}`} aria-label={`Agendar ${title}`}>{title} · Agendar</Link>;
+                }
+                if (session.status === "SCHEDULED") return <button className={styles.subscriptionSecondary} type="button" key={session.id} onClick={() => void cancelBundleSession(session.id)}>{title} · {session.scheduled_for ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: context?.organization.timezone }).format(new Date(session.scheduled_for)) : "Agendada"} · Cancelar</button>;
+                const label = session.status === "COMPLETED" ? "Concluída" : session.status === "CONSUMED" ? "Consumida" : session.status === "CANCELED" ? "Cancelada" : released ? (overdue ? "Bloqueada por atraso" : "Disponível") : `Libera em ${formatDate(session.release_on)}`;
+                return <span key={session.id} className={styles.subscriptionSecondary}>{title} · {label}</span>;
+              })}
+            </div>
+          </div>
+          {contract && contract.scheduling_mode === "FREE" && <small className={styles.subscriptionHint}>Sessões liberadas por mês; as não utilizadas acumulam. Limite de {contract.sessions_per_week} agendamento(s) por semana.</small>}
+          {row.contract_body_snapshot && <details><summary>Contrato</summary><p>{row.contract_body_snapshot}</p></details>}
+        </article>;
+      })() : view === "my-plan" ? (
         <article className={styles.subscriptionCard} key={row.id}>
           {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
           {row.status === "CANCELED" && <span className={styles.planStatus}>Aguardando regular pendências</span>}
@@ -705,8 +868,8 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           </div>
           <div className={styles.planActions}>
             {contractBody && <button className={styles.subscriptionSecondary} type="button" onClick={() => window.alert(row.contract_body_snapshot ?? contractBody)}>Acessar contrato</button>}
-            {(row.status === "ACTIVE" || row.status === "PENDING_PAYMENT") && !subscriptionHasPendingCancellation(row.id) && <button className={styles.subscriptionSecondary} type="button" onClick={() => setCancellationDraft({ subscriptionId: row.id, reason: "", observations: "", lastSessionId: "" })}>Solicitar cancelamento</button>}
-            {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus} role="status">Cancelamento pendente · aguarde confirmação</span>}
+            {row.plan_version?.model !== "SESSION_BUNDLE_V1" && (row.status === "ACTIVE" || row.status === "PENDING_PAYMENT") && !subscriptionHasPendingCancellation(row.id) && <button className={styles.subscriptionSecondary} type="button" onClick={() => setCancellationDraft({ subscriptionId: row.id, reason: "", observations: "", lastSessionId: "" })}>Solicitar cancelamento</button>}
+            {row.plan_version?.model !== "SESSION_BUNDLE_V1" && subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus} role="status">Cancelamento pendente · aguarde confirmação</span>}
           </div>
         </article>
       ) : (

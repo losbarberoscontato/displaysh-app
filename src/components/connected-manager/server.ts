@@ -106,6 +106,8 @@ export async function loadCustomersData() {
     chartAccounts,
     financialAccounts,
     subscriptionModule,
+    bundlePlanQuery,
+    subscriptionBundleVersions,
     organizationTimezone,
   ] = await Promise.all([
     supabase
@@ -171,7 +173,7 @@ export async function loadCustomersData() {
     supabase
       .from("customer_subscriptions")
       .select(
-        "id,customer_id,plan_id,status,contract_number,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,payment_method,first_due_date,fixed_schedule_cadence_weeks,fixed_schedule_start_date,fixed_schedule_local_time,fixed_schedule_barber_id,fixed_schedule_environment_id,fixed_schedule_slots,fixed_schedule_created_at,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(id,price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern)",
+        "id,customer_id,plan_id,status,contract_number,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,payment_method,first_due_date,fixed_schedule_cadence_weeks,fixed_schedule_start_date,fixed_schedule_local_time,fixed_schedule_barber_id,fixed_schedule_environment_id,fixed_schedule_slots,fixed_schedule_created_at,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(id,model,price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
       )
       .eq("organization_id", organizationId)
       .in("status", ["REQUESTED", "PENDING_PAYMENT", "ACTIVE", "CANCELED", "EXPIRED", "DECLINED"])
@@ -216,9 +218,10 @@ export async function loadCustomersData() {
       .eq("active", true),
     supabase
       .from("services")
-      .select("id,duration_minutes,active")
+      .select("id,name,description,price_cents,duration_minutes,active,accepts_subscription")
       .eq("organization_id", organizationId)
-      .eq("active", true),
+      .eq("active", true)
+      .eq("accepts_subscription", true),
     supabase
       .from("work_intervals")
       .select("id,organization_id,barber_id,weekday,starts_at,ends_at,active,environment_id")
@@ -253,6 +256,19 @@ export async function loadCustomersData() {
       .eq("module_key", "subscription_plans")
       .maybeSingle(),
     supabase
+      .from("subscription_plans")
+      .select("id,name,description,active,archived_at")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .is("archived_at", null)
+      .order("name"),
+    supabase
+      .from("subscription_plan_versions")
+      .select("id,plan_id,version,model,price_cents,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value")
+      .eq("organization_id", organizationId)
+      .eq("model", "SESSION_BUNDLE_V1")
+      .order("version", { ascending: false }),
+    supabase
       .from("organizations")
       .select("timezone,slot_interval_minutes")
       .eq("id", organizationId)
@@ -268,6 +284,34 @@ export async function loadCustomersData() {
   }
   const customerRows = requireData(result, "Clientes") as CustomerRecord[];
   const dependentRows = dependents.error ? [] : (requireData(dependents, "Dependentes") as NonNullable<CustomerRecord["dependents"]>);
+  const bundlePlanRows = bundlePlanQuery.error
+    ? []
+    : requireData(bundlePlanQuery, "Planos de assinatura") as Array<{
+        id: string; name: string; description: string | null; active: boolean; archived_at: string | null;
+      }>;
+  const bundleVersionRows = subscriptionBundleVersions.error
+    ? []
+    : requireData(subscriptionBundleVersions, "Versões de planos de assinatura") as Array<{
+        id: string; plan_id: string; version: number; model: string; price_cents: number; payment_method: string;
+        bundle_scheduling_mode: "FREE" | "FIXED" | null; bundle_service_id: string | null;
+        bundle_sessions_per_week: number | null; bundle_session_duration_minutes: number | null;
+        bundle_total_sessions: number | null; bundle_price_per_session_cents: number | null;
+        bundle_entry_cents: number | null; bundle_installment_count: number | null;
+        bundle_discount_type: "NONE" | "FIXED" | "PERCENT" | null; bundle_discount_value: number | null;
+      }>;
+  const subscriptionServiceRows = subscriptionServiceDurations.error
+    ? []
+    : requireData(subscriptionServiceDurations, "Serviços elegíveis") as Array<{
+        id: string; name: string; description: string | null; price_cents: number;
+        duration_minutes: number; active: boolean; accepts_subscription: boolean;
+      }>;
+  const serviceById = new Map(subscriptionServiceRows.map((service) => [service.id, service]));
+  const subscriptionBundlePlans = bundlePlanRows.flatMap((plan) => {
+    const version = bundleVersionRows.find((item) => item.plan_id === plan.id);
+    const service = version?.bundle_service_id ? serviceById.get(version.bundle_service_id) : undefined;
+    if (!version || !service || !version.bundle_scheduling_mode) return [];
+    return [{ ...plan, version, service }];
+  });
   return {
     organizationId,
     timezone: organizationTimezone.data?.timezone ?? DEFAULT_FINANCIAL_TIMEZONE,
@@ -327,7 +371,8 @@ export async function loadCustomersData() {
       : (requireData(barberSubscriptionPlans, "Planos por profissional") as Array<Record<string, unknown>>),
     subscriptionServiceDurations: subscriptionServiceDurations.error
       ? []
-      : (requireData(subscriptionServiceDurations, "Duração dos serviços") as Array<{ id: string; duration_minutes: number; active: boolean }>),
+      : (subscriptionServiceRows),
+    subscriptionBundlePlans,
     workIntervals: workIntervals.error
       ? []
       : (requireData(workIntervals, "Escalas dos profissionais") as WorkIntervalRecord[]),
@@ -1765,7 +1810,7 @@ export async function loadSubscriptionPlansData() {
     supabase
       .from("subscription_plan_versions")
       .select(
-        "id,plan_id,version,price_cents,billing_period,duration_months,sessions_per_cycle,payment_method,cancellation_policy,session_cancellation_policy,contract_version",
+        "id,plan_id,version,model,price_cents,billing_period,duration_months,sessions_per_cycle,payment_method,contract_version,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value",
       )
       .eq("organization_id", organizationId)
       .order("version", { ascending: false }),
@@ -1804,14 +1849,23 @@ export async function loadSubscriptionPlansData() {
     id: string;
     plan_id: string;
     version: number;
+    model: string;
     price_cents: number;
     billing_period: "BIWEEKLY" | "MONTHLY";
     duration_months: number;
     sessions_per_cycle: number;
     payment_method: string;
-    cancellation_policy: string;
-    session_cancellation_policy: string;
     contract_version: string;
+    bundle_scheduling_mode: "FREE" | "FIXED" | null;
+    bundle_service_id: string | null;
+    bundle_sessions_per_week: number | null;
+    bundle_session_duration_minutes: number | null;
+    bundle_total_sessions: number | null;
+    bundle_price_per_session_cents: number | null;
+    bundle_entry_cents: number | null;
+    bundle_installment_count: number | null;
+    bundle_discount_type: "NONE" | "FIXED" | "PERCENT" | null;
+    bundle_discount_value: number | null;
   };
   type PlanServiceRow = {
     plan_version_id: string;
