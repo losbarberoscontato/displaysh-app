@@ -60,7 +60,7 @@ export function SubscriptionPlansManager(props: Props) {
   const [newPlanOpen, setNewPlanOpen] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [draft, setDraft] = useState<BundleDraft>(emptyDraft);
-  const [planFilter, setPlanFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE" | "ARCHIVED">("ALL");
+  const [planFilter, setPlanFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE" | "ARCHIVED">("ACTIVE");
   const [contractPlanId, setContractPlanId] = useState<string | null>(null);
   const [contractBody, setContractBody] = useState("");
 
@@ -229,10 +229,7 @@ export function SubscriptionPlansManager(props: Props) {
     <PageHeader title="Planos de Assinatura" description="Configure planos por serviço, com sessões livres ou agenda semanal fixa." />
     <ActionMessage message={message} />
     {!props.subscriptionModuleEnabled && <div className={styles.notice}>Planos de Assinatura está inativo em Configurações → Módulos. Contratos existentes permanecem disponíveis.</div>}
-    <Panel title="Planos cadastrados" description={`${visiblePlans.length} de ${props.plans.length} planos`} action={<button className={styles.button} type="button" disabled={!props.subscriptionModuleEnabled} onClick={() => openPlanForm()}>Novo plano</button>}>
-      <div className={styles.subscriptionPlanFilters} role="group" aria-label="Filtrar planos">
-        {([ ["ALL", "Todos"], ["ACTIVE", "Ativos"], ["INACTIVE", "Inativos"], ["ARCHIVED", "Arquivados"] ] as const).map(([value, label]) => <button key={value} type="button" className={`${styles.button} ${styles.buttonSoft} ${planFilter === value ? styles.subscriptionPlanFilterSelected : ""}`} aria-pressed={planFilter === value} onClick={() => setPlanFilter(value)}>{label}</button>)}
-      </div>
+    <Panel title="Planos cadastrados" titleAdornment={<select className={styles.subscriptionPlanFilterSelect} aria-label="Filtrar planos" value={planFilter} onChange={(event) => setPlanFilter(event.target.value as typeof planFilter)}><option value="ALL">Todos</option><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option><option value="ARCHIVED">Arquivados</option></select>} description={`${visiblePlans.length} de ${props.plans.length} planos`} action={<button className={styles.button} type="button" disabled={!props.subscriptionModuleEnabled} onClick={() => openPlanForm()}>Novo plano</button>}>
       <div className={styles.list}>{visiblePlans.map((plan) => {
         const version = versionByPlan.get(plan.id);
         const editingContract = contractPlanId === plan.id;

@@ -180,8 +180,8 @@
 .subscriptionPlanActions { justify-content: flex-start; align-items: center; }
 .subscriptionPlanArchive { display: inline-flex; min-width: 2.35rem; align-items: center; justify-content: center; padding-inline: .55rem; color: #7d4036; }
 .subscriptionPlanContractEditor { grid-column: 1 / -1; }
-.subscriptionPlanFilters { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
-.subscriptionPlanFilterSelected { background: #503326; color: #fff; }
+.subscriptionPlanFilterSelect { min-width: 7.5rem; border: 1px solid #e4d0c5; border-radius: 999px; padding: .48rem 2rem .48rem .8rem; background: #f1e2d9; color: #503326; font: inherit; font-size: .82rem; font-weight: 700; cursor: pointer; }
+.subscriptionPlanFilterSelect:focus-visible { outline: 3px solid rgba(106, 133, 98, .18); border-color: #789070; }
 .fixedScheduleSlotList { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .75rem; margin-block: .75rem; }
 .fixedScheduleSlot { display: grid; gap: .65rem; min-width: 0; padding: .85rem; border: 1px solid var(--border, #ded8d0); border-radius: .8rem; }
 .fixedScheduleSlot legend { padding-inline: .25rem; font-weight: 700; }
