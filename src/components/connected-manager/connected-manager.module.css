@@ -889,6 +889,9 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
 .modalProjectWide { width: min(1100px, 100%); max-height: min(92vh, 900px); }
 .modal.serviceModal { width: min(70rem, 100%); max-height: calc(100dvh - 3rem); overflow-x: hidden; }
 .modal.subscriptionPlanModal { width: min(80rem, 100%); }
+.subscriptionPlanScheduleRow { grid-template-columns: 1.25fr repeat(3, minmax(0, 1fr)); }
+.subscriptionInstallmentValues { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; min-width: 0; }
+.subscriptionPlanValidation { color: #a3442d; font-size: .78rem; }
 .subscriptionBundleSlots { display: grid; gap: .8rem; }
 .subscriptionBundleSlot { display: grid; grid-template-columns: auto repeat(4, minmax(9rem, 1fr)); gap: .7rem; align-items: end; padding: .85rem; border: 1px solid #e3e9e1; border-radius: 12px; background: #fbfcfa; }
 .subscriptionBundleSlot > strong { align-self: center; color: #35443a; white-space: nowrap; }
@@ -919,6 +922,7 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
   .kanbanLane { flex-basis: 220px; }
   .kanbanToolbar { align-items: stretch; flex-direction: column; }
   .eventModalLayout { grid-template-columns: 1fr; }
+  .subscriptionPlanScheduleRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 500px) {
   .serviceDetailsRow { grid-template-columns: 1fr; }
@@ -942,6 +946,7 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
   .form { grid-template-columns: 1fr; }
   .subscriptionBundleSlot { grid-template-columns: 1fr; }
   .formCompactRow { grid-template-columns: 1fr; }
+  .subscriptionInstallmentValues { grid-template-columns: 1fr; }
   .formWide { grid-column: auto; }
   .modalActions { flex-direction: column-reverse; }
   .modalActions .button { width: 100%; }
