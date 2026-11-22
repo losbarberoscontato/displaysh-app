@@ -231,7 +231,7 @@ export async function loadCustomersData() {
       .order("starts_at"),
     supabase
       .from("agenda_environments")
-      .select("id,organization_id,location_id,name,sort_order,active")
+      .select("id,organization_id,location_id,name,sort_order,max_simultaneous_appointments,active")
       .eq("organization_id", organizationId)
       .eq("active", true)
       .order("sort_order")
@@ -512,7 +512,7 @@ export async function loadTeamData() {
       .eq("active", true),
     supabase
       .from("agenda_environments")
-      .select("id,organization_id,location_id,name,sort_order,active")
+      .select("id,organization_id,location_id,name,sort_order,max_simultaneous_appointments,active")
       .eq("organization_id", organizationId)
       .order("sort_order")
       .order("name"),
@@ -766,7 +766,7 @@ export async function loadAgendaData() {
       .maybeSingle(),
     supabase
       .from("agenda_environments")
-      .select("id,organization_id,location_id,name,sort_order,active")
+      .select("id,organization_id,location_id,name,sort_order,max_simultaneous_appointments,active")
       .eq("organization_id", organizationId)
       .eq("active", true)
       .order("sort_order")
@@ -1947,7 +1947,7 @@ export async function loadSettingsData() {
     }),
     supabase
       .from("agenda_environments")
-      .select("id,organization_id,location_id,name,sort_order,active")
+      .select("id,organization_id,location_id,name,sort_order,max_simultaneous_appointments,active")
       .eq("organization_id", organizationId)
       .order("sort_order")
       .order("name"),

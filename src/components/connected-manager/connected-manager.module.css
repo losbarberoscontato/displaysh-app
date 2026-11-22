@@ -579,7 +579,7 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
 .proSteticWhatsApp .button:hover:not(:disabled) { background: #321743; }
 .musicProWhatsApp .button { border-color: #075a96; background: #075a96; }
 .musicProWhatsApp .button:hover:not(:disabled) { background: #06233b; }
-.agendaEnvironmentRow { display: grid; grid-template-columns: minmax(130px, 1.5fr) minmax(5rem, .7fr) auto auto; gap: .65rem; align-items: center; padding: .8rem; border: 1px solid #edf0eb; border-radius: 13px; }
+.agendaEnvironmentRow { display: grid; grid-template-columns: minmax(130px, 1.5fr) minmax(4.5rem, .55fr) minmax(8.5rem, .9fr) auto auto; gap: .65rem; align-items: center; padding: .8rem; border: 1px solid #edf0eb; border-radius: 13px; }
 .agendaEnvironmentRow .field { min-width: 0; margin: 0; }
 .deadlineEditorField { display: grid; gap: .65rem; }
 .professionalFunctionForm { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: end; }

@@ -62,6 +62,7 @@ export interface AgendaEnvironmentRecord {
   location_id: string;
   name: string;
   sort_order: number;
+  max_simultaneous_appointments: number;
   active: boolean;
 }
 

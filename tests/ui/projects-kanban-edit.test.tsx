@@ -37,7 +37,7 @@ const sessionData = {
   engagements: [{ ...data.engagements[0], package_id: "package-1", status: "ACTIVE" as const }],
   packageServiceAssignments: [{ id: "assignment-1", project_package_id: "package-1", service_id: "service-1", barber_id: "barber-1", commission_cents: 1000 }],
   projectSessions: [{ id: "project-session-1", organization_id: "org-1", engagement_id: "engagement-1", session_number: 1, status: "OPEN" as const, appointment_id: null, service_id: null, barber_id: null, appointment: null }],
-  environments: [{ id: "environment-1", organization_id: "org-1", location_id: "location-1", name: "Sala/Cadeira 1", sort_order: 1, active: true }],
+  environments: [{ id: "environment-1", organization_id: "org-1", location_id: "location-1", name: "Sala/Cadeira 1", sort_order: 1, max_simultaneous_appointments: 1, active: true }],
 };
 
 const internalServiceData = {

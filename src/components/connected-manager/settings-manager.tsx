@@ -145,6 +145,9 @@ export function SettingsManager(props: Props) {
     .filter((item) => item.location_id === activeLocationId)
     .sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
   const activeEnvironmentCount = environments.filter((environment) => environment.active).length;
+  const activeEnvironmentCapacity = environments
+    .filter((environment) => environment.active)
+    .reduce((total, environment) => total + (environment.max_simultaneous_appointments ?? 1), 0);
   const professionalFunctions = props.professionalFunctions ?? [];
   const professionalFunctionsAvailable = props.professionalFunctionsAvailable ?? true;
   const organizationAudiences = props.organizationAudiences ?? [];
@@ -187,6 +190,7 @@ export function SettingsManager(props: Props) {
         location_id: activeLocationId,
         name,
         sort_order: environments.length ? Math.max(...environments.map((item) => item.sort_order)) + 1 : 1,
+        max_simultaneous_appointments: 1,
         active: true,
       }));
     }, "Ambiente adicionado.");
@@ -331,7 +335,7 @@ export function SettingsManager(props: Props) {
             <button type="button" className={`${styles.button} ${styles.buttonSoft}`} aria-label="Editar prazo limite" onClick={() => setRulesEditor("deadline")}><Pencil size={15} /> Editar prazo limite</button>
           </article>
           <article className={styles.integration}>
-            <div className={styles.integrationInfo}><strong>Ambientes da agenda</strong><p>{activeEnvironmentCount} ativos · Colunas físicas da agenda</p></div>
+            <div className={styles.integrationInfo}><strong>Ambientes da agenda</strong><p>{activeEnvironmentCount} ativos · até {activeEnvironmentCapacity} atendimentos simultâneos</p></div>
             <button type="button" className={`${styles.button} ${styles.buttonSoft}`} aria-label="Editar ambientes da agenda" onClick={() => setRulesEditor("environments")}><Pencil size={15} /> Editar ambientes</button>
           </article>
           <article className={styles.integration}>
@@ -403,13 +407,14 @@ export function SettingsManager(props: Props) {
     {rulesEditor === "environments" && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Fechar edição dos ambientes" onClick={() => setRulesEditor(null)} /><section className="form-modal" role="dialog" aria-modal="true" aria-label="Editar ambientes da agenda">
       <div className="form-modal__head"><span><small>Regras de negócio</small><strong>Ambientes da agenda</strong></span><button type="button" className="icon-button" onClick={() => setRulesEditor(null)} aria-label="Fechar edição dos ambientes"><X size={19} /></button></div>
       <div className="form-modal__body">
-        <p className={styles.muted}>Organize as colunas físicas usadas na agenda desta unidade.</p>
+        <p className={styles.muted}>Defina quantos atendimentos podem ocorrer ao mesmo tempo em cada ambiente. Para compartilhar o mesmo ambiente, o profissional também precisa estar liberado para atendimentos simultâneos.</p>
         <div className={styles.sectionHeader}><span className={styles.muted}>{activeEnvironmentCount} ambientes ativos</span></div>
         {environments.length === 0 && <p className={styles.muted}>Nenhum ambiente cadastrado nesta unidade.</p>}
         <div className={styles.list}>
           {environments.map((environment) => <div className={styles.agendaEnvironmentRow} key={environment.id}>
             <label className={styles.field}><span>Nome</span><input defaultValue={environment.name} onBlur={(event) => { const value = event.currentTarget.value.trim(); if (value && value !== environment.name) void updateEnvironment(environment.id, { name: value }, "Ambiente atualizado."); }} /></label>
             <label className={styles.field}><span>Ordem</span><input type="number" min="1" defaultValue={environment.sort_order} onBlur={(event) => { const value = Math.max(1, Number(event.currentTarget.value || environment.sort_order)); if (value !== environment.sort_order) void updateEnvironment(environment.id, { sort_order: value }, "Ordem dos ambientes atualizada."); }} /></label>
+            <label className={styles.field}><span>Limite de atendimentos</span><input aria-label={`Limite de atendimentos de ${environment.name}`} type="number" min="1" step="1" defaultValue={environment.max_simultaneous_appointments ?? 1} onBlur={(event) => { const value = event.currentTarget.valueAsNumber; if (!Number.isInteger(value) || value < 1) { event.currentTarget.value = String(environment.max_simultaneous_appointments ?? 1); showManagerError("O limite deve ser um número inteiro maior que zero."); return; } if (value !== environment.max_simultaneous_appointments) void updateEnvironment(environment.id, { max_simultaneous_appointments: value }, "Limite de atendimentos atualizado."); }} /></label>
             <StatusChip active={environment.active} />
             <button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => void updateEnvironment(environment.id, { active: !environment.active }, environment.active ? "Ambiente inativado." : "Ambiente reativado.")}>{environment.active ? "Inativar" : "Ativar"}</button>
           </div>)}
