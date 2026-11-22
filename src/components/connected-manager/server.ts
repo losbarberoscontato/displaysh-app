@@ -939,7 +939,7 @@ export async function loadFinanceData() {
       .from("financial_entry_summary")
       .select("id,organization_id,source,kind,due_date,remaining_cents,status")
       .eq("organization_id", organizationId)
-      .eq("source", "MANUAL")
+      .in("source", ["MANUAL", "SUBSCRIPTION"])
       .is("canceled_at", null)
       .limit(MANAGER_ROW_LIMIT),
     supabase

@@ -53,10 +53,10 @@ export function FinanceManager(props: Props) {
   const periodEndKey = addDateKey(todayKey, 30)!;
   const captured = props.financial.reduce((sum, item) => sum + item.net_paid_cents, 0);
   const appointmentReceived = props.financial.reduce((sum, item) => { const appointment = props.appointments.find((candidate) => candidate.id === item.appointment_id); return appointment && (localDateKey(appointment.created_at, timezone) ?? "") >= periodStartKey ? sum + item.net_paid_cents : sum; }, 0);
-  const manualReceived = props.financialSettlements.reduce((sum, settlement) => { const entry = props.financialEntries.find((candidate) => candidate.id === settlement.entry_id); return entry?.kind === "REVENUE" && (entry.source ?? "MANUAL") === "MANUAL" && settlement.kind === "SETTLEMENT" && (localDateKey(`${settlement.settled_on}T12:00:00`, timezone) ?? "") >= periodStartKey ? sum + settlement.amount_cents : sum; }, 0);
-  const totalReceived = appointmentReceived + manualReceived;
+  const ledgerReceived = props.financialSettlements.reduce((sum, settlement) => { const entry = props.financialEntries.find((candidate) => candidate.id === settlement.entry_id); const isLedgerRevenue = entry?.kind === "REVENUE" && ["MANUAL", "SUBSCRIPTION"].includes(entry.source ?? "MANUAL"); const isInPeriod = (localDateKey(`${settlement.settled_on}T12:00:00`, timezone) ?? "") >= periodStartKey; return isLedgerRevenue && isInPeriod ? sum + (settlement.kind === "SETTLEMENT" ? settlement.amount_cents : -settlement.amount_cents) : sum; }, 0);
+  const totalReceived = appointmentReceived + ledgerReceived;
   const dueByEndOfPeriod = (date: string) => isDateKeyAtOrBefore(date, periodEndKey);
-  const accountsReceivable = props.financialEntries.filter((entry) => (entry.source ?? "MANUAL") === "MANUAL" && entry.kind === "REVENUE" && entry.remaining_cents > 0 && !["SETTLED", "CANCELED"].includes(entry.status)).reduce((sum, entry) => sum + entry.remaining_cents, 0);
+  const accountsReceivable = props.financialEntries.filter((entry) => ["MANUAL", "SUBSCRIPTION"].includes(entry.source ?? "MANUAL") && entry.kind === "REVENUE" && entry.remaining_cents > 0 && !["SETTLED", "CANCELED"].includes(entry.status)).reduce((sum, entry) => sum + entry.remaining_cents, 0);
   const scheduledReceivable = props.appointments.reduce((sum, appointment) => { const item = financialById.get(appointment.id); const dueDate = appointmentServiceDateKey(appointment.service_period, timezone); return isReceivableAppointmentStatus(appointment.status) && item && item.outstanding_cents > 0 && dueDate && dueByEndOfPeriod(dueDate) ? sum + item.outstanding_cents : sum; }, 0);
   const commission = calculateOpenCommissionCents(props.ledger, props.payouts);
   const accountsPayable = props.financialEntries.filter((entry) => entry.kind === "EXPENSE" && entry.remaining_cents > 0 && dueByEndOfPeriod(entry.due_date)).reduce((sum, entry) => sum + entry.remaining_cents, 0);
@@ -167,7 +167,7 @@ export function FinanceManager(props: Props) {
     <ActionMessage message={message} />
     <section className={styles.stats}>
       <article className={`${styles.stat} ${styles.statSuccess}`}><span>Total recebido</span><strong>{formatCents(totalReceived)}</strong><small>últimos 30 dias</small></article>
-      <article className={`${styles.stat} ${styles.statSuccessDark}`}><span>Contas à receber</span><strong>{formatCents(accountsReceivable + scheduledReceivable)}</strong><small>Próximos 30 dias<br />à receber + serviço agendados</small></article>
+      <article className={`${styles.stat} ${styles.statSuccessDark}`}><span>Contas a receber</span><strong>{formatCents(accountsReceivable + scheduledReceivable)}</strong><small>Parcelas em aberto + serviços agendados nos próximos 30 dias</small></article>
       <article className={`${styles.stat} ${styles.statDanger}`}><span>Comissões à pagar</span><strong>{formatCents(commission)}</strong><small>Todas as comissões à pagar</small></article>
       <article className={`${styles.stat} ${styles.statDangerDark}`}><span>Contas à pagar</span><strong>{formatCents(accountsPayable)}</strong><small>Aberto + próximos 30 dias</small></article>
     </section>
