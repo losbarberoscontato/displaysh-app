@@ -174,7 +174,7 @@ export function CashManager(props: CashManagerProps) {
   const [statusFilter, setStatusFilter] = useState<"ALL" | EntryStatus>("ALL");
   const [accountFilter, setAccountFilter] = useState("ALL");
   const timezone = props.timezone ?? DEFAULT_FINANCIAL_TIMEZONE;
-  const periodDefault = props.section === "cash" || props.section === "payables" ? currentMonthRange(timezone) : null;
+  const periodDefault = props.section === "cash" || props.section === "payables" || props.section === "receivables" ? currentMonthRange(timezone) : null;
   const [startDate, setStartDate] = useState(() => periodDefault?.start ?? "");
   const [endDate, setEndDate] = useState(() => periodDefault?.end ?? "");
   const [entryEditor, setEntryEditor] = useState<FinancialEntryRecord | "new" | null>(null);
