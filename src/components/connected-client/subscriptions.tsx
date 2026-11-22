@@ -141,6 +141,15 @@ const paymentMethodLabel: Record<string, string> = {
   ONLINE: "Link de pagamento",
   CRYPTO: "Cripto",
 };
+const bundlePaymentMethodLabel: Record<string, string> = {
+  ONLINE: "Link de pagamento",
+  CARD: "Cartão",
+  PIX: "Pix",
+  BOLETO: "Boleto",
+  CASH: "Dinheiro",
+  CRYPTO: "Cripto",
+  UPFRONT: "À vista",
+};
 
 export function ConnectedSubscriptions({ view = "home", itemId }: { view?: SubscriptionView; itemId?: string }) {
   const { context, customer, user } = useConnectedClient();
@@ -163,6 +172,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   const [projectBookingDraft, setProjectBookingDraft] = useState<ProjectBookingDraft | null>(null);
   const [publicProjects, setPublicProjects] = useState<PublicProject[]>([]);
   const [contractBody, setContractBody] = useState<string | null>(null);
+  const [offerContractOpenFor, setOfferContractOpenFor] = useState<string | null>(null);
   const [message, setMessage] = useState("Carregando assinaturas…");
   const [acceptingSubscriptionOffer, setAcceptingSubscriptionOffer] = useState(false);
   const customerDetailsKey = context && customer && user ? `${context.organization.id}:${customer.id}:${user.id}` : "";
@@ -537,6 +547,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   }
   const route = (path: string) => `${path}${context?.organization.slug ? `?barbearia=${encodeURIComponent(context.organization.slug)}` : ""}`;
   const money = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
+  const percentage = (basisPoints: number) => `${(basisPoints / 100).toFixed(2).replace(".", ",")}%`;
   const subscriptionStatusLabel: Record<string, string> = { REQUESTED: "Aguardando aprovação", PENDING_PAYMENT: "Aguardando pagamento", ACTIVE: "Ativa", CANCELED: "Cancelada", EXPIRED: "Encerrada", DECLINED: "Recusada" };
   const projectCancellationRequestByEngagement = new Map(projectCancellationRequests.map((request) => [request.engagement_id, request]));
   const projectCancellationArchiveReady = (engagement: ProjectOffer) => ["CANCELED", "CANCELED_BY_ORGANIZATION", "COMPLETED"].includes(engagement.status)
@@ -577,9 +588,8 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     {(requestedOffers.length > 0 || pendingProjectOffers.length > 0) && <div className={styles.subscriptionStack}>
       <h2>Planos aguardando sua decisão</h2>
       {requestedOffers.map((row) => <Link className={styles.subscriptionCard} key={row.id} href={route(`/cliente/assinaturas/ofertas/assinatura/${row.id}`)}>
-      <span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><h3>{row.plan?.name ?? "Plano"}</h3><p>O gestor enviou este plano para você aceitar.</p>
-        {row.plan_version && <strong>{money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents)}</strong>}
-        <span>Ver detalhes e decidir</span>
+      <span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><h3>{row.plan?.name ?? "Plano"}</h3><p>Confirme os detalhes e realize o aceite do seu plano.</p>
+        <span className={styles.offerViewButton}>Clique para ver</span>
       </Link>)}
       {pendingProjectOffers.map((offer) => <Link className={styles.subscriptionCard} key={offer.id} href={route(`/cliente/assinaturas/ofertas/projeto/${offer.id}`)}>
         <span className={styles.planStatus}>Aguardando aceite</span><h3>{offer.project?.name ?? "Plano"} · {offer.package?.name ?? "Pacote"}</h3>
@@ -624,39 +634,75 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   </section>;
 
   if (view === "subscription-offer" && selectedSubscriptionOffer) return <section className={styles.subscriptionStack}>
-    <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link><span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><span className={styles.planKind}>Plano enviado pelo gestor</span><h1>{selectedSubscriptionOffer.plan?.name ?? "Plano"}</h1><p>{selectedSubscriptionOffer.plan?.description ?? "Confira os detalhes antes de aceitar ou recusar."}</p></header>
-    <article className={styles.subscriptionCard}>{selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" ? (() => {
-      const version = selectedSubscriptionOffer.plan_version;
-      const contract = selectedBundleOfferContract;
-      const totalSessions = Number(contract?.total_sessions ?? version.bundle_total_sessions ?? 0);
-      const sessionsPerWeek = Number(contract?.sessions_per_week ?? version.bundle_sessions_per_week ?? 1);
-      const sessionDuration = Number(contract?.session_duration_minutes ?? version.bundle_session_duration_minutes ?? 0);
-      const schedulingMode = contract?.scheduling_mode ?? version.bundle_scheduling_mode;
-      const pricePerSession = Number(contract?.price_per_session_cents ?? version.bundle_price_per_session_cents ?? 0);
-      const entryCents = Number(contract?.entry_cents ?? version.bundle_entry_cents ?? 0);
-      const total = Number(contract?.total_price_cents ?? pricePerSession * totalSessions);
-      const installmentCount = Math.max(1, Number(contract?.installment_count ?? version.bundle_installment_count ?? 1));
-      const baseInstallment = Math.floor(total / installmentCount);
-      const discountType = contract?.discount_type ?? version.bundle_discount_type;
-      const discountValue = Number(contract?.discount_value ?? version.bundle_discount_value ?? 0);
-      const discount = discountType === "PERCENT"
-        ? Math.round(baseInstallment * discountValue / 10000)
-        : discountType === "FIXED" ? discountValue : 0;
-      const discountedInstallment = Math.max(0, baseInstallment - discount);
-      const days = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
-      return <>
-        <h2>{money(total)}</h2>
-        <p>{totalSessions} sessões · {sessionsPerWeek} por semana · {sessionDuration} min por sessão · agendamento {schedulingMode === "FIXED" ? "fixo" : "livre"}</p>
-        <p>Valor por sessão: {money(pricePerSession)} · Entrada adicional: {money(entryCents)}</p>
-        <p>{installmentCount} parcela(s) de {money(discountedInstallment)}{discount > 0 ? ` após desconto de ${discountType === "PERCENT" ? `${(discountValue / 100).toFixed(2).replace(".", ",")}%` : money(discount)} por parcela` : ""} · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.payment_method] ?? selectedSubscriptionOffer.payment_method}</p>
-        {contract && <p>{contract.entry_cents > 0 ? `Vencimento da entrada: ${formatDate(contract.entry_due_on)} · ` : "Sem entrada · "}1ª parcela: {formatDate(contract.first_installment_due_on)} · primeira sessão: {formatDate(contract.first_session_date)}</p>}
-        {schedulingMode === "FIXED" && <div><strong>Horários semanais</strong>{selectedBundleOfferSlots.map((slot) => <p key={slot.id}>Sessão semanal {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {days[slot.weekday]} às {slot.local_time.slice(0, 5)}</p>)}</div>}
-        {schedulingMode === "FREE" && <p>As sessões são liberadas mês a mês, com limite de {sessionsPerWeek} por semana. Novos agendamentos ficam bloqueados enquanto houver parcela vencida.</p>}
-      </>;
-    })() : selectedSubscriptionOffer.plan_version && <><h2>{money(selectedSubscriptionOffer.plan_version.price_cents)}</h2><p>{selectedSubscriptionOffer.plan_version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedSubscriptionOffer.plan_version.duration_months} mês(es) · {selectedSubscriptionOffer.plan_version.sessions_per_cycle} sessão(ões) por ciclo · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.plan_version.payment_method] ?? selectedSubscriptionOffer.plan_version.payment_method}</p></>}
-      {selectedSubscriptionOffer.contract_body_snapshot && <details><summary>Contrato</summary><p>{selectedSubscriptionOffer.contract_body_snapshot}</p></details>}
+    <header>
+      <Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link>
+      <span className={styles.planKind}>Plano enviado pelo gestor</span>
+      <h1 className={styles.subscriptionOfferTitle}>{selectedSubscriptionOffer.plan?.name ?? "Plano"}</h1>
+      <p className={styles.subscriptionOfferDescription}>{selectedSubscriptionOffer.plan?.description ?? "Confira os detalhes antes de aceitar ou recusar."}</p>
+    </header>
+    <article className={styles.subscriptionCard}>
+      {selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" ? (() => {
+        const version = selectedSubscriptionOffer.plan_version;
+        const contract = selectedBundleOfferContract;
+        const totalSessions = Number(contract?.total_sessions ?? version.bundle_total_sessions ?? 0);
+        const sessionsPerWeek = Number(contract?.sessions_per_week ?? version.bundle_sessions_per_week ?? 1);
+        const sessionDuration = Number(contract?.session_duration_minutes ?? version.bundle_session_duration_minutes ?? 0);
+        const schedulingMode = contract?.scheduling_mode ?? version.bundle_scheduling_mode;
+        const pricePerSession = Number(contract?.price_per_session_cents ?? version.bundle_price_per_session_cents ?? 0);
+        const total = Number(contract?.total_price_cents ?? pricePerSession * totalSessions);
+        const entryCents = Number(contract?.entry_cents ?? version.bundle_entry_cents ?? 0);
+        const installmentCount = Math.max(1, Number(contract?.installment_count ?? version.bundle_installment_count ?? 1));
+        const baseInstallment = Math.floor(total / installmentCount);
+        const discountType = contract?.discount_type ?? version.bundle_discount_type;
+        const discountValue = Number(contract?.discount_value ?? version.bundle_discount_value ?? 0);
+        const discount = discountType === "PERCENT"
+          ? Math.round(baseInstallment * discountValue / 10000)
+          : discountType === "FIXED" ? discountValue : 0;
+        const discountedInstallment = Math.max(0, baseInstallment - discount);
+        const discountLabel = discountType === "PERCENT"
+          ? percentage(discountValue)
+          : discountType === "FIXED" ? money(discountValue) : "Sem desconto";
+        const weekdays = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+        const serviceName = context?.services.find((service) => service.id === contract?.service_id)?.name ?? "Serviço do plano";
+        return <>
+          <div className={styles.subscriptionOfferSummary}>
+            <h2>Resumo da assinatura</h2>
+            <p><strong>Plano:</strong> {selectedSubscriptionOffer.plan?.name ?? "Plano"} · <strong>Serviço:</strong> {serviceName}</p>
+            <p><strong>Agendamento:</strong> {schedulingMode === "FIXED" ? `Fixo · ${sessionsPerWeek} sessões por semana` : `Livre · ${totalSessions} sessões`}</p>
+            <p><strong>Primeira sessão:</strong> {formatDate(contract?.first_session_date ?? null)} · <strong>Duração:</strong> {sessionDuration} min</p>
+            {schedulingMode === "FIXED" && <ul>{selectedBundleOfferSlots.map((slot) => <li key={slot.id}>Sessão {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {weekdays[slot.weekday] ?? "Dia não definido"} · {slot.local_time.slice(0, 5)}</li>)}</ul>}
+            <div className={styles.subscriptionOfferFinance}>
+              <p><strong>Total do plano:</strong> {money(total)} <span aria-hidden="true">|</span> <strong>Parcelas:</strong> {installmentCount} <span aria-hidden="true">|</span> <strong>Desconto por parcela:</strong> {discountLabel}</p>
+              <p><strong>Valor por sessão:</strong> {money(pricePerSession)}</p>
+              {entryCents > 0
+                ? <p><strong>Entrada:</strong> {money(entryCents)} <span aria-hidden="true">|</span> <strong>Venc.:</strong> {formatDate(contract?.entry_due_on ?? null)}</p>
+                : <p><strong>Entrada:</strong> Sem entrada</p>}
+              <p><strong>Parcela:</strong> {money(discountedInstallment)} <span aria-hidden="true">|</span> <strong>Venc.:</strong> {formatDate(contract?.first_installment_due_on ?? null)} <span aria-hidden="true">|</span> <strong>Recorrência:</strong> Mensal</p>
+              <p><strong>Forma de pagamento:</strong> {bundlePaymentMethodLabel[selectedSubscriptionOffer.payment_method] ?? selectedSubscriptionOffer.payment_method}</p>
+            </div>
+          </div>
+        </>;
+      })() : selectedSubscriptionOffer.plan_version && <p>{selectedSubscriptionOffer.plan_version.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · {selectedSubscriptionOffer.plan_version.duration_months} mês(es) · {selectedSubscriptionOffer.plan_version.sessions_per_cycle} sessão(ões) por ciclo · pagamento: {paymentMethodLabel[selectedSubscriptionOffer.plan_version.payment_method] ?? selectedSubscriptionOffer.plan_version.payment_method}</p>}
+      {selectedSubscriptionOffer.contract_body_snapshot && <button className={styles.subscriptionContractTrigger} type="button" onClick={() => setOfferContractOpenFor(selectedSubscriptionOffer.id)}>Contrato <span aria-hidden="true">⌄</span></button>}
       {message && <p role="alert">{message}</p>}
-      <div className={styles.planActions}><button className={styles.subscriptionAction} type="button" disabled={acceptingSubscriptionOffer || (selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" && !selectedBundleOfferContract)} onClick={() => void acceptSubscriptionOffer(selectedSubscriptionOffer.id)}>{acceptingSubscriptionOffer ? "Confirmando…" : "Confirmar assinatura"}</button><button className={styles.subscriptionSecondary} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void declineSubscriptionOffer(selectedSubscriptionOffer.id)}>Recusar</button></div>
+      <div className={styles.planActions}>
+        <button className={styles.subscriptionAction} type="button" disabled={acceptingSubscriptionOffer || (selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" && !selectedBundleOfferContract)} onClick={() => void acceptSubscriptionOffer(selectedSubscriptionOffer.id)}>{acceptingSubscriptionOffer ? "Assinando…" : "Assinar contrato"}</button>
+        <button className={styles.subscriptionSecondary} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void declineSubscriptionOffer(selectedSubscriptionOffer.id)}>Recusar</button>
+      </div>
+      {offerContractOpenFor === selectedSubscriptionOffer.id && selectedSubscriptionOffer.contract_body_snapshot && <div className={styles.subscriptionContractLayer}>
+        <button className={styles.subscriptionContractBackdrop} type="button" aria-label="Fechar contrato" onClick={() => setOfferContractOpenFor(null)} />
+        <section className={styles.subscriptionContractDialog} role="dialog" aria-modal="true" aria-labelledby="subscription-contract-title" aria-describedby="subscription-contract-body">
+          <header className={styles.subscriptionContractHeader}>
+            <h2 id="subscription-contract-title">Contrato</h2>
+            <button className={styles.subscriptionContractClose} type="button" aria-label="Fechar contrato" onClick={() => setOfferContractOpenFor(null)}>×</button>
+          </header>
+          <div className={styles.subscriptionContractBody} id="subscription-contract-body"><p>{selectedSubscriptionOffer.contract_body_snapshot}</p></div>
+          <footer className={`${styles.planActions} ${styles.subscriptionContractActions}`}>
+            <button className={styles.subscriptionAction} type="button" disabled={acceptingSubscriptionOffer || (selectedSubscriptionOffer.plan_version?.model === "SESSION_BUNDLE_V1" && !selectedBundleOfferContract)} onClick={() => void acceptSubscriptionOffer(selectedSubscriptionOffer.id)}>{acceptingSubscriptionOffer ? "Assinando…" : "Assinar contrato"}</button>
+            <button className={styles.subscriptionSecondary} type="button" disabled={acceptingSubscriptionOffer} onClick={() => void declineSubscriptionOffer(selectedSubscriptionOffer.id)}>Recusar</button>
+          </footer>
+        </section>
+      </div>}
     </article>
   </section>;
 
