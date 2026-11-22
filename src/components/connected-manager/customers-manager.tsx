@@ -1149,15 +1149,6 @@ export function CustomersManager({
     } : current);
   }
 
-  function handleBundleOfferFormSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (bundleOfferDraft?.activeTab !== "REVIEW") {
-      advanceBundleOffer();
-      return;
-    }
-    setBundleOfferConfirmationOpen(true);
-  }
-
   async function submitBundleOffer(sendWhatsAppNotice: boolean) {
     const draft = bundleOfferDraft;
     if (!draft) return;
@@ -2167,7 +2158,7 @@ export function CustomersManager({
           ];
           return <div className={`${styles.modalLayer} ${styles.subscriptionBundleOfferLayer}`} role="presentation">
             <button className={styles.modalBackdrop} type="button" aria-label="Fechar oferta de assinatura" disabled={bundleOfferSending} onClick={() => { setBundleOfferConfirmationOpen(false); setBundleOfferDraft(null); }} />
-            <form className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionPlanModal}`} role="dialog" aria-modal="true" aria-labelledby="bundle-offer-title" onSubmit={handleBundleOfferFormSubmit}>
+            <section className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionPlanModal}`} role="dialog" aria-modal="true" aria-labelledby="bundle-offer-title">
               <header className={styles.modalHeader}><div><small>Oferta para {customers.find((item) => item.id === bundleOfferDraft.customerId)?.full_name ?? "cliente"}</small><h2 id="bundle-offer-title">Nova assinatura</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" disabled={bundleOfferSending} onClick={() => { setBundleOfferConfirmationOpen(false); setBundleOfferDraft(null); }}><X size={19} /></button></header>
               <div className={styles.form}>
                 <nav className={`${styles.formWide} ${styles.subscriptionBundleTabs}`} role="tablist" aria-label="Etapas da nova assinatura">
@@ -2242,10 +2233,10 @@ export function CustomersManager({
                 <div className={`${styles.toolbarGroup} ${styles.formWide}`}>
                   <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => { setBundleOfferConfirmationOpen(false); setBundleOfferDraft(null); }}>Cancelar</button>
                   {bundleOfferDraft.activeTab !== "SESSIONS" && <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferDraft((current) => current ? { ...current, activeTab: current.activeTab === "REVIEW" ? "FINANCIAL" : "SESSIONS" } : current)}>Voltar</button>}
-                  {bundleOfferDraft.activeTab !== "REVIEW" ? <button className={styles.button} type="button" disabled={bundleOfferSending || (fixed && eligible.length === 0)} onClick={advanceBundleOffer}>Continuar</button> : <button className={styles.button} type="submit" disabled={bundleOfferSending || (fixed && eligible.length === 0)}>Enviar oferta</button>}
+                  {bundleOfferDraft.activeTab !== "REVIEW" ? <button className={styles.button} type="button" disabled={bundleOfferSending || (fixed && eligible.length === 0)} onClick={advanceBundleOffer}>Continuar</button> : <button className={styles.button} type="button" disabled={bundleOfferSending || (fixed && eligible.length === 0)} onClick={() => setBundleOfferConfirmationOpen(true)}>Criar Assinatura!</button>}
                 </div>
               </div>
-            </form>
+            </section>
             {bundleOfferConfirmationOpen && <div className={`${styles.modalLayer} ${styles.subscriptionBundleConfirmLayer}`} role="presentation">
               <button className={styles.modalBackdrop} type="button" aria-label="Fechar confirmação" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)} />
               <section className={styles.modal} role="alertdialog" aria-modal="true" aria-labelledby="bundle-offer-confirm-title" aria-describedby="bundle-offer-confirm-description">
@@ -2312,6 +2303,18 @@ export function CustomersManager({
           const bundleSessions = subscriptionBundleSessions.filter((item) => String(item.subscription_id) === subscriptionControlId);
           const bundleInstallments = subscriptionBundleInstallments.filter((item) => String(item.subscription_id) === subscriptionControlId);
           const bundleFixedSlots = subscriptionBundleFixedSlots.filter((item) => String(item.subscription_id) === subscriptionControlId);
+          const bundleService = subscriptionPlanServices.find((item) => String(item.plan_version_id ?? "") === String((subscription.plan_version as { id?: string } | null)?.id ?? ""));
+          const bundleInstallment = bundleInstallments.find((item) => String(item.kind) === "INSTALLMENT");
+          const bundleInstallmentCount = Math.max(1, Number(bundleContract?.installment_count ?? 1));
+          const bundleInstallmentBaseCents = bundleInstallmentCount === 1
+            ? Number(bundleContract?.total_price_cents ?? 0)
+            : Math.floor(Number(bundleContract?.total_price_cents ?? 0) / bundleInstallmentCount);
+          const bundleDiscountCents = String(bundleContract?.discount_type) === "FIXED"
+            ? Number(bundleContract?.discount_value ?? 0)
+            : String(bundleContract?.discount_type) === "PERCENT"
+              ? Math.round(bundleInstallmentBaseCents * Number(bundleContract?.discount_value ?? 0) / 10000)
+              : 0;
+          const displayedBundleInstallmentCents = Number(bundleInstallment?.amount_cents ?? Math.max(0, bundleInstallmentBaseCents - bundleDiscountCents));
           const openCycles = cycles.filter((cycle) => cycle.status === "OPEN" || cycle.status === "OVERDUE");
           const upfront = String(subscription.payment_method) === "UPFRONT";
           const awaitingCustomerConsent = Boolean(subscription.manager_activated_provisionally_at) && !subscription.contract_accepted_at;
@@ -2327,10 +2330,23 @@ export function CustomersManager({
               <div className={styles.subscriptionControlBody}>
                 {awaitingCustomerConsent && <p className={styles.provisionalSubscriptionNotice}>Ativação provisória para organizar a agenda. O contrato ainda aguarda aceite do cliente. Recebimentos registrados serão preservados para ajuste manual se o cliente recusar.</p>}
                 <div className={styles.subscriptionControlLegend}><span><i className={styles.subscriptionDotAvailable} />Em aberto</span><span><i className={styles.subscriptionDotScheduled} />Agendada</span><span><i className={styles.subscriptionDotCompleted} />Concluída</span><span><i className={styles.subscriptionDotCanceled} />Cancelada</span></div>
-                {isBundlePlan && bundleContract && <section className={styles.subscriptionFixedSchedule}>
-                  <strong>{String(bundleContract.scheduling_mode) === "FIXED" ? "Agenda fixa do plano" : "Agendamento livre"}</strong>
-                  <span>{String(bundleContract.total_sessions)} sessões · {String(bundleContract.sessions_per_week)} por semana · {String(bundleContract.session_duration_minutes)} min · {formatCents(Number(bundleContract.price_per_session_cents))} por sessão · entrada {formatCents(Number(bundleContract.entry_cents))}</span>
-                  {String(bundleContract.scheduling_mode) === "FIXED" && bundleFixedSlots.map((slot) => <span key={String(slot.id)}>Sessão semanal {String(slot.slot_number)} · {String(slot.barber_name_snapshot)} · {String(slot.environment_name_snapshot)} · {(["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"][Number(slot.weekday)] ?? "Dia inválido")} às {String(slot.local_time).slice(0, 5)}</span>)}
+                {isBundlePlan && <section className={styles.subscriptionBundleReview}>
+                  <h3>Resumo da assinatura</h3>
+                  {bundleContract ? <>
+                    <p><strong>Plano:</strong> {plan?.name ?? "Plano"} · <strong>Serviço:</strong> {String(bundleService?.service_name_snapshot ?? "Não informado")}</p>
+                    <p><strong>Agendamento:</strong> {String(bundleContract.scheduling_mode) === "FIXED" ? `Fixo · ${String(bundleContract.sessions_per_week)} sessões por semana` : `Livre · ${String(bundleContract.total_sessions)} sessões`}</p>
+                    <p><strong>Primeira sessão:</strong> {formatBundleDate(String(bundleContract.first_session_date ?? ""))} · <strong>Duração:</strong> {String(bundleContract.session_duration_minutes)} min</p>
+                    {String(bundleContract.scheduling_mode) === "FIXED" && <ul>{bundleFixedSlots.map((slot) => <li key={String(slot.id)}>Sessão {String(slot.slot_number)}: {String(slot.barber_name_snapshot ?? "Profissional não definido")} · {String(slot.environment_name_snapshot ?? "Sala não definida")} · {(["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"][Number(slot.weekday)] ?? "Dia não definido")} · {String(slot.local_time ?? "Horário não definido").slice(0, 5)}</li>)}</ul>}
+                    <div className={styles.subscriptionBundleReviewFinance}>
+                      <p><strong>Total do plano:</strong> {formatCents(Number(bundleContract.total_price_cents))} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Parcelas:</strong> {String(bundleContract.installment_count)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Desconto por parcela:</strong> {String(bundleContract.discount_type) === "PERCENT" ? `${bundlePercentageInput(Number(bundleContract.discount_value))}%` : String(bundleContract.discount_type) === "FIXED" ? formatCents(Number(bundleContract.discount_value)) : "Sem desconto"}</p>
+                      <p><strong>Valor por sessão:</strong> {formatCents(Number(bundleContract.price_per_session_cents))}</p>
+                      {Number(bundleContract.entry_cents) > 0
+                        ? <p><strong>Entrada:</strong> {formatCents(Number(bundleContract.entry_cents))} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Venc.:</strong> {formatBundleDate(String(bundleContract.entry_due_on ?? ""))}</p>
+                        : <p><strong>Entrada:</strong> Sem entrada</p>}
+                      <p><strong>Parcela:</strong> {formatCents(displayedBundleInstallmentCents)} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Venc.:</strong> {formatBundleDate(String(bundleInstallment?.due_on ?? bundleContract.first_installment_due_on ?? ""))} <span className={styles.subscriptionBundleReviewSeparator} aria-hidden="true">|</span> <strong>Recorrência:</strong> Mensal</p>
+                      <p><strong>Forma de pagamento:</strong> {bundlePaymentMethodLabels[String(subscription.payment_method)] ?? String(subscription.payment_method ?? "Não informada")}</p>
+                    </div>
+                  </> : <p className={styles.muted}>Carregando os dados do contrato…</p>}
                 </section>}
                 {!isBundlePlan && String((subscription.plan_version as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED" && <section className={styles.subscriptionFixedSchedule}>
                   <strong>Agendamento fixo</strong>
