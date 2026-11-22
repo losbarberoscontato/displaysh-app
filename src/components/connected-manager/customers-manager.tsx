@@ -383,6 +383,7 @@ export function CustomersManager({
   const [manualSubscriptionActivationDraft, setManualSubscriptionActivationDraft] = useState<ManualSubscriptionActivationDraft | null>(null);
   const [fixedScheduleEditDraft, setFixedScheduleEditDraft] = useState<FixedScheduleEditDraft | null>(null);
   const [subscriptionControlId, setSubscriptionControlId] = useState<string | null>(null);
+  const [subscriptionControlTab, setSubscriptionControlTab] = useState<"SESSIONS" | "FINANCE" | "SUMMARY">("SESSIONS");
   const [subscriptionBundleContracts, setSubscriptionBundleContracts] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleInstallments, setSubscriptionBundleInstallments] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleSessions, setSubscriptionBundleSessions] = useState<Array<Record<string, unknown>>>([]);
@@ -390,6 +391,9 @@ export function CustomersManager({
   const [deletingSubscriptionId, setDeletingSubscriptionId] = useState<string | null>(null);
   const [subscriptionCycleDeleteTarget, setSubscriptionCycleDeleteTarget] = useState<Record<string, unknown> | null>(null);
   const [deletingSubscriptionCycle, setDeletingSubscriptionCycle] = useState(false);
+  const [subscriptionBundleInstallmentDeleteTarget, setSubscriptionBundleInstallmentDeleteTarget] = useState<Record<string, unknown> | null>(null);
+  const [subscriptionInstallmentEdit, setSubscriptionInstallmentEdit] = useState<{ kind: "LEGACY" | "BUNDLE"; subscriptionId: string; installmentId: string; amount: string; dueOn: string } | null>(null);
+  const [savingSubscriptionInstallmentEdit, setSavingSubscriptionInstallmentEdit] = useState(false);
   const [subscriptionCancellationDraft, setSubscriptionCancellationDraft] = useState<SubscriptionCancellationDraft | null>(null);
   const [subscriptionBooking, setSubscriptionBooking] = useState<SubscriptionBookingTarget | null>(null);
   const [subscriptionBookingDate, setSubscriptionBookingDate] = useState("");
@@ -399,7 +403,7 @@ export function CustomersManager({
   const [bundleOfferDraft, setBundleOfferDraft] = useState<BundleOfferDraft | null>(null);
   const [bundleOfferSending, setBundleOfferSending] = useState(false);
   const [bundleOfferConfirmationOpen, setBundleOfferConfirmationOpen] = useState(false);
-  const [paymentTarget, setPaymentTarget] = useState<{ kind: "LEGACY"; subscriptionId: string; cycleId: string; amountCents: number; method: string; dueOn: string } | { kind: "BUNDLE"; subscriptionId: string; installmentId: string; amountCents: number; method: string; dueOn: string } | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<{ kind: "LEGACY"; subscriptionId: string; cycleId: string; amountCents: number; method: string; dueOn: string } | { kind: "BUNDLE"; subscriptionId: string; installmentId: string; amountCents: number; method: string; dueOn: string; idempotencyKey: string } | null>(null);
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [paymentAccountId, setPaymentAccountId] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -416,23 +420,45 @@ export function CustomersManager({
         .select("id,subscription_id,scheduling_mode,sessions_per_week,session_duration_minutes,total_sessions,price_per_session_cents,total_price_cents,entry_cents,installment_count,discount_type,discount_value,entry_due_on,first_installment_due_on,first_session_date")
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).maybeSingle(),
       connectedClient().from("subscription_bundle_installments")
-        .select("id,subscription_id,installment_number,kind,due_on,amount_cents,payment_method,status,paid_at")
-        .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).neq("status", "CANCELED").order("installment_number"),
+        .select("id,subscription_id,installment_number,kind,due_on,amount_cents,payment_method,status,paid_at,financial_entry_id")
+        .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).order("installment_number"),
       connectedClient().from("subscription_bundle_sessions")
         .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id,barber_id,environment_id")
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).order("session_number"),
       connectedClient().from("subscription_bundle_fixed_slots")
         .select("id,subscription_id,slot_number,weekday,local_time,barber_name_snapshot,environment_name_snapshot")
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).order("slot_number"),
-    ]).then(([contract, installments, sessions, slots]) => {
+    ]).then(async ([contract, installments, sessions, slots]) => {
       if (!active) return;
       const failed = contract.error ?? installments.error ?? sessions.error ?? slots.error;
       if (failed) {
         setMessage(`Não foi possível carregar os detalhes do plano: ${failed.message}`);
         return;
       }
+      const installmentRows = (installments.data ?? []) as Array<Record<string, unknown>>;
+      const entryIds = [...new Set(installmentRows.map((item) => String(item.financial_entry_id ?? "")).filter(Boolean))];
+      const [entries, settlements] = entryIds.length > 0
+        ? await Promise.all([
+            connectedClient().from("financial_entries").select("id,canceled_at,total_cents,due_date").eq("organization_id", organizationId).in("id", entryIds),
+            connectedClient().from("financial_settlements").select("id,entry_id,amount_cents,settled_on,payment_method,reference,kind").eq("organization_id", organizationId).in("entry_id", entryIds).order("settled_on"),
+          ])
+        : [{ data: [], error: null }, { data: [], error: null }];
+      if (entries.error || settlements.error) {
+        setMessage(`Não foi possível carregar os recebimentos das parcelas: ${entries.error?.message ?? settlements.error?.message}`);
+        return;
+      }
+      const entriesById = new Map(((entries.data ?? []) as Array<Record<string, unknown>>).map((entry) => [String(entry.id), entry]));
+      const settlementsByEntry = new Map<string, Array<Record<string, unknown>>>();
+      for (const settlement of (settlements.data ?? []) as Array<Record<string, unknown>>) {
+        const entryId = String(settlement.entry_id ?? "");
+        settlementsByEntry.set(entryId, [...(settlementsByEntry.get(entryId) ?? []), settlement]);
+      }
       setSubscriptionBundleContracts(contract.data ? [contract.data as Record<string, unknown>] : []);
-      setSubscriptionBundleInstallments((installments.data ?? []) as Array<Record<string, unknown>>);
+      setSubscriptionBundleInstallments(installmentRows.map((installment) => ({
+        ...installment,
+        financial_entry: entriesById.get(String(installment.financial_entry_id ?? "")) ?? null,
+        settlements: settlementsByEntry.get(String(installment.financial_entry_id ?? "")) ?? [],
+      })));
       setSubscriptionBundleSessions((sessions.data ?? []) as Array<Record<string, unknown>>);
       setSubscriptionBundleFixedSlots((slots.data ?? []) as Array<Record<string, unknown>>);
     }).catch((cause: unknown) => {
@@ -440,6 +466,9 @@ export function CustomersManager({
     });
     return () => { active = false; };
   }, [organizationId, subscriptionControlId, subscriptions]);
+  useEffect(() => {
+    if (subscriptionControlId) setSubscriptionControlTab("SESSIONS");
+  }, [subscriptionControlId]);
   const subscriptionStatusesByCustomer = useMemo(() => {
     const cyclesBySubscription = new Map<string, Array<Record<string, unknown>>>();
     for (const cycle of subscriptionCycles) {
@@ -929,6 +958,51 @@ export function CustomersManager({
     }
   }
 
+  async function deleteSubscriptionBundleInstallment() {
+    const installment = subscriptionBundleInstallmentDeleteTarget;
+    if (!installment || deletingSubscriptionCycle) return;
+    setDeletingSubscriptionCycle(true);
+    const saved = await runMutation(setMessage, async () => {
+      await assertResult(await connectedClient().rpc("cancel_subscription_bundle_installment", {
+        p_organization_id: organizationId,
+        p_subscription_id: String(installment.subscription_id),
+        p_installment_id: String(installment.id),
+      }));
+    }, "Parcela cancelada. O histórico financeiro foi preservado.");
+    setDeletingSubscriptionCycle(false);
+    if (saved) {
+      setSubscriptionBundleInstallmentDeleteTarget(null);
+      router.refresh();
+    }
+  }
+
+  async function saveSubscriptionInstallmentEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const draft = subscriptionInstallmentEdit;
+    if (!draft || savingSubscriptionInstallmentEdit) return;
+    const amountCents = safeBundleCentsInput(draft.amount);
+    if (amountCents <= 0 || !draft.dueOn) {
+      showManagerError("Informe um valor maior que zero e a data de vencimento.");
+      return;
+    }
+    setSavingSubscriptionInstallmentEdit(true);
+    const saved = await runMutation(setMessage, async () => {
+      const procedure = draft.kind === "BUNDLE" ? "update_subscription_bundle_installment" : "update_open_subscription_cycle";
+      await assertResult(await connectedClient().rpc(procedure, {
+        p_organization_id: organizationId,
+        p_subscription_id: draft.subscriptionId,
+        [draft.kind === "BUNDLE" ? "p_installment_id" : "p_cycle_id"]: draft.installmentId,
+        p_amount_cents: amountCents,
+        p_due_on: draft.dueOn,
+      }));
+    }, "Parcela atualizada no contrato e em Contas a receber.");
+    setSavingSubscriptionInstallmentEdit(false);
+    if (saved) {
+      setSubscriptionInstallmentEdit(null);
+      router.refresh();
+    }
+  }
+
   async function recordFirstPayment(
     subscriptionId: string,
     cycleId: string,
@@ -975,7 +1049,7 @@ export function CustomersManager({
   }
 
   function openBundlePaymentDialog(subscriptionId: string, installment: Record<string, unknown>, method: string) {
-    setPaymentTarget({ kind: "BUNDLE", subscriptionId, installmentId: String(installment.id), amountCents: Number(installment.amount_cents ?? 0), method, dueOn: String(installment.due_on ?? "") });
+    setPaymentTarget({ kind: "BUNDLE", subscriptionId, installmentId: String(installment.id), amountCents: Number(installment.amount_cents ?? 0), method, dueOn: String(installment.due_on ?? ""), idempotencyKey: `manager-bundle-payment-${crypto.randomUUID()}` });
     setPaymentDate(new Date().toISOString().slice(0, 10));
     setPaymentAccountId(String(financialAccounts[0]?.id ?? ""));
     setPaymentReference("");
@@ -996,7 +1070,7 @@ export function CustomersManager({
           p_amount_cents: target.amountCents,
           p_chart_account_id: chart.id,
           p_financial_account_id: paymentAccountId || null,
-          p_idempotency_key: `manager-bundle-payment-${target.installmentId}`,
+          p_idempotency_key: target.idempotencyKey,
           p_external_reference: paymentReference || null,
           p_paid_on: paymentDate,
         }));
@@ -2319,18 +2393,23 @@ export function CustomersManager({
           const upfront = String(subscription.payment_method) === "UPFRONT";
           const awaitingCustomerConsent = Boolean(subscription.manager_activated_provisionally_at) && !subscription.contract_accepted_at;
           const paymentLabels: Record<string, string> = { CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Link de pagamento", CRYPTO: "Cripto" };
+          const settlementMethodLabels: Record<string, string> = { PIX: "PIX", CARD: "Cartão", CASH: "Dinheiro", BOLETO: "Boleto", TRANSFER: "Transferência", OTHER: "Outro" };
           const firstOpenCycle = openCycles[0];
+          const financeCycles = upfront && cycles.length > 0 ? [firstOpenCycle ?? cycles[0]] : cycles;
           const cancellationRequest = subscriptionCancellationRequests.find((request) => String(request.subscription_id) === subscriptionControlId);
           const cancellationReasons: Record<string, string> = { FINANCIAL_DIFFICULTY: "Dificuldade Financeira", LACK_OF_TIME: "Falta de tempo", ADDRESS_CHANGE: "Mudança de endereço", OTHER: "Outros" };
           return <>
           <div className="modal-layer" role="presentation">
-            <button className="modal-layer__backdrop" type="button" aria-label="Fechar controle da assinatura" onClick={() => { setSubscriptionCycleDeleteTarget(null); setSubscriptionControlId(null); }} />
+            <button className="modal-layer__backdrop" type="button" aria-label="Fechar controle da assinatura" onClick={() => { setSubscriptionCycleDeleteTarget(null); setSubscriptionBundleInstallmentDeleteTarget(null); setSubscriptionInstallmentEdit(null); setSubscriptionControlId(null); }} />
             <section className={`${styles.modal} ${styles.modalWide} ${styles.subscriptionControlModal}`} role="dialog" aria-modal="true" aria-labelledby="subscription-control-title">
-              <header className={styles.modalHeader}><div><small>Controle da assinatura · Contrato nº {String(subscription.contract_number ?? "—")}</small><h2 id="subscription-control-title">{plan?.name ?? "Plano"}</h2><p>{formatCents(version?.price_cents ?? 0)} · Venc. {String(subscription.first_due_date ?? "—")} · {paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)}</p></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => { setSubscriptionCycleDeleteTarget(null); setSubscriptionControlId(null); }}><X size={19} /></button></header>
+              <header className={styles.modalHeader}><div><small>Controle da assinatura · Contrato nº {String(subscription.contract_number ?? "—")}</small><h2 id="subscription-control-title">{plan?.name ?? "Plano"}</h2><p>{formatCents(version?.price_cents ?? 0)} · Venc. {formatBundleDate(String(subscription.first_due_date ?? ""))} · {paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)}</p></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => { setSubscriptionCycleDeleteTarget(null); setSubscriptionBundleInstallmentDeleteTarget(null); setSubscriptionInstallmentEdit(null); setSubscriptionControlId(null); }}><X size={19} /></button></header>
               <div className={styles.subscriptionControlBody}>
                 {awaitingCustomerConsent && <p className={styles.provisionalSubscriptionNotice}>Ativação provisória para organizar a agenda. O contrato ainda aguarda aceite do cliente. Recebimentos registrados serão preservados para ajuste manual se o cliente recusar.</p>}
-                <div className={styles.subscriptionControlLegend}><span><i className={styles.subscriptionDotAvailable} />Em aberto</span><span><i className={styles.subscriptionDotScheduled} />Agendada</span><span><i className={styles.subscriptionDotCompleted} />Concluída</span><span><i className={styles.subscriptionDotCanceled} />Cancelada</span></div>
-                {isBundlePlan && <section className={styles.subscriptionBundleReview}>
+                <nav className={styles.subscriptionControlTabs} role="tablist" aria-label="Seções do controle da assinatura">
+                  {([['SESSIONS', 'Sessões'], ['FINANCE', 'Financeiro'], ['SUMMARY', 'Resumo']] as const).map(([tab, label]) => <button key={tab} type="button" role="tab" aria-selected={subscriptionControlTab === tab} className={subscriptionControlTab === tab ? styles.subscriptionControlTabActive : styles.subscriptionControlTab} onClick={() => setSubscriptionControlTab(tab)}>{label}</button>)}
+                </nav>
+                {subscriptionControlTab === "SESSIONS" && <div className={styles.subscriptionControlLegend}><span><i className={styles.subscriptionDotAvailable} />Em aberto</span><span><i className={styles.subscriptionDotScheduled} />Agendada</span><span><i className={styles.subscriptionDotCompleted} />Concluída</span><span><i className={styles.subscriptionDotCanceled} />Cancelada</span></div>}
+                {isBundlePlan && subscriptionControlTab === "SUMMARY" && <section className={styles.subscriptionBundleReview}>
                   <h3>Resumo da assinatura</h3>
                   {bundleContract ? <>
                     <p><strong>Plano:</strong> {plan?.name ?? "Plano"} · <strong>Serviço:</strong> {String(bundleService?.service_name_snapshot ?? "Não informado")}</p>
@@ -2348,7 +2427,7 @@ export function CustomersManager({
                     </div>
                   </> : <p className={styles.muted}>Carregando os dados do contrato…</p>}
                 </section>}
-                {!isBundlePlan && String((subscription.plan_version as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED" && <section className={styles.subscriptionFixedSchedule}>
+                {!isBundlePlan && subscriptionControlTab === "SESSIONS" && String((subscription.plan_version as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED" && <section className={styles.subscriptionFixedSchedule}>
                   <strong>Agendamento fixo</strong>
                   <span>{Number(subscription.fixed_schedule_cadence_weeks) === 2 ? "Quinzenal" : "Semanal"} · {String(subscription.fixed_schedule_start_date ?? "Data não informada")} às {String(subscription.fixed_schedule_local_time ?? "Horário não informado").slice(0, 5)} · {barbers.find((barber) => barber.id === String(subscription.fixed_schedule_barber_id))?.display_name ?? "Profissional não informado"} · {agendaEnvironments.find((environment) => environment.id === String(subscription.fixed_schedule_environment_id ?? ""))?.name ?? "Ambiente conforme escala"}</span>
                   {!subscription.fixed_schedule_created_at && (subscription.status === "REQUESTED" || subscription.status === "PENDING_PAYMENT") && <button type="button" className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} onClick={() => {
@@ -2397,19 +2476,11 @@ export function CustomersManager({
                     <div className={styles.formWide}><button className={styles.button} type="submit" disabled={!fixedScheduleEditDraft.localTime || !fixedScheduleEditDraft.environmentId}>Salvar série</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setFixedScheduleEditDraft(null)}>Cancelar</button></div>
                   </form>}
                 </section>}
+                {subscriptionControlTab === "SESSIONS" && !isBundlePlan && <>
                 {cycles.map((cycle) => {
                   const cycleSessions = sessions.filter((session) => String(session.cycle_id) === String(cycle.id));
-                  const canReceive = cycle.status === "OPEN" || cycle.status === "OVERDUE";
-                  const canDelete = canReceive && cycleSessions.every((session) => session.status === "AVAILABLE" || session.status === "CANCELED");
-                  const canReceiveButton = canReceive && (!upfront || String(cycle.id) === String(firstOpenCycle?.id));
-                  const cycleOverdue = cycle.status === "OVERDUE" || (cycle.status === "OPEN" && String(cycle.due_on ?? "") < todayInOrganization);
-                  const amount = upfront
-                    ? (cycle.status === "PAID" ? cycles : cycle.status === "CANCELED" ? [cycle] : openCycles).reduce((total, item) => total + Number(item.amount_cents ?? 0), 0)
-                    : Number(cycle.amount_cents ?? version?.price_cents ?? 0);
-                  const cycleStatus = cycle.status === "PAID" ? `Pago em ${cycle.paid_at ? new Intl.DateTimeFormat("pt-BR").format(new Date(String(cycle.paid_at))) : "—"}` : cycle.status === "CANCELED" ? "Parcela cancelada" : cycleOverdue ? "Parcela em atraso" : "Parcela em aberto";
-                  const deleteTitle = !canReceive ? "Somente parcelas em aberto podem ser excluídas" : canDelete ? "Excluir parcela" : "Cancele as sessões agendadas antes de excluir esta parcela";
-                  return <article className={`${styles.subscriptionMonth} ${cycleOverdue ? styles.subscriptionMonthOverdue : ""}`} key={String(cycle.id)}>
-                    <div className={styles.subscriptionMonthTitle}><strong>{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${String(cycle.starts_on)}T12:00:00`))}</strong><small>Vencimento {String(cycle.due_on)} · {cycleStatus}</small></div>
+                  return <article className={styles.subscriptionMonth} key={String(cycle.id)}>
+                    <div className={styles.subscriptionMonthTitle}><strong>{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${String(cycle.starts_on)}T12:00:00`))}</strong><small>{cycleSessions.length} sessão(ões)</small></div>
                     <div className={styles.subscriptionSessionList}>{cycleSessions.map((session) => {
                       const presentation = sessionPresentation(session, cycleSessions.length || Number(version?.sessions_per_cycle ?? 0));
                       const chipClass = `${styles.subscriptionSessionChip} ${styles[`subscriptionSessionChip${presentation.tone[0].toUpperCase()}${presentation.tone.slice(1)}`]}`;
@@ -2420,13 +2491,10 @@ export function CustomersManager({
                       if (canReschedule) return <button type="button" className={`${chipClass} ${styles.subscriptionSessionChipAction}`} key={String(session.id)} title="Reagendar sessão" aria-label={`Reagendar sessão ${presentation.label}`} onClick={() => openSubscriptionSessionReschedule(subscription, session, appointmentId)}>{presentation.label}</button>;
                       return <span className={chipClass} key={String(session.id)}>{presentation.label}</span>;
                     })}</div>
-                    <div className={styles.subscriptionInstallment}><span><small>Parcela</small><strong>{formatCents(amount)}</strong><small>{cycle.status === "PAID" ? `${paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)} · ${cycle.paid_at ? new Intl.DateTimeFormat("pt-BR").format(new Date(String(cycle.paid_at))) : "Pago"}` : `Venc. ${String(cycle.due_on)}`}</small></span><div className={styles.subscriptionCycleActions}>
-                      <button type="button" className={`${styles.button} ${styles.buttonSmall}`} disabled={!canReceiveButton} title={canReceiveButton ? "Receber parcela" : upfront && canReceive ? "O pagamento à vista recebe o saldo pelo primeiro ciclo" : "Parcela paga ou cancelada"} onClick={() => openPaymentDialog(String(subscription.id), { id: cycle.id, amount_cents: amount, due_on: cycle.due_on }, String(subscription.payment_method ?? "CASH"))}>Receber</button>
-                      <button type="button" className={`${styles.button} ${styles.buttonDanger} ${styles.financialDeleteIcon}`} aria-label="Excluir parcela" title={deleteTitle} disabled={deletingSubscriptionCycle || !canDelete} onClick={() => setSubscriptionCycleDeleteTarget(cycle)}><Trash2 size={15} /></button>
-                    </div></div>
                   </article>;
                 })}
-                {isBundlePlan && <section className={styles.subscriptionStack}>
+                </>}
+                {isBundlePlan && subscriptionControlTab === "SESSIONS" && <section className={styles.subscriptionStack}>
                   <strong>Sessões do plano</strong>
                   <div className={styles.subscriptionSessionList}>{bundleSessions.map((session) => {
                     const linkedAppointment = appointments.find((item) => String(item.id) === String(session.appointment_id ?? ""));
@@ -2435,26 +2503,67 @@ export function CustomersManager({
                     const state = ({ AVAILABLE: "Disponível", SCHEDULED: "Agendada", COMPLETED: "Concluída", CONSUMED: "Consumida", CANCELED: "Cancelada" } as Record<string, string>)[String(session.status)] ?? String(session.status);
                     return <article className={styles.subscriptionSessionChip} key={String(session.id)}><strong>Sessão {String(session.session_number).padStart(2, "0")}</strong><span>{state}{scheduled ? ` · ${scheduled}` : ""}{barber ? ` · ${barber.display_name}` : ""}</span></article>;
                   })}</div>
-                  <strong>Parcelas e entrada</strong>
-                  {bundleInstallments.map((installment) => {
-                    const dueOn = String(installment.due_on ?? "");
-                    const installmentStatus = String(installment.status ?? "OPEN");
-                    const overdue = installmentStatus === "OVERDUE" || (installmentStatus === "OPEN" && dueOn < todayInOrganization);
-                    const canReceive = installmentStatus === "OPEN" || installmentStatus === "OVERDUE";
-                    const label = String(installment.kind) === "ENTRY" ? "Entrada" : `Parcela ${String(installment.installment_number)}`;
-                    return <article className={`${styles.subscriptionMonth} ${overdue ? styles.subscriptionMonthOverdue : ""}`} key={String(installment.id)}>
-                      <div className={styles.subscriptionMonthTitle}><strong>{label} · {formatCents(Number(installment.amount_cents ?? 0))}</strong><small>Vencimento {dueOn} · {installmentStatus === "PAID" ? "Pago" : installmentStatus === "CANCELED" ? "Cancelada" : overdue ? "Em atraso" : "Em aberto"}{installment.paid_at ? ` em ${new Intl.DateTimeFormat("pt-BR").format(new Date(String(installment.paid_at)))}` : ""}</small></div>
-                      <div className={styles.subscriptionCycleActions}><button type="button" className={`${styles.button} ${styles.buttonSmall}`} disabled={!canReceive || !chartAccounts.length} title={!chartAccounts.length ? "Cadastre uma conta de receita para registrar o recebimento" : canReceive ? "Registrar recebimento no Financeiro" : "Parcela já encerrada"} onClick={() => openBundlePaymentDialog(subscriptionControlId, installment, String(subscription.payment_method ?? "CASH"))}>Receber</button></div>
-                    </article>;
-                  })}
                 </section>}
-                {!isBundlePlan && cancellationRequest && <section className={styles.subscriptionFixedSchedule}>
+                {subscriptionControlTab === "FINANCE" && <section className={styles.subscriptionFinanceTableWrap} aria-label="Parcelas da assinatura">
+                  <div className={styles.subscriptionFinanceTableScroll}><table className={styles.subscriptionFinanceTable}>
+                    <thead><tr><th>N. Parcela</th><th>Valor</th><th>Vencimento</th><th>Recebimento</th><th>Status</th><th>Ações</th></tr></thead>
+                    <tbody>
+                      {isBundlePlan ? bundleInstallments.map((installment) => {
+                        const installmentId = String(installment.id);
+                        const installmentNumber = Number(installment.installment_number ?? 0);
+                        const dueOn = String(installment.due_on ?? "");
+                        const status = String(installment.status ?? "OPEN");
+                        const canManage = status === "OPEN" || status === "OVERDUE";
+                        const settlements = (installment.settlements ?? []) as Array<Record<string, unknown>>;
+                        const receipt = settlements.map((settlement) => `${String(settlement.kind) === "REVERSAL" ? "Estorno" : "Recebido"} ${formatCents(Number(settlement.amount_cents ?? 0))} · ${formatBundleDate(String(settlement.settled_on ?? ""))} · ${settlementMethodLabels[String(settlement.payment_method)] ?? String(settlement.payment_method ?? "")}`).join("; ");
+                        const netSettledCents = settlements.reduce((total, settlement) => total + (String(settlement.kind) === "REVERSAL" ? -1 : 1) * Number(settlement.amount_cents ?? 0), 0);
+                        const remainingCents = Math.max(0, Number(installment.amount_cents ?? 0) - netSettledCents);
+                        const label = String(installment.kind) === "ENTRY" ? "Entrada" : String(installmentNumber).padStart(2, "0");
+                        const paymentTargetInstallment = { ...installment, subscription_id: subscriptionControlId };
+                        return <tr key={installmentId}>
+                          <td>{label}</td><td>{formatCents(Number(installment.amount_cents ?? 0))}</td><td>{formatBundleDate(dueOn)}</td>
+                          <td>{receipt || (status === "PAID" ? "Recebido" : "—")}</td><td><span className={styles.subscriptionFinanceStatus}>{status === "PAID" ? "Pago" : status === "CANCELED" ? "Cancelada" : status === "OVERDUE" || (status === "OPEN" && dueOn < todayInOrganization) ? "Em atraso" : "Em aberto"}</span></td>
+                          <td><div className={styles.subscriptionFinanceActions}>
+                            <button type="button" className={`${styles.button} ${styles.buttonSmall}`} disabled={!canManage || remainingCents <= 0 || !chartAccounts.length || !financialAccounts.length} title={!chartAccounts.length || !financialAccounts.length ? "Configure as contas financeiras para registrar recebimentos" : canManage ? "Receber saldo da parcela" : "Parcela encerrada"} onClick={() => openBundlePaymentDialog(subscriptionControlId, { ...paymentTargetInstallment, amount_cents: remainingCents }, String(subscription.payment_method ?? "CASH"))}>Receber</button>
+                            <button type="button" className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} disabled={!canManage} onClick={() => setSubscriptionInstallmentEdit({ kind: "BUNDLE", subscriptionId: subscriptionControlId, installmentId, amount: bundleMoneyInput(Number(installment.amount_cents ?? 0)), dueOn })}><Pencil size={14} /> Editar</button>
+                            <button type="button" className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} disabled={!canManage} onClick={() => setSubscriptionBundleInstallmentDeleteTarget(paymentTargetInstallment)}><Trash2 size={14} /> Excluir</button>
+                          </div></td>
+                        </tr>;
+                      }) : financeCycles.map((cycle) => {
+                        const canManage = cycle.status === "OPEN" || cycle.status === "OVERDUE";
+                        const canReceive = canManage && (!upfront || String(cycle.id) === String(firstOpenCycle?.id));
+                        const canDelete = canManage && !upfront && sessions.filter((session) => String(session.cycle_id) === String(cycle.id)).every((session) => session.status === "AVAILABLE" || session.status === "CANCELED");
+                        const amount = upfront ? (cycle.status === "PAID" ? cycles : cycle.status === "CANCELED" ? [cycle] : openCycles).reduce((total, item) => total + Number(item.amount_cents ?? 0), 0) : Number(cycle.amount_cents ?? version?.price_cents ?? 0);
+                        const receipt = cycle.paid_at ? `${formatBundleDate(String(cycle.paid_at).slice(0, 10))} · ${paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)}` : "—";
+                        return <tr key={String(cycle.id)}>
+                          <td>{upfront ? "À vista" : String(cycle.cycle_number ?? "—")}</td><td>{formatCents(amount)}</td><td>{formatBundleDate(String(cycle.due_on ?? ""))}</td><td>{receipt}</td>
+                          <td><span className={styles.subscriptionFinanceStatus}>{cycle.status === "PAID" ? "Pago" : cycle.status === "CANCELED" ? "Cancelada" : cycle.status === "OVERDUE" || (cycle.status === "OPEN" && String(cycle.due_on ?? "") < todayInOrganization) ? "Em atraso" : "Em aberto"}</span></td>
+                          <td><div className={styles.subscriptionFinanceActions}>
+                            <button type="button" className={`${styles.button} ${styles.buttonSmall}`} disabled={!canReceive} title={upfront && canManage && !canReceive ? "À vista: o saldo é recebido pelo primeiro ciclo" : "Receber parcela"} onClick={() => openPaymentDialog(String(subscription.id), { id: cycle.id, amount_cents: amount, due_on: cycle.due_on }, String(subscription.payment_method ?? "CASH"))}>Receber</button>
+                            <button type="button" className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} disabled={!canManage || upfront} title={upfront ? "Ajuste o valor total do contrato à vista" : "Editar parcela"} onClick={() => setSubscriptionInstallmentEdit({ kind: "LEGACY", subscriptionId: subscriptionControlId, installmentId: String(cycle.id), amount: bundleMoneyInput(amount), dueOn: String(cycle.due_on ?? "") })}><Pencil size={14} /> Editar</button>
+                            <button type="button" className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} disabled={!canDelete} onClick={() => setSubscriptionCycleDeleteTarget(cycle)}><Trash2 size={14} /> Excluir</button>
+                          </div></td>
+                        </tr>;
+                      })}
+                    </tbody>
+                  </table></div>
+                  {((isBundlePlan && bundleInstallments.length === 0) || (!isBundlePlan && cycles.length === 0)) && <p className={styles.muted}>Nenhuma parcela gerada para esta assinatura.</p>}
+                </section>}
+                {subscriptionControlTab === "SUMMARY" && !isBundlePlan && <section className={styles.subscriptionBundleReview}>
+                  <h3>Resumo da assinatura</h3>
+                  <p><strong>Plano:</strong> {plan?.name ?? "Plano"} · <strong>Serviço:</strong> {subscriptionPlanServices.filter((item) => String(item.plan_version_id) === String(version?.id)).map((item) => String(item.service_name_snapshot ?? "Serviço")).join(", ") || "Não informado"}</p>
+                  <p><strong>Status:</strong> {String(subscription.status)} · <strong>Início:</strong> {formatBundleDate(String(subscription.start_date ?? ""))} · <strong>Vencimento:</strong> {formatBundleDate(String(subscription.first_due_date ?? ""))}</p>
+                  <p><strong>Agendamento:</strong> {String(version?.scheduling_mode) === "FIXED" ? "Fixo" : "Livre"} · <strong>Sessões por período:</strong> {String(version?.sessions_per_cycle ?? "—")} · <strong>Periodicidade:</strong> {String((subscription.plan_version as { billing_period?: string } | null)?.billing_period ?? "—")}</p>
+                  <p><strong>Valor por período:</strong> {formatCents(Number(version?.price_cents ?? 0))} · <strong>Quantidade de períodos:</strong> {String((subscription.plan_version as { duration_months?: number } | null)?.duration_months ?? "—")}</p>
+                  {!isBundlePlan && String((subscription.plan_version as { scheduling_mode?: string } | null)?.scheduling_mode) === "FIXED" && <p>{String(subscription.fixed_schedule_start_date ?? "Data inicial não informada")} às {String(subscription.fixed_schedule_local_time ?? "Horário não informado").slice(0, 5)} · {barbers.find((barber) => barber.id === String(subscription.fixed_schedule_barber_id))?.display_name ?? "Profissional não informado"}</p>}
+                </section>}
+                {subscriptionControlTab === "SUMMARY" && !isBundlePlan && cancellationRequest && <section className={styles.subscriptionFixedSchedule}>
                   <strong>Solicitação de cancelamento pendente</strong>
                   <span>Motivo: {cancellationReasons[String(cancellationRequest.reason)] ?? String(cancellationRequest.reason)}</span>
                   {Boolean(cancellationRequest.observations) && <span>Observações: {String(cancellationRequest.observations)}</span>}
                   <span>Última sessão solicitada: {sessions.find((session) => String(session.id) === String(cancellationRequest.last_session_id)) ? `Sessão ${String(sessions.find((session) => String(session.id) === String(cancellationRequest.last_session_id))?.session_number)}` : "Nenhuma sessão adicional"}</span>
                 </section>}
-                {!isBundlePlan && (cancellationRequest || subscription.status === "ACTIVE" || subscription.status === "PENDING_PAYMENT") && <div className={styles.toolbarGroup}>
+                {subscriptionControlTab === "SUMMARY" && !isBundlePlan && (cancellationRequest || subscription.status === "ACTIVE" || subscription.status === "PENDING_PAYMENT") && <div className={styles.toolbarGroup}>
                   <button type="button" className={`${styles.button} ${styles.buttonDanger}`} onClick={() => {
                     setSubscriptionCancellationDraft({
                       subscriptionId: subscriptionControlId,
@@ -2470,6 +2579,8 @@ export function CustomersManager({
             </section>
           </div>
           {subscriptionCycleDeleteTarget && String(subscriptionCycleDeleteTarget.subscription_id) === subscriptionControlId && <div className={`${styles.modalLayer} ${styles.subscriptionCancellationLayer}`} role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Cancelar exclusão da parcela" disabled={deletingSubscriptionCycle} onClick={() => setSubscriptionCycleDeleteTarget(null)} /><section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="subscription-cycle-delete-title"><header className={styles.modalHeader}><div><small>Controle da assinatura</small><h2 id="subscription-cycle-delete-title">Excluir parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar confirmação" disabled={deletingSubscriptionCycle} onClick={() => setSubscriptionCycleDeleteTarget(null)}><X size={18} /></button></header><div className={styles.form}><p>Confirma excluir o ciclo {String(subscriptionCycleDeleteTarget.cycle_number)} no valor de {formatCents(Number(subscriptionCycleDeleteTarget.amount_cents ?? 0))}, com vencimento em {String(subscriptionCycleDeleteTarget.due_on)}?</p><p className={styles.muted}>As sessões disponíveis deste ciclo também serão canceladas. Ciclos com sessões agendadas/concluídas e parcelas baixadas não podem ser excluídos.</p><footer className={styles.modalActions}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={deletingSubscriptionCycle} onClick={() => setSubscriptionCycleDeleteTarget(null)}>Cancelar</button><button className={`${styles.button} ${styles.buttonDanger}`} type="button" disabled={deletingSubscriptionCycle} onClick={() => void deleteSubscriptionCycle()}><Trash2 size={15} /> {deletingSubscriptionCycle ? "Excluindo…" : "Confirmar exclusão"}</button></footer></div></section></div>}
+          {subscriptionBundleInstallmentDeleteTarget && String(subscriptionBundleInstallmentDeleteTarget.subscription_id) === subscriptionControlId && <div className={`${styles.modalLayer} ${styles.subscriptionCancellationLayer}`} role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Cancelar exclusão da parcela" disabled={deletingSubscriptionCycle} onClick={() => setSubscriptionBundleInstallmentDeleteTarget(null)} /><section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="subscription-bundle-installment-delete-title"><header className={styles.modalHeader}><div><small>Controle da assinatura</small><h2 id="subscription-bundle-installment-delete-title">Excluir parcela?</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar confirmação" disabled={deletingSubscriptionCycle} onClick={() => setSubscriptionBundleInstallmentDeleteTarget(null)}><X size={18} /></button></header><div className={styles.form}><p>Confirma cancelar {String(subscriptionBundleInstallmentDeleteTarget.kind) === "ENTRY" ? "a entrada" : `a parcela ${String(subscriptionBundleInstallmentDeleteTarget.installment_number)}`} de {formatCents(Number(subscriptionBundleInstallmentDeleteTarget.amount_cents ?? 0))}, com vencimento em {formatBundleDate(String(subscriptionBundleInstallmentDeleteTarget.due_on ?? ""))}?</p><p className={styles.muted}>A conta a receber será cancelada e o histórico permanecerá registrado. As sessões do plano não serão alteradas.</p><footer className={styles.modalActions}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={deletingSubscriptionCycle} onClick={() => setSubscriptionBundleInstallmentDeleteTarget(null)}>Voltar</button><button className={`${styles.button} ${styles.buttonDanger}`} type="button" disabled={deletingSubscriptionCycle} onClick={() => void deleteSubscriptionBundleInstallment()}><Trash2 size={15} /> {deletingSubscriptionCycle ? "Cancelando…" : "Confirmar exclusão"}</button></footer></div></section></div>}
+          {subscriptionInstallmentEdit?.subscriptionId === subscriptionControlId && <div className={`${styles.modalLayer} ${styles.subscriptionCancellationLayer}`} role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar edição da parcela" disabled={savingSubscriptionInstallmentEdit} onClick={() => setSubscriptionInstallmentEdit(null)} /><form className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="subscription-installment-edit-title" onSubmit={(event) => void saveSubscriptionInstallmentEdit(event)}><header className={styles.modalHeader}><div><small>Controle da assinatura</small><h2 id="subscription-installment-edit-title">Editar parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar edição" disabled={savingSubscriptionInstallmentEdit} onClick={() => setSubscriptionInstallmentEdit(null)}><X size={18} /></button></header><div className={styles.form}><Field label="Valor (R$)"><input inputMode="decimal" value={subscriptionInstallmentEdit.amount} onChange={(event) => setSubscriptionInstallmentEdit((draft) => draft ? { ...draft, amount: event.target.value } : draft)} required /></Field><Field label="Vencimento"><input type="date" value={subscriptionInstallmentEdit.dueOn} onChange={(event) => setSubscriptionInstallmentEdit((draft) => draft ? { ...draft, dueOn: event.target.value } : draft)} required /></Field><p className={styles.formWide}>A alteração será refletida no contrato e em Contas a receber. Parcelas pagas não podem ser editadas.</p><footer className={styles.modalActions}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={savingSubscriptionInstallmentEdit} onClick={() => setSubscriptionInstallmentEdit(null)}>Cancelar</button><button className={styles.button} type="submit" disabled={savingSubscriptionInstallmentEdit}>{savingSubscriptionInstallmentEdit ? "Salvando…" : "Salvar alteração"}</button></footer></div></form></div>}
           </>;
         })()}
         {subscriptionCancellationDraft && (() => {
@@ -2514,7 +2625,7 @@ export function CustomersManager({
           </div>;
         })()}
         {paymentTarget && (
-          <div className="modal-layer" role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar recebimento" onClick={() => setPaymentTarget(null)} /><section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="subscription-payment-title"><header className={styles.modalHeader}><div><small>Recebimento de assinatura</small><h2 id="subscription-payment-title">Receber parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setPaymentTarget(null)}><X size={19} /></button></header><div className={styles.form}><Field label="Valor (R$)"><input value={(paymentTarget.amountCents / 100).toFixed(2).replace(".", ",")} readOnly /></Field><Field label="Vencimento"><input value={paymentTarget.dueOn} readOnly /></Field><Field label="Forma de pagamento"><input value={({ CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Link de pagamento", CRYPTO: "Cripto" } as Record<string, string>)[paymentTarget.method] ?? paymentTarget.method} readOnly /></Field><Field label="Data de pagamento"><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></Field><Field label="Conta financeira"><select value={paymentAccountId} onChange={(event) => setPaymentAccountId(event.target.value)} required><option value="">Selecione</option>{financialAccounts.map((account) => <option key={String(account.id)} value={String(account.id)}>{String(account.name)}</option>)}</select></Field><Field label="Referência" wide><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Link externo, comprovante ou protocolo" /></Field><div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="button" disabled={!paymentAccountId} onClick={async () => { const target = paymentTarget; const saved = target.kind === "BUNDLE" ? await recordBundlePayment(target) : await recordFirstPayment(target.subscriptionId, target.cycleId, target.amountCents, target.method, paymentAccountId, paymentDate, paymentReference); if (saved) setPaymentTarget(null); }}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setPaymentTarget(null)}>Cancelar</button></div></div></section></div>
+          <div className="modal-layer" role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar recebimento" onClick={() => setPaymentTarget(null)} /><section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="subscription-payment-title"><header className={styles.modalHeader}><div><small>Recebimento de assinatura</small><h2 id="subscription-payment-title">Receber parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setPaymentTarget(null)}><X size={19} /></button></header><div className={styles.form}><Field label={paymentTarget.kind === "BUNDLE" ? "Saldo a receber (R$)" : "Valor (R$)"}><input value={(paymentTarget.amountCents / 100).toFixed(2).replace(".", ",")} readOnly /></Field><Field label="Vencimento"><input value={paymentTarget.dueOn} readOnly /></Field><Field label="Forma de pagamento"><input value={({ CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Link de pagamento", CRYPTO: "Cripto" } as Record<string, string>)[paymentTarget.method] ?? paymentTarget.method} readOnly /></Field><Field label="Data de pagamento"><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></Field><Field label="Conta financeira"><select value={paymentAccountId} onChange={(event) => setPaymentAccountId(event.target.value)} required><option value="">Selecione</option>{financialAccounts.map((account) => <option key={String(account.id)} value={String(account.id)}>{String(account.name)}</option>)}</select></Field><Field label="Referência" wide><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Link externo, comprovante ou protocolo" /></Field><div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="button" disabled={!paymentAccountId} onClick={async () => { const target = paymentTarget; const saved = target.kind === "BUNDLE" ? await recordBundlePayment(target) : await recordFirstPayment(target.subscriptionId, target.cycleId, target.amountCents, target.method, paymentAccountId, paymentDate, paymentReference); if (saved) setPaymentTarget(null); }}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setPaymentTarget(null)}>Cancelar</button></div></div></section></div>
         )}
       </Panel>
     </div>
