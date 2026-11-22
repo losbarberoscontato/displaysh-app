@@ -2239,10 +2239,10 @@ export function CustomersManager({
             </section>
             {bundleOfferConfirmationOpen && <div className={`${styles.modalLayer} ${styles.subscriptionBundleConfirmLayer}`} role="presentation">
               <button className={styles.modalBackdrop} type="button" aria-label="Fechar confirmação" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)} />
-              <section className={styles.modal} role="alertdialog" aria-modal="true" aria-labelledby="bundle-offer-confirm-title" aria-describedby="bundle-offer-confirm-description">
-                <header className={styles.modalHeader}><div><small>Nova assinatura</small><h2 id="bundle-offer-confirm-title">Como deseja avisar o cliente?</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar confirmação" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)}><X size={19} /></button></header>
+              <section className={`${styles.modal} ${styles.subscriptionBundleConfirmModal}`} role="alertdialog" aria-modal="true" aria-labelledby="bundle-offer-confirm-title" aria-describedby="bundle-offer-confirm-description">
+                <header className={styles.modalHeader}><div><small>Nova assinatura</small><h2 id="bundle-offer-confirm-title">Enviar aviso ao cliente?</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar confirmação" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)}><X size={19} /></button></header>
                 <div className={styles.form}>
-                  <p id="bundle-offer-confirm-description">A oferta será criada no app do cliente. Se escolher WhatsApp, o aviso configurado em “Mensagens de contratos” será colocado na fila, respeitando o consentimento do cliente e a conexão ativa.</p>
+                  <p id="bundle-offer-confirm-description">O contrato fica disponível no App do cliente, para validar o plano de assinatura o cliente deve realizar o aceite no app.</p>
                   <div className={styles.subscriptionBundleConfirmActions}>
                     <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => setBundleOfferConfirmationOpen(false)}>Voltar</button>
                     <button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={bundleOfferSending} onClick={() => void submitBundleOffer(false)}>{bundleOfferSending ? "Criando…" : "Apenas criar o plano"}</button>

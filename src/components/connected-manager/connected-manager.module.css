@@ -891,8 +891,11 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
 .modal.subscriptionPlanModal { width: min(80rem, 100%); }
 .subscriptionBundleOfferLayer { z-index: 130; }
 .subscriptionBundleConfirmLayer { z-index: 140; }
-.subscriptionBundleConfirmActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .6rem; }
-.subscriptionBundleConfirmActions > button:first-child { margin-right: auto; }
+.modal.subscriptionBundleConfirmModal { width: min(760px, 100%); }
+.subscriptionBundleConfirmModal .form { grid-template-columns: minmax(0, 1fr); }
+.subscriptionBundleConfirmModal .form > p { margin: 0; line-height: 1.55; }
+.subscriptionBundleConfirmActions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; grid-column: 1 / -1; }
+.subscriptionBundleConfirmActions > button { width: 100%; min-width: 0; }
 .subscriptionPlanScheduleRow { grid-template-columns: 1.25fr repeat(3, minmax(0, 1fr)); }
 .subscriptionInstallmentValues { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; min-width: 0; }
 .subscriptionPlanValidation { color: #a3442d; font-size: .78rem; }
@@ -943,9 +946,7 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
   .subscriptionPlanScheduleRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 500px) {
-  .subscriptionBundleConfirmActions { flex-direction: column-reverse; }
-  .subscriptionBundleConfirmActions > button { width: 100%; }
-  .subscriptionBundleConfirmActions > button:first-child { margin-right: 0; }
+  .subscriptionBundleConfirmActions { grid-template-columns: 1fr; }
   .serviceDetailsRow { grid-template-columns: 1fr; }
   .projectStats, .projectColumns, .financeRows { grid-template-columns: 1fr; }
   .investmentAddForm { grid-template-columns: 1fr; }
