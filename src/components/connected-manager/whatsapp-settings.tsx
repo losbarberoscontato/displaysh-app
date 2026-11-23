@@ -612,7 +612,6 @@ export function WhatsAppSettings({ organizationId, organizationName, status, sch
   return <div className={`${styles.stack} settings-page ${productCopy.rootClass ? styles[productCopy.rootClass] : ""}`}>
     <PageHeader title="WhatsApp" description={`Conecte o WhatsApp da ${organizationName} e automatize avisos transacionais.`} />
     <ActionMessage message={message} />
-    <div className={styles.notice} role="status"><strong>Confirmações de presença:</strong> as sessões de assinatura seguem o horário ativado nesta tela. O aviso de criação da assinatura continua sendo enviado somente quando o gestor escolhe essa opção. O envio depende da conexão ativa e do consentimento do cliente.</div>
     {!schemaReady && <p className={styles.message}>A estrutura conectada desta integração ainda aguarda a migration remota. A tela está pronta, mas salvar e conectar ficará disponível após a aplicação autorizada.</p>}
 
     <section className={`${styles.whatsappHero} ${productCopy.heroClass ? styles[productCopy.heroClass] : ""}`} aria-labelledby="whatsapp-title">
