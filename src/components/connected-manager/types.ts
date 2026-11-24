@@ -563,6 +563,7 @@ export interface FinancialSettlementRecord {
 
 export interface AppointmentCashActivityRecord {
   payment_transaction_id: string;
+  payment_order_id?: string | null;
   organization_id: string;
   appointment_id: string;
   customer_id: string;
@@ -579,6 +580,8 @@ export interface AppointmentCashActivityRecord {
   reconciliation_label?: string | null;
   display_description: string;
   financial_status: string;
+  cash_remaining_cents?: number;
+  can_manage_cash_receipt?: boolean;
 }
 
 export interface BarberCashReceiptRecord {

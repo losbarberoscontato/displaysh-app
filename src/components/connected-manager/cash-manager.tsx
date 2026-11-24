@@ -179,6 +179,7 @@ export function CashManager(props: CashManagerProps) {
   const [endDate, setEndDate] = useState(() => periodDefault?.end ?? "");
   const [entryEditor, setEntryEditor] = useState<FinancialEntryRecord | "new" | null>(null);
   const [cashEdit, setCashEdit] = useState<CashSettlementMovement | null>(null);
+  const [appointmentCashEdit, setAppointmentCashEdit] = useState<AppointmentCashActivityRecord | null>(null);
   const [settlementEntry, setSettlementEntry] = useState<FinancialEntryRecord | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [reversePayment, setReversePayment] = useState<AppointmentCashActivityRecord | null>(null);
@@ -265,16 +266,91 @@ export function CashManager(props: CashManagerProps) {
   async function reverseAppointmentReceipt() {
     if (!reversePayment) return;
     if (blockDemoWrite(props.demoMode, setMessage)) { setReversePayment(null); return; }
+    if (reversePayment.provider === "MERCADO_PAGO" && !reversePayment.payment_order_id) {
+      setMessage("Não foi possível localizar a cobrança Mercado Pago deste recebimento.");
+      return;
+    }
+    const receiptAmountCents = reversePayment.cash_remaining_cents ?? reversePayment.amount_cents;
     const reference = window.prompt("Referência do estorno (comprovante ou protocolo):");
     if (!reference?.trim()) return;
     const saved = await runMutation(setMessage, async () => {
-      await assertResult(await connectedClient().rpc("reverse_appointment_cash_receipt", {
-        p_payment_transaction_id: reversePayment.payment_transaction_id,
-        p_reference: reference.trim(),
-        p_idempotency_key: `manager:cash-appointment-reversal:${crypto.randomUUID()}`,
-      }));
-    }, "Estorno registrado. Serviço continua concluído e saldo foi reaberto.");
+      if (reversePayment.provider === "MANUAL") {
+        await assertResult(await connectedClient().rpc("reverse_manual_appointment_cash_receipt", {
+          p_payment_transaction_id: reversePayment.payment_transaction_id,
+          p_reference: reference.trim(),
+          p_idempotency_key: `manager:cash-appointment-reversal:${crypto.randomUUID()}`,
+        }));
+      } else {
+        const result = await connectedClient().functions.invoke("mercado-pago-refund", {
+          body: {
+            organizationId: reversePayment.organization_id,
+            paymentOrderId: reversePayment.payment_order_id,
+            amountCents: receiptAmountCents,
+            reason: reference.trim(),
+          },
+          headers: { "Idempotency-Key": `manager:cash-appointment-reversal:${crypto.randomUUID()}` },
+        });
+        if (result.error) throw result.error;
+      }
+    }, reversePayment.provider === "MANUAL" ? "Estorno registrado." : "Estorno enviado ao Mercado Pago.");
     if (saved) { setReversePayment(null); router.refresh(); }
+  }
+
+  async function saveAppointmentCashReceipt(amountCents: number, reference: string) {
+    if (!appointmentCashEdit) return;
+    if (blockDemoWrite(props.demoMode, setMessage)) return;
+    const receipt = appointmentCashEdit;
+    const currentAmountCents = receipt.cash_remaining_cents ?? receipt.amount_cents;
+    if (receipt.provider === "MERCADO_PAGO" && !receipt.payment_order_id) {
+      setMessage("Não foi possível localizar a cobrança Mercado Pago deste recebimento.");
+      return;
+    }
+    if (amountCents <= 0) {
+      setMessage("Informe um valor maior que zero. Use Estornar para desfazer o recebimento.");
+      return;
+    }
+    if (receipt.provider === "MERCADO_PAGO" && amountCents >= currentAmountCents) {
+      setMessage("No Mercado Pago, edição reduz o valor recebido; para desfazer tudo, use Estornar.");
+      return;
+    }
+    if (amountCents === currentAmountCents) { setAppointmentCashEdit(null); return; }
+    const refundCents = currentAmountCents - amountCents;
+    const saved = await runMutation(setMessage, async () => {
+      if (receipt.provider === "MANUAL") {
+        await assertResult(await connectedClient().rpc("edit_manual_appointment_cash_receipt", {
+          p_payment_transaction_id: receipt.payment_transaction_id,
+          p_amount_cents: amountCents,
+          p_reference: reference || null,
+          p_idempotency_key: `manager:cash-appointment-edit:${crypto.randomUUID()}`,
+        }));
+      } else {
+        const result = await connectedClient().functions.invoke("mercado-pago-refund", {
+          body: {
+            organizationId: receipt.organization_id,
+            paymentOrderId: receipt.payment_order_id,
+            amountCents: refundCents,
+            reason: reference || "Ajuste de recebimento no Caixa",
+          },
+          headers: { "Idempotency-Key": `manager:cash-appointment-edit:${crypto.randomUUID()}` },
+        });
+        if (result.error) throw result.error;
+      }
+    }, receipt.provider === "MANUAL" ? "Recebimento corrigido no Caixa." : "Ajuste enviado ao Mercado Pago.");
+    if (saved) { setAppointmentCashEdit(null); router.refresh(); }
+  }
+
+  async function reverseFinancialReceipt(movement: CashSettlementMovement) {
+    if (blockDemoWrite(props.demoMode, setMessage)) return;
+    const reason = window.prompt("Motivo do estorno:");
+    if (!reason?.trim()) return;
+    const saved = await runMutation(setMessage, async () => {
+      await assertResult(await connectedClient().rpc("reverse_financial_cash_receipt", {
+        p_settlement_id: movement.settlement.id,
+        p_reason: reason.trim(),
+        p_idempotency_key: `manager:cash-financial-reversal:${crypto.randomUUID()}`,
+      }));
+    }, "Estorno registrado.");
+    if (saved) router.refresh();
   }
 
   async function reverseCommissionPayment(reason: string) {
@@ -325,7 +401,7 @@ export function CashManager(props: CashManagerProps) {
         </div>
         {props.section !== "cash" && <button className={styles.button} type="button" onClick={() => setEntryEditor("new")}><Plus size={16} /> Novo lançamento</button>}
       </div>
-      <CashList cashOnly={props.section === "cash"} payables={props.section === "payables"} timezone={timezone} entries={visibleEntries} settlements={props.section === "cash" ? visibleSettlements : []} commissionSettlements={visibleCommissionSettlements} commissionSettlementReversals={visibleCommissionSettlementReversals} activity={visibleActivity} receivables={visibleAppointmentReceivables} accountById={accountById} supplierById={supplierById} customerById={customerById} barberNames={props.barberNames ?? {}} onEdit={setEntryEditor} onEditSettlement={setCashEdit} onSettle={setSettlementEntry} onManageSubscription={openSubscriptionControl} onReceive={setAppointmentReceipt} onReverseCommission={setReverseCommission} onCancel={async (entry) => {
+      <CashList cashOnly={props.section === "cash"} payables={props.section === "payables"} timezone={timezone} entries={visibleEntries} settlements={props.section === "cash" ? visibleSettlements : []} commissionSettlements={visibleCommissionSettlements} commissionSettlementReversals={visibleCommissionSettlementReversals} activity={visibleActivity} allActivity={props.appointmentActivity} receivables={visibleAppointmentReceivables} accountById={accountById} supplierById={supplierById} customerById={customerById} barberNames={props.barberNames ?? {}} onEdit={setEntryEditor} onEditSettlement={setCashEdit} onReverseFinancialReceipt={(movement) => void reverseFinancialReceipt(movement)} onSettle={setSettlementEntry} onManageSubscription={openSubscriptionControl} onReceive={setAppointmentReceipt} onEditAppointmentReceipt={setAppointmentCashEdit} onReverseCommission={setReverseCommission} onCancel={async (entry) => {
         if (blockDemoWrite(props.demoMode, setMessage)) return;
         const reason = window.prompt("Motivo obrigatório do cancelamento:");
         if (!reason?.trim()) return;
@@ -338,7 +414,8 @@ export function CashManager(props: CashManagerProps) {
     {props.section === "catalogs" && <CatalogsSection organizationId={props.organizationId} chartAccounts={props.chartAccounts} costCenters={props.costCenters} tags={props.tags} demoMode={props.demoMode} setMessage={setMessage} />}
 
     {entryEditor && <EntryDialog entry={entryEditor === "new" ? null : entryEditor} defaultKind={sectionKind === "ALL" ? "REVENUE" : sectionKind} settleImmediately={props.section === "cash"} {...props} onClose={() => setEntryEditor(null)} onSaved={() => { setEntryEditor(null); router.refresh(); }} setMessage={setMessage} />}
-    {cashEdit && <EntryDialog entry={cashEdit.entry} defaultKind={cashEdit.entry.kind} replacementSettlementId={cashEdit.settlement.id} {...props} onClose={() => setCashEdit(null)} onSaved={() => { setCashEdit(null); router.refresh(); }} setMessage={setMessage} />}
+    {cashEdit && <CashReceiptEditDialog movement={cashEdit} accounts={props.accounts} customerById={customerById} supplierById={supplierById} demoMode={props.demoMode} onClose={() => setCashEdit(null)} onSaved={() => { setCashEdit(null); router.refresh(); }} setMessage={setMessage} />}
+    {appointmentCashEdit && <AppointmentCashReceiptEditDialog receipt={appointmentCashEdit} customerName={customerById.get(appointmentCashEdit.customer_id)?.full_name ?? "Cliente"} demoMode={props.demoMode} onClose={() => setAppointmentCashEdit(null)} onSave={saveAppointmentCashReceipt} setMessage={setMessage} />}
     {appointmentReceipt && <AppointmentReceiptDialog receipt={appointmentReceipt} accounts={props.accounts} chartAccounts={props.chartAccounts} costCenters={props.costCenters} tags={props.tags} mappings={props.mappings} demoMode={props.demoMode} onClose={() => setAppointmentReceipt(null)} onSaved={() => { setAppointmentReceipt(null); router.refresh(); }} setMessage={setMessage} />}
     {settlementEntry && <SettlementDialog entry={settlementEntry} accounts={props.accounts} demoMode={props.demoMode} onClose={() => setSettlementEntry(null)} onSaved={() => { setSettlementEntry(null); router.refresh(); }} setMessage={setMessage} />}
     {transferOpen && <TransferDialog accounts={props.accounts} demoMode={props.demoMode} onClose={() => setTransferOpen(false)} onSaved={() => { setTransferOpen(false); router.refresh(); }} setMessage={setMessage} />}
@@ -367,7 +444,7 @@ function CashStats({ balance, dailyMovement, outgoing, incoming, openReceivable,
   </section>;
 }
 
-function CashList({ cashOnly, payables, timezone, entries, settlements, commissionSettlements, commissionSettlementReversals, activity, receivables, accountById, supplierById, customerById, barberNames, onEdit, onEditSettlement, onSettle, onManageSubscription, onReceive, onCancel, onTransfer, onReverseAppointment, onReverseCommission }: { cashOnly: boolean; payables: boolean; timezone: string; entries: FinancialEntryRecord[]; settlements: CashSettlementMovement[]; commissionSettlements: CommissionPayoutSettlementRecord[]; commissionSettlementReversals: CommissionPayoutSettlementReversalRecord[]; activity: AppointmentCashActivityRecord[]; receivables: AppointmentReceivableRecord[]; accountById: Map<string, FinancialAccountRecord>; supplierById: Map<string, SupplierRecord>; customerById: Map<string, Pick<CustomerRecord, "id" | "organization_id" | "full_name" | "active">>; barberNames: Record<string, string>; onEdit: (entry: FinancialEntryRecord) => void; onEditSettlement: (movement: CashSettlementMovement) => void; onSettle: (entry: FinancialEntryRecord) => void; onManageSubscription: (entry: FinancialEntryRecord) => void; onReceive: (entry: AppointmentReceivableRecord) => void; onCancel: (entry: FinancialEntryRecord) => void; onTransfer: () => void; onReverseAppointment: (entry: AppointmentCashActivityRecord) => void; onReverseCommission: (settlement: CommissionPayoutSettlementRecord) => void }) {
+function CashList({ cashOnly, payables, timezone, entries, settlements, commissionSettlements, commissionSettlementReversals, activity, allActivity, receivables, accountById, supplierById, customerById, barberNames, onEdit, onEditSettlement, onReverseFinancialReceipt, onSettle, onManageSubscription, onReceive, onEditAppointmentReceipt, onCancel, onTransfer, onReverseAppointment, onReverseCommission }: { cashOnly: boolean; payables: boolean; timezone: string; entries: FinancialEntryRecord[]; settlements: CashSettlementMovement[]; commissionSettlements: CommissionPayoutSettlementRecord[]; commissionSettlementReversals: CommissionPayoutSettlementReversalRecord[]; activity: AppointmentCashActivityRecord[]; allActivity: AppointmentCashActivityRecord[]; receivables: AppointmentReceivableRecord[]; accountById: Map<string, FinancialAccountRecord>; supplierById: Map<string, SupplierRecord>; customerById: Map<string, Pick<CustomerRecord, "id" | "organization_id" | "full_name" | "active">>; barberNames: Record<string, string>; onEdit: (entry: FinancialEntryRecord) => void; onEditSettlement: (movement: CashSettlementMovement) => void; onReverseFinancialReceipt: (movement: CashSettlementMovement) => void; onSettle: (entry: FinancialEntryRecord) => void; onManageSubscription: (entry: FinancialEntryRecord) => void; onReceive: (entry: AppointmentReceivableRecord) => void; onEditAppointmentReceipt: (entry: AppointmentCashActivityRecord) => void; onCancel: (entry: FinancialEntryRecord) => void; onTransfer: () => void; onReverseAppointment: (entry: AppointmentCashActivityRecord) => void; onReverseCommission: (settlement: CommissionPayoutSettlementRecord) => void }) {
   return <Panel title="Movimentações" description={cashOnly || payables ? undefined : "Parcelas de assinatura são recebidas e gerenciadas pelo controle da assinatura para manter o contrato sincronizado."} action={<button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={onTransfer}><ArrowLeftRight size={15} /> Transferir</button>}>
     {!entries.length && !settlements.length && !commissionSettlements.length && !commissionSettlementReversals.length && !activity.length && !receivables.length ? <EmptyState title="Sem movimentações">Registre um recebimento ou pagamento para acompanhar o caixa.</EmptyState> : <div className={`${styles.cashTable} ${cashOnly ? styles.cashTableOnly : ""}`} role="table" aria-label="Movimentações financeiras">
       <div className={styles.cashHeader} role="row"><span role="columnheader">Cliente/Fornecedor</span><span role="columnheader">Data</span>{cashOnly && <span role="columnheader">Data Com.</span>}<span role="columnheader">Valor</span><span role="columnheader">Conta financeira</span>{!cashOnly && <span role="columnheader">Situação do pagamento</span>}<span className={styles.cashHeaderAction} role="columnheader">Ações</span></div>
@@ -375,10 +452,10 @@ function CashList({ cashOnly, payables, timezone, entries, settlements, commissi
         const counterpart = counterpartName(entry, customerById, supplierById);
         return <article key={entry.id} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{counterpart}</strong><small className={styles.cashDescription}>{entry.description}</small></span><span role="cell">{formatMovementDate(entry.due_date)}</span><strong role="cell">{entry.kind === "REVENUE" ? "+" : "−"}{formatCents(entry.total_cents)}</strong><span role="cell">{accountById.get(entry.preferred_financial_account_id ?? "")?.name ?? "Não definida"}</span>{!cashOnly && <span role="cell"><StatusChip active={boolActive(entry.status)} label={statusLabel[entry.status]} /></span>}<span className={styles.rowActions} role="cell">{!cashOnly && entry.source === "SUBSCRIPTION" ? <button className={`${styles.button} ${styles.buttonSmall}`} type="button" onClick={() => onManageSubscription(entry)}>Controle da assinatura</button> : <>{!cashOnly && !["SETTLED", "CANCELED"].includes(entry.status) && <button className={`${styles.button} ${styles.buttonSmall}`} type="button" onClick={() => onSettle(entry)}>{payables ? "Pagar" : "Liquidar"}</button>}{!cashOnly && (entry.status === "OPEN" || entry.status === "OVERDUE") ? <><button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => onEdit(entry)}>Editar</button><button className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} type="button" onClick={() => onCancel(entry)}>Excluir</button></> : null}</>}</span></article>;
       })}
-      {settlements.map((movement) => { const { entry, settlement } = movement; const signedCents = settlementSignedCents(entry.kind, settlement); return <article key={settlement.id} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{counterpartName(entry, customerById, supplierById)}</strong><small className={styles.cashDescription}>{settlement.kind === "REVERSAL" ? `Estorno · ${entry.description}` : entry.description}</small></span><span role="cell">{formatMovementDate(settlement.settled_on)}</span>{cashOnly && <span role="cell">{formatMovementDate(settlement.settled_on)}</span>}<strong role="cell">{signedCents >= 0 ? "+" : "−"}{formatCents(Math.abs(signedCents))}</strong><span role="cell">{accountById.get(settlement.financial_account_id)?.name ?? "Conta não encontrada"}</span><span className={styles.rowActions} role="cell">{settlement.kind === "SETTLEMENT" && <button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => onEditSettlement(movement)}>Editar</button>}</span> </article>; })}
+      {settlements.map((movement) => { const { entry, settlement } = movement; const signedCents = settlementSignedCents(entry.kind, settlement); const canManageReceipt = cashOnly && entry.kind === "REVENUE" && ["MANUAL", "PROJECT", "SUBSCRIPTION"].includes(entry.source ?? "MANUAL") && settlement.kind === "SETTLEMENT"; return <article key={settlement.id} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{counterpartName(entry, customerById, supplierById)}</strong><small className={styles.cashDescription}>{settlement.kind === "REVERSAL" ? `Estorno · ${entry.description}` : entry.description}</small></span><span role="cell">{formatMovementDate(settlement.settled_on)}</span>{cashOnly && <span role="cell">{formatMovementDate(settlement.settled_on)}</span>}<strong role="cell">{signedCents >= 0 ? "+" : "−"}{formatCents(Math.abs(signedCents))}</strong><span role="cell">{accountById.get(settlement.financial_account_id)?.name ?? "Conta não encontrada"}</span><span className={styles.rowActions} role="cell">{settlement.kind === "SETTLEMENT" && (canManageReceipt ? <><button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => onEditSettlement(movement)}>Editar</button><button className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} type="button" onClick={() => onReverseFinancialReceipt(movement)}>Estornar</button></> : !cashOnly && <button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => onEditSettlement(movement)}>Editar</button>)}</span> </article>; })}
       {commissionSettlements.map((settlement) => { const reversal = commissionSettlementReversals.find((item) => item.settlement_id === settlement.id); return <article key={settlement.id} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{barberNames[settlement.barber_id] ?? "Profissional"}</strong><small className={styles.cashDescription}>Pagamento de comissão{settlement.tags ? ` · ${settlement.tags}` : ""}</small></span><span role="cell">{formatMovementDate(settlement.paid_on, timezone)}</span>{cashOnly && <span role="cell">{formatMovementDate(settlement.paid_on, timezone)}</span>}<strong role="cell">−{formatCents(settlement.amount_cents)}</strong><span role="cell">{accountById.get(settlement.financial_account_id)?.name ?? "Conta não encontrada"}</span><span className={styles.rowActions} role="cell">{!reversal && <button className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} type="button" onClick={() => onReverseCommission(settlement)}>Estornar comissão</button>}</span></article>; })}
       {commissionSettlementReversals.map((reversal) => { const settlement = commissionSettlements.find((item) => item.id === reversal.settlement_id); return <article key={reversal.id} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{settlement ? barberNames[settlement.barber_id] ?? "Profissional" : "Profissional"}</strong><small className={styles.cashDescription}>Estorno de comissão · {reversal.reason}</small></span><span role="cell">{formatMovementDate(reversal.reversed_on, timezone)}</span>{cashOnly && <span role="cell">{formatMovementDate(reversal.reversed_on, timezone)}</span>}<strong role="cell">+{formatCents(reversal.amount_cents)}</strong><span role="cell">{settlement ? accountById.get(settlement.financial_account_id)?.name ?? "Conta não encontrada" : "Conta não encontrada"}</span><span className={styles.rowActions} role="cell" /></article>; })}
-      {activity.map((item) => <article key={item.payment_transaction_id} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{customerById.get(item.customer_id)?.full_name ?? "Cliente"}</strong><small className={styles.cashDescription}>{item.display_description}</small></span><span role="cell">{formatMovementDate(item.occurred_at, timezone)}</span>{cashOnly && <span role="cell">{item.conciliation_at ? formatMovementDate(item.conciliation_at, timezone) : "—"}</span>}<strong role="cell">{item.signed_cents >= 0 ? "+" : "−"}{formatCents(Math.abs(item.signed_cents))}</strong><span className={styles.cashAccountCell} role="cell"><span>{item.needs_reconciliation ? "Não vinculada" : accountById.get(item.financial_account_id ?? "")?.name ?? "Conta não encontrada"}</span>{item.reconciliation_label && <small>{item.reconciliation_label}</small>}</span><span className={styles.rowActions} role="cell">{item.kind === "CAPTURE" && item.provider === "MANUAL" && <button className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} type="button" onClick={() => onReverseAppointment(item)}>Estornar recebimento</button>}</span></article>)}
+      {activity.map((item) => { const providerCaptures = allActivity.filter((candidate) => candidate.appointment_id === item.appointment_id && candidate.provider === "MERCADO_PAGO" && candidate.kind === "CAPTURE"); const canManageReceipt = cashOnly && item.can_manage_cash_receipt === true && (item.cash_remaining_cents ?? 0) > 0 && item.kind === "CAPTURE" && (item.provider === "MANUAL" || providerCaptures.length === 1); return <article key={item.payment_transaction_id} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{customerById.get(item.customer_id)?.full_name ?? "Cliente"}</strong><small className={styles.cashDescription}>{item.display_description}</small></span><span role="cell">{formatMovementDate(item.occurred_at, timezone)}</span>{cashOnly && <span role="cell">{item.conciliation_at ? formatMovementDate(item.conciliation_at, timezone) : "—"}</span>}<strong role="cell">{item.signed_cents >= 0 ? "+" : "−"}{formatCents(Math.abs(item.signed_cents))}</strong><span className={styles.cashAccountCell} role="cell"><span>{item.needs_reconciliation ? "Não vinculada" : accountById.get(item.financial_account_id ?? "")?.name ?? "Conta não encontrada"}</span>{item.reconciliation_label && <small>{item.reconciliation_label}</small>}</span><span className={styles.rowActions} role="cell">{canManageReceipt && <><button className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} type="button" onClick={() => onEditAppointmentReceipt(item)}>Editar</button><button className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} type="button" onClick={() => onReverseAppointment(item)}>Estornar</button></>}</span></article>; })}
       {receivables.map((item) => <article key={`receivable-${item.appointment_id}`} className={styles.cashRow} role="row"><span className={styles.rowTitle} role="cell"><strong className={styles.cashCounterparty}>{item.customer_name}</strong><small className={styles.cashDescription}>{item.description}</small></span><span role="cell">{formatMovementDate(item.due_date)}</span><strong role="cell">+{formatCents(item.outstanding_cents)}</strong><span role="cell">Caixa Físico</span><span role="cell"><StatusChip active={false} label="A receber" /></span><span className={styles.rowActions} role="cell"><button className={`${styles.button} ${styles.buttonSmall}`} type="button" onClick={() => onReceive(item)}>Receber</button></span></article>)}
     </div>}
   </Panel>;
@@ -433,6 +510,62 @@ export function AppointmentReceiptDialog({ receipt, accounts = [], chartAccounts
     <Field label="Forma de recebimento"><select name="payment_method" defaultValue="CASH"><option value="CASH">Dinheiro</option><option value="PIX">PIX</option><option value="CARD">Cartão</option><option value="TRANSFER">Transferência</option><option value="OTHER">Outro</option></select></Field>
     <Field label="Observações"><input name="reference" placeholder="PIX, NSU ou comprovante" /></Field>
     <div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={onClose}>Cancelar</button></div>
+  </form></Dialog>;
+}
+
+function CashReceiptEditDialog({ movement, accounts, customerById, supplierById, demoMode, onClose, onSaved, setMessage }: { movement: CashSettlementMovement; accounts: FinancialAccountRecord[]; customerById: Map<string, Pick<CustomerRecord, "id" | "organization_id" | "full_name" | "active">>; supplierById: Map<string, SupplierRecord>; demoMode?: boolean; onClose: () => void; onSaved: () => void; setMessage: (value: string) => void }) {
+  const { entry, settlement } = movement;
+  const customer = entry.customer_id ? customerById.get(entry.customer_id)?.full_name ?? "Cliente" : "—";
+  const documentNumber = entry.document_number ?? "—";
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (blockDemoWrite(demoMode, setMessage)) return;
+    const data = new FormData(event.currentTarget);
+    const saved = await runMutation(setMessage, async () => {
+      await assertResult(await connectedClient().rpc("edit_financial_cash_receipt", {
+        p_settlement_id: settlement.id,
+        p_amount_cents: centsFromInput(data.get("amount")),
+        p_settled_on: safeText(data.get("settled_on")),
+        p_financial_account_id: safeText(data.get("account_id")),
+        p_payment_method: safeText(data.get("payment_method")),
+        p_reference: safeText(data.get("reference")) || null,
+        p_idempotency_key: `manager:cash-financial-edit:${crypto.randomUUID()}`,
+      }));
+    }, "Recebimento atualizado no Caixa.");
+    if (saved) onSaved();
+  }
+  return <Dialog title="Editar recebimento" onClose={onClose} wide><form className={styles.form} onSubmit={submit}>
+    <Field label="Contraparte"><input value={counterpartName(entry, customerById, supplierById)} readOnly /></Field>
+    <Field label="Cliente"><input value={customer} readOnly /></Field>
+    <Field label="Número do documento"><input value={documentNumber} readOnly /></Field>
+    <Field label="Descrição"><input value={entry.description} readOnly /></Field>
+    <Field label="Valor recebido (R$)"><input name="amount" required inputMode="decimal" defaultValue={(settlement.amount_cents / 100).toFixed(2).replace(".", ",")} /></Field>
+    <Field label="Data do recebimento"><input name="settled_on" type="date" required defaultValue={settlement.settled_on} /></Field>
+    <Field label="Banco ou caixa"><select name="account_id" required defaultValue={settlement.financial_account_id}>{accounts.filter((account) => account.active || account.id === settlement.financial_account_id).map((account) => <option value={account.id} key={account.id}>{account.name}{account.active ? "" : " (inativa)"}</option>)}</select></Field>
+    <Field label="Forma de recebimento"><select name="payment_method" defaultValue={settlement.payment_method}><option value="CASH">Dinheiro</option><option value="PIX">PIX</option><option value="CARD">Cartão</option><option value="TRANSFER">Transferência</option><option value="BOLETO">Boleto</option><option value="OTHER">Outro</option></select></Field>
+    <Field label="Observações" wide><input name="reference" defaultValue={settlement.reference ?? ""} placeholder="Comprovante, NSU ou protocolo" /></Field>
+    <div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button}>Salvar alterações</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={onClose}>Cancelar</button></div>
+  </form></Dialog>;
+}
+
+function AppointmentCashReceiptEditDialog({ receipt, customerName, demoMode, onClose, onSave, setMessage }: { receipt: AppointmentCashActivityRecord; customerName: string; demoMode?: boolean; onClose: () => void; onSave: (amountCents: number, reference: string) => void; setMessage: (value: string) => void }) {
+  const currentAmountCents = receipt.cash_remaining_cents ?? receipt.amount_cents;
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (blockDemoWrite(demoMode, setMessage)) return;
+    const data = new FormData(event.currentTarget);
+    let amountCents: number;
+    try { amountCents = centsFromInput(data.get("amount")); }
+    catch { setMessage("Informe um valor válido."); return; }
+    onSave(amountCents, safeText(data.get("reference")));
+  }
+  return <Dialog title="Editar recebimento" onClose={onClose}><form className={styles.form} onSubmit={submit}>
+    <Field label="Contraparte / Cliente" wide><input value={customerName} readOnly /></Field>
+    <Field label="Serviço"><input value={receipt.display_description} readOnly /></Field>
+    <Field label="Valor recebido (R$)"><input name="amount" required inputMode="decimal" defaultValue={(currentAmountCents / 100).toFixed(2).replace(".", ",")} max={receipt.provider === "MERCADO_PAGO" ? (currentAmountCents / 100).toFixed(2) : undefined} /></Field>
+    <Field label="Observações" wide><input name="reference" placeholder="Comprovante, NSU ou protocolo" /></Field>
+    {receipt.provider === "MERCADO_PAGO" && <p className={styles.muted}>Mercado Pago: edição reduz o recebimento por reembolso. Para aumentar, registre cobrança adicional.</p>}
+    <div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button}>Salvar alterações</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={onClose}>Cancelar</button></div>
   </form></Dialog>;
 }
 

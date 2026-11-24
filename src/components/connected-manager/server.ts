@@ -710,7 +710,7 @@ export async function loadAgendaData() {
     supabase
       .from("appointment_cash_activity")
       .select(
-        "payment_transaction_id,organization_id,appointment_id,customer_id,payment_mode,provider,kind,amount_cents,signed_cents,occurred_at,financial_account_id,needs_reconciliation",
+        "payment_transaction_id,payment_order_id,organization_id,appointment_id,customer_id,payment_mode,provider,kind,amount_cents,signed_cents,occurred_at,financial_account_id,needs_reconciliation,cash_remaining_cents,can_manage_cash_receipt",
       )
       .eq("organization_id", organizationId)
       .order("occurred_at", { ascending: false })
@@ -1179,7 +1179,7 @@ export async function loadCashData() {
     supabase
       .from("appointment_cash_activity")
       .select(
-        "payment_transaction_id,organization_id,appointment_id,customer_id,payment_mode,provider,kind,amount_cents,signed_cents,occurred_at,financial_account_id,needs_reconciliation,conciliation_at,reconciliation_id,reconciliation_label",
+        "payment_transaction_id,payment_order_id,organization_id,appointment_id,customer_id,payment_mode,provider,kind,amount_cents,signed_cents,occurred_at,financial_account_id,needs_reconciliation,conciliation_at,reconciliation_id,reconciliation_label,cash_remaining_cents,can_manage_cash_receipt",
       )
       .eq("organization_id", organizationId)
       .order("occurred_at", { ascending: false })
