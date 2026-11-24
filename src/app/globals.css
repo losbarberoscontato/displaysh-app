@@ -1296,7 +1296,10 @@
   .appointment-detail__head strong { margin-top: 3px; font: 700 22px var(--font-display); }
   .appointment-detail__customer { display: flex; align-items: center; gap: 10px; margin: 19px 0 10px; }
   .appointment-detail__customer > span { display: flex; flex-direction: column; }
-  .appointment-detail__customer strong { font-size: 14px; }
+  .appointment-detail__customer strong, .appointment-detail__customer-link { font-size: 14px; }
+  .appointment-detail__customer-link { align-self: flex-start; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+  .appointment-detail__customer-link:hover strong, .appointment-detail__customer-link:focus-visible strong { text-decoration: underline; }
+  .appointment-detail__customer-link:focus-visible { outline: 2px solid var(--forest-600); outline-offset: 2px; border-radius: 2px; }
   .appointment-detail__customer small { color: var(--muted); font-size: 9px; }
   .appointment-detail__body { display: grid; gap: 10px; overflow-y: auto; padding: 0 22px 21px; }
   .appointment-detail__info { display: grid; gap: 15px; margin-top: 22px; padding: 17px 0; border-block: 1px solid var(--border); }

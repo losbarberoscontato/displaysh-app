@@ -247,6 +247,7 @@ export interface AppointmentRecord {
   notes: string | null;
   schedule_override_reason: string | null;
   subscription_session_id?: string | null;
+  subscription_bundle_session_id?: string | null;
   created_at: string;
 }
 

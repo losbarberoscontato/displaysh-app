@@ -64,7 +64,7 @@ import { getProductVocabulary } from "@/lib/product-vocabulary";
 import styles from "./connected-manager.module.css";
 
 type AgendaData = AwaitedReturn<typeof loadAgendaData>;
-type Props = Omit<AgendaData, "appointmentItems" | "packageItems" | "appointmentAuxiliaries" | "appointmentAuxiliaryRules" | "appointmentAuxiliaryModuleEnabled" | "receiptCatalogs" | "appointmentActivity" | "subscriptionSessions" | "subscriptionCycles" | "subscriptions" | "environments" | "dateBlocks" | "kanbanEnabled" | "kanbanBoards" | "kanbanCards" | "whatsappPending"> & { appointmentItems?: AppointmentItemRecord[]; packageItems?: AgendaData["packageItems"]; appointmentAuxiliaries?: AppointmentAuxiliaryRecord[]; appointmentAuxiliaryRules?: AppointmentAuxiliaryCommissionRuleRecord[]; appointmentAuxiliaryModuleEnabled?: boolean; receiptCatalogs?: AgendaData["receiptCatalogs"]; appointmentActivity?: AgendaData["appointmentActivity"]; subscriptionSessions?: AgendaData["subscriptionSessions"]; subscriptionCycles?: AgendaData["subscriptionCycles"]; subscriptions?: AgendaData["subscriptions"]; environments?: AgendaData["environments"]; dateBlocks?: OrganizationDateBlock[]; kanbanEnabled?: boolean; kanbanBoards?: AgendaData["kanbanBoards"]; kanbanCards?: AgendaData["kanbanCards"]; whatsappPending?: boolean; productKey?: ProductKey };
+type Props = Omit<AgendaData, "appointmentItems" | "packageItems" | "appointmentAuxiliaries" | "appointmentAuxiliaryRules" | "appointmentAuxiliaryModuleEnabled" | "receiptCatalogs" | "appointmentActivity" | "subscriptionSessions" | "subscriptionCycles" | "subscriptionBundleSessions" | "subscriptionBundleInstallments" | "subscriptions" | "environments" | "dateBlocks" | "kanbanEnabled" | "kanbanBoards" | "kanbanCards" | "whatsappPending"> & { appointmentItems?: AppointmentItemRecord[]; packageItems?: AgendaData["packageItems"]; appointmentAuxiliaries?: AppointmentAuxiliaryRecord[]; appointmentAuxiliaryRules?: AppointmentAuxiliaryCommissionRuleRecord[]; appointmentAuxiliaryModuleEnabled?: boolean; receiptCatalogs?: AgendaData["receiptCatalogs"]; appointmentActivity?: AgendaData["appointmentActivity"]; subscriptionSessions?: AgendaData["subscriptionSessions"]; subscriptionCycles?: AgendaData["subscriptionCycles"]; subscriptionBundleSessions?: AgendaData["subscriptionBundleSessions"]; subscriptionBundleInstallments?: AgendaData["subscriptionBundleInstallments"]; subscriptions?: AgendaData["subscriptions"]; environments?: AgendaData["environments"]; dateBlocks?: OrganizationDateBlock[]; kanbanEnabled?: boolean; kanbanBoards?: AgendaData["kanbanBoards"]; kanbanCards?: AgendaData["kanbanCards"]; whatsappPending?: boolean; productKey?: ProductKey };
 type View = "day" | "week" | "month";
 type ManagerAppointmentEnvironmentSlot = { starts_at: string; ends_at: string; environment_id: string; environment_name: string };
 type AgendaWhatsAppAction = "CONFIRM" | "RESCHEDULE" | "CANCEL";
@@ -196,6 +196,10 @@ export function AgendaManager(props: Props) {
     () => new Map((props.subscriptionSessions ?? []).filter((item) => item.appointment_id).map((item) => [String(item.appointment_id), item])),
     [props.subscriptionSessions],
   );
+  const subscriptionBundleSessionByAppointment = useMemo(
+    () => new Map((props.subscriptionBundleSessions ?? []).filter((item) => item.appointment_id).map((item) => [String(item.appointment_id), item])),
+    [props.subscriptionBundleSessions],
+  );
   const subscriptionById = useMemo(
     () => new Map((props.subscriptions ?? []).map((item) => [String(item.id), item])),
     [props.subscriptions],
@@ -209,13 +213,15 @@ export function AgendaManager(props: Props) {
     for (const appointment of props.appointments) {
       if (appointment.payment_mode !== "SUBSCRIPTION") continue;
       const session = subscriptionSessionByAppointment.get(appointment.id);
-      const subscription = session ? subscriptionById.get(String(session.subscription_id)) : undefined;
+      const bundleSession = subscriptionBundleSessionByAppointment.get(appointment.id);
+      const subscriptionId = session?.subscription_id ?? bundleSession?.subscription_id;
+      const subscription = subscriptionId ? subscriptionById.get(String(subscriptionId)) : undefined;
       const plan = subscription?.plan as { name?: unknown } | null | undefined;
       const planName = typeof plan?.name === "string" ? plan.name.trim() : "";
       if (planName) map.set(appointment.id, planName);
     }
     return map;
-  }, [props.appointments, subscriptionById, subscriptionSessionByAppointment]);
+  }, [props.appointments, subscriptionById, subscriptionBundleSessionByAppointment, subscriptionSessionByAppointment]);
   const itemsByAppointment = useMemo(() => {
     const appointmentItems = props.appointmentItems ?? [];
     const map = new Map<string, string[]>();
@@ -341,19 +347,30 @@ export function AgendaManager(props: Props) {
   function subscriptionPaymentFor(appointment: AppointmentRecord) {
     if (appointment.payment_mode !== "SUBSCRIPTION") return null;
     const session = subscriptionSessionByAppointment.get(appointment.id);
+    const bundleSession = subscriptionBundleSessionByAppointment.get(appointment.id);
+    const subscriptionId = session?.subscription_id ?? bundleSession?.subscription_id;
     const cycle = session ? subscriptionCycleById.get(String(session.cycle_id)) : undefined;
-    const subscription = session ? subscriptionById.get(String(session.subscription_id)) : undefined;
+    const subscription = subscriptionId ? subscriptionById.get(String(subscriptionId)) : undefined;
     const planVersion = subscription?.plan_version as { sessions_per_cycle?: unknown } | null | undefined;
-    const sessionNumber = Number(session?.session_number ?? 0);
+    const sessionNumber = Number(session?.session_number ?? bundleSession?.session_number ?? 0);
     const totalSessions = Number(planVersion?.sessions_per_cycle ?? 0);
     const month = cycle?.starts_on
       ? new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(new Date(`${String(cycle.starts_on)}T12:00:00`))
       : "";
-    const dueOn = String(cycle?.due_on ?? "");
-    const overdue = cycle?.status === "OVERDUE" || (cycle?.status !== "PAID" && dueOn < new Date().toISOString().slice(0, 10));
+    const unpaidInstallments = [
+      ...(props.subscriptionCycles ?? []).filter((item) => String(item.subscription_id) === String(subscriptionId) && ["OPEN", "OVERDUE"].includes(String(item.status))),
+      ...(props.subscriptionBundleInstallments ?? []).filter((item) => String(item.subscription_id) === String(subscriptionId) && ["OPEN", "OVERDUE"].includes(String(item.status))),
+    ].sort((left, right) => {
+      const leftNumber = Number(left.cycle_number ?? left.installment_number ?? Number.MAX_SAFE_INTEGER);
+      const rightNumber = Number(right.cycle_number ?? right.installment_number ?? Number.MAX_SAFE_INTEGER);
+      return leftNumber - rightNumber || String(left.due_on ?? "").localeCompare(String(right.due_on ?? ""));
+    });
+    const oldestUnpaidDueOn = String(unpaidInstallments[0]?.due_on ?? "");
+    const overdue = Boolean(oldestUnpaidDueOn && oldestUnpaidDueOn < todayKey);
     return {
       cycle,
-      subscriptionId: String(subscription?.id ?? ""),
+      subscriptionId: String(subscription?.id ?? subscriptionId ?? ""),
+      contractNumber: String(subscription?.contract_number ?? "—"),
       method: String(subscription?.payment_method ?? ""),
       overdue,
       amountCents: Number(cycle?.amount_cents ?? 0),
@@ -806,11 +823,11 @@ export function AgendaManager(props: Props) {
     {selected && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Fechar detalhes" onClick={() => setSelected(null)} /><section className="form-modal appointment-detail" role="dialog" aria-modal="true" aria-label="Detalhes do agendamento">
       <div className="appointment-detail__head"><span><small>Agendamento {selected.id.slice(0, 8)}</small><strong>Detalhes do atendimento</strong></span><button type="button" className="icon-button" onClick={() => setSelected(null)} aria-label="Fechar"><X size={19} /></button></div>
       <div className="appointment-detail__body">
-        <div className="appointment-detail__customer"><Avatar initials={(selectedCustomerRecord?.full_name ?? "CL").slice(0, 2).toUpperCase()} size="lg" tone="sage" /><span><strong>{selectedCustomerRecord?.full_name ?? "Cliente"}</strong><small>{selectedCustomerRecord?.phone_e164 ?? "Sem telefone"}</small></span></div>
+        <div className="appointment-detail__customer"><Avatar initials={(selectedCustomerRecord?.full_name ?? "CL").slice(0, 2).toUpperCase()} size="lg" tone="sage" /><span><button type="button" className="appointment-detail__customer-link" onClick={() => router.push(`/gestor/clientes?cliente=${encodeURIComponent(selected.customer_id)}&aba=agendamentos`)}><strong>{selectedCustomerRecord?.full_name ?? "Cliente"}</strong></button><small>{selectedCustomerRecord?.phone_e164 ?? "Sem telefone"}</small></span></div>
         <StatusChip active={!['CANCELED', 'NO_SHOW', 'EXPIRED'].includes(selected.status)} label={appointmentDisplayStatus(selected).label} tone={appointmentDisplayStatus(selected).tone} />
         <div className="appointment-detail__info">
           <span><CalendarDays size={17} /><div><small>Data e horário</small><strong>{formatRange(selected.service_period, timezone)}</strong></div></span>
-          <span><Scissors size={17} /><div><small>Serviço ou pacote</small><strong>{serviceLabel(selected.id)}</strong></div></span>
+          <span><Scissors size={17} /><div><small>Serviço ou pacote</small><strong>{serviceLabel(selected.id)}</strong>{selected.payment_mode === "SUBSCRIPTION" && <><small>Contrato</small><strong>{selectedSubscriptionPayment?.contractNumber ?? "—"}</strong></>}</div></span>
           <span><UserRound size={17} /><div><small>Profissional</small><strong>{selectedBarberRecord?.display_name ?? "Profissional"}</strong></div></span>
           <span><MapPin size={17} /><div><small>Origem</small><strong>{appointmentSourceLabel(selected.source)}</strong></div></span>
           {props.kanbanEnabled && (() => { const card = props.kanbanCards?.find((item) => item.appointment_id === selected.id); const board = props.kanbanBoards?.find((item) => item.id === card?.board_id); return board ? <span><div><small>Kanban</small><strong>{board.name}</strong></div></span> : null; })()}
@@ -824,7 +841,7 @@ export function AgendaManager(props: Props) {
             return `${item?.service_name_snapshot ?? "Serviço"}: ${amount}`;
           }).join(" · ")}</small></div>;
         })}</section>}
-        <div className="appointment-detail__payment"><div><span><CircleDollarSign size={17} /> Pagamento</span>{selected.payment_mode === "SUBSCRIPTION" ? <><small>Plano de assinatura</small>{selectedSubscriptionPayment?.sessionReference && <small>Sessão {selectedSubscriptionPayment.sessionReference}</small>}{selectedSubscriptionPayment?.cycle?.status === "PAID" && <small>Pago em {selectedSubscriptionPayment.cycle.paid_at ? new Intl.DateTimeFormat("pt-BR").format(new Date(String(selectedSubscriptionPayment.cycle.paid_at))) : "—"} · {formatCents(selectedSubscriptionPayment.amountCents)} · {paymentMethodLabel(selectedSubscriptionPayment.method)}</small>}{selectedSubscriptionPayment?.overdue && <small className="appointment-payment-alert">Pagamento em atraso</small>}{selectedSubscriptionPayment?.method === "CASH" && <small className="appointment-payment-alert">Receber em dinheiro {vocabulary.organizationWithPreposition}</small>}</> : <><small>{selectedPaymentStatus}</small>{selectedPaymentAccounts.length > 0 && <small>Conta: {selectedPaymentAccounts.join(", ")}</small>}</>}</div><div className="appointment-detail__payment-value"><strong>{selected.payment_mode === "SUBSCRIPTION" ? formatCents(selectedSubscriptionPayment?.amountCents ?? 0) : formatCents(selected.total_cents_snapshot)}</strong>{selected.payment_mode === "SUBSCRIPTION" && selectedSubscriptionPayment?.subscriptionId && <button type="button" className="button button--dark button--sm" onClick={() => { setSelected(null); router.push(`/gestor/clientes?cliente=${encodeURIComponent(selected.customer_id)}&assinatura=${encodeURIComponent(selectedSubscriptionPayment.subscriptionId)}`); }}>Receber</button>}</div><span>{selected.payment_mode === "SUBSCRIPTION" ? `Venc. ${selectedSubscriptionPayment?.cycle?.due_on ?? "—"}` : `Saldo: ${formatCents(selectedFinancial?.outstanding_cents ?? selected.total_cents_snapshot)}`}</span></div>
+        <div className="appointment-detail__payment"><div><span><CircleDollarSign size={17} /> Pagamento</span>{selected.payment_mode === "SUBSCRIPTION" ? selectedSubscriptionPayment?.overdue && <small className="appointment-payment-alert">Pagamento em atraso</small> : <><small>{selectedPaymentStatus}</small>{selectedPaymentAccounts.length > 0 && <small>Conta: {selectedPaymentAccounts.join(", ")}</small>}</>}</div><div className="appointment-detail__payment-value">{selected.payment_mode === "SUBSCRIPTION" ? selectedSubscriptionPayment?.subscriptionId && <button type="button" className="button button--soft button--sm" onClick={() => { setSelected(null); router.push(`/gestor/clientes?cliente=${encodeURIComponent(selected.customer_id)}&assinatura=${encodeURIComponent(selectedSubscriptionPayment.subscriptionId)}`); }}>Ver mais</button> : <strong>{formatCents(selected.total_cents_snapshot)}</strong>}</div>{selected.payment_mode !== "SUBSCRIPTION" && <span>Saldo: {formatCents(selectedFinancial?.outstanding_cents ?? selected.total_cents_snapshot)}</span>}</div>
         {selectedCustomerRecord?.phone_e164 && <div className="appointment-detail__contact"><a href={`https://web.whatsapp.com/send?phone=${selectedCustomerRecord.phone_e164.replace(/\D/g, "")}`} target="_blank" rel="noreferrer"><MessageCircle size={17} /> WhatsApp</a></div>}
       </div>
       <div className="appointment-detail__actions">

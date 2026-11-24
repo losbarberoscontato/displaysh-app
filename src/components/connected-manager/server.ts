@@ -105,6 +105,8 @@ export async function loadCustomersData() {
     agendaEnvironments,
     chartAccounts,
     financialAccounts,
+    costCenters,
+    financialTags,
     subscriptionModule,
     bundlePlanQuery,
     subscriptionBundleVersions,
@@ -250,6 +252,18 @@ export async function loadCustomersData() {
       .eq("active", true)
       .order("name"),
     supabase
+      .from("cost_centers")
+      .select("id,organization_id,name,active")
+      .eq("organization_id", organizationId)
+      .order("active", { ascending: false })
+      .order("name"),
+    supabase
+      .from("financial_tags")
+      .select("id,organization_id,name,color,active")
+      .eq("organization_id", organizationId)
+      .order("active", { ascending: false })
+      .order("name"),
+    supabase
       .from("organization_module_entitlements")
       .select("enabled")
       .eq("organization_id", organizationId)
@@ -392,6 +406,12 @@ export async function loadCustomersData() {
           kind: string;
           active: boolean;
         }>),
+    costCenters: costCenters.error
+      ? []
+      : (requireData(costCenters, "Centros de custo") as CostCenterRecord[]),
+    financialTags: financialTags.error
+      ? []
+      : (requireData(financialTags, "Tags financeiras") as FinancialTagRecord[]),
   };
 }
 
@@ -619,6 +639,8 @@ export async function loadAgendaData() {
     mappings,
     subscriptionSessions,
     subscriptionCycles,
+    subscriptionBundleSessions,
+    subscriptionBundleInstallments,
     subscriptions,
     packageItems,
     appointmentAuxiliaries,
@@ -733,12 +755,23 @@ export async function loadAgendaData() {
       .limit(MANAGER_ROW_LIMIT * 20),
     supabase
       .from("customer_subscription_cycles")
-      .select("id,subscription_id,starts_on,due_on,amount_cents,status,paid_at")
+      .select("id,subscription_id,cycle_number,starts_on,due_on,amount_cents,status,paid_at")
       .eq("organization_id", organizationId)
       .limit(MANAGER_ROW_LIMIT * 10),
     supabase
+      .from("subscription_bundle_sessions")
+      .select("id,subscription_id,session_number,status,appointment_id")
+      .eq("organization_id", organizationId)
+      .limit(MANAGER_ROW_LIMIT * 20),
+    supabase
+      .from("subscription_bundle_installments")
+      .select("id,subscription_id,installment_number,kind,due_on,amount_cents,payment_method,status,paid_at")
+      .eq("organization_id", organizationId)
+      .order("installment_number")
+      .limit(MANAGER_ROW_LIMIT * 10),
+    supabase
       .from("customer_subscriptions")
-      .select("id,customer_id,payment_method,status,plan:subscription_plans(name)")
+      .select("id,customer_id,contract_number,payment_method,status,plan:subscription_plans(name)")
       .eq("organization_id", organizationId)
       .limit(MANAGER_ROW_LIMIT),
     supabase
@@ -810,6 +843,8 @@ export async function loadAgendaData() {
     barberServices: requireData(links, "Competências") as BarberServiceRecord[],
     subscriptionSessions: subscriptionSessions.error ? [] : (requireData(subscriptionSessions, "Sessões de assinatura") as Array<Record<string, unknown>>),
     subscriptionCycles: subscriptionCycles.error ? [] : (requireData(subscriptionCycles, "Ciclos de assinatura") as Array<Record<string, unknown>>),
+    subscriptionBundleSessions: subscriptionBundleSessions.error ? [] : (requireData(subscriptionBundleSessions, "Sessões dos contratos") as Array<Record<string, unknown>>),
+    subscriptionBundleInstallments: subscriptionBundleInstallments.error ? [] : (requireData(subscriptionBundleInstallments, "Parcelas dos contratos") as Array<Record<string, unknown>>),
     subscriptions: subscriptions.error ? [] : (requireData(subscriptions, "Assinaturas") as Array<Record<string, unknown>>),
     packageItems: packageItems.error ? [] : (requireData(packageItems, "Serviços dos pacotes") as import("./types").PackageItemRecord[]),
     appointmentAuxiliaries: appointmentAuxiliaries.error ? [] : (requireData(appointmentAuxiliaries, "Auxiliares dos atendimentos") as Array<{ id: string; appointment_id: string; assistant_barber_id: string }>),

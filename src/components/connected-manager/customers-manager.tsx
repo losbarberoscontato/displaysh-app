@@ -30,6 +30,8 @@ type Props = Omit<
   | "subscriptionServiceDurations"
   | "chartAccounts"
   | "financialAccounts"
+  | "costCenters"
+  | "financialTags"
   | "slotIntervalMinutes"
   | "workIntervals"
   | "agendaEnvironments"
@@ -50,6 +52,8 @@ type Props = Omit<
       | "subscriptionServiceDurations"
       | "chartAccounts"
       | "financialAccounts"
+      | "costCenters"
+      | "financialTags"
       | "slotIntervalMinutes"
       | "workIntervals"
       | "agendaEnvironments"
@@ -356,6 +360,8 @@ export function CustomersManager({
   agendaEnvironments = [],
   chartAccounts = [],
   financialAccounts = [],
+  costCenters = [],
+  financialTags = [],
   subscriptionModuleEnabled = false,
 }: Props) {
   const router = useRouter();
@@ -403,10 +409,16 @@ export function CustomersManager({
   const [bundleOfferDraft, setBundleOfferDraft] = useState<BundleOfferDraft | null>(null);
   const [bundleOfferSending, setBundleOfferSending] = useState(false);
   const [bundleOfferConfirmationOpen, setBundleOfferConfirmationOpen] = useState(false);
-  const [paymentTarget, setPaymentTarget] = useState<{ kind: "LEGACY"; subscriptionId: string; cycleId: string; amountCents: number; method: string; dueOn: string } | { kind: "BUNDLE"; subscriptionId: string; installmentId: string; amountCents: number; method: string; dueOn: string; idempotencyKey: string } | null>(null);
-  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paymentTarget, setPaymentTarget] = useState<{ kind: "LEGACY"; subscriptionId: string; cycleId: string; amountCents: number; dueOn: string } | { kind: "BUNDLE"; subscriptionId: string; installmentId: string; amountCents: number; dueOn: string; idempotencyKey: string } | null>(null);
+  const [paymentDate, setPaymentDate] = useState(todayInOrganization);
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paymentAccountId, setPaymentAccountId] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
+  const [paymentChartAccountId, setPaymentChartAccountId] = useState("");
+  const [paymentCostCenterId, setPaymentCostCenterId] = useState("");
+  const [paymentTagIds, setPaymentTagIds] = useState<string[]>([]);
+  const [paymentDescription, setPaymentDescription] = useState("");
+  const [paymentDocumentNumber, setPaymentDocumentNumber] = useState("");
   const [customerFormTab, setCustomerFormTab] = useState<"details" | "dependents">("details");
   const [dependentDraft, setDependentDraft] = useState<{ id?: string; fullName: string; birthDate: string; relationship: "CHILD" | "SPOUSE" | "EMPLOYEE" | "PARENT" | "OTHER" }>({ fullName: "", birthDate: "", relationship: "CHILD" });
   const [todayTimestamp] = useState(() => Date.now());
@@ -1041,41 +1053,80 @@ export function CustomersManager({
     return saved;
   }
 
-  function openPaymentDialog(subscriptionId: string, cycle: { id: unknown; amount_cents?: unknown; due_on?: unknown }, method: string) {
-    setPaymentTarget({ kind: "LEGACY", subscriptionId, cycleId: String(cycle.id), amountCents: Number(cycle.amount_cents ?? 0), method, dueOn: String(cycle.due_on ?? "") });
-    setPaymentDate(new Date().toISOString().slice(0, 10));
-    setPaymentAccountId(String(financialAccounts[0]?.id ?? ""));
+  function preparePaymentReceipt(subscriptionId: string, installmentNumber: unknown, paymentMethod: string, installmentKind = "INSTALLMENT") {
+    const subscription = subscriptions.find((item) => String(item.id) === subscriptionId);
+    const plan = subscription?.plan as { name?: unknown } | null | undefined;
+    const planName = typeof plan?.name === "string" ? plan.name : "Plano de assinatura";
+    const contractNumber = String(subscription?.contract_number ?? subscriptionId.slice(0, 8).toUpperCase());
+    const sequence = Math.max(0, Number(installmentNumber ?? 0));
+    const installmentLabel = installmentKind === "ENTRY" ? "Entrada" : `Parcela ${sequence || 1}`;
+    const revenueAccount = (chartAccounts as Array<{ id: string; kind?: string; active?: boolean; code?: string | null; name?: string }>).find((item) => item.active && item.kind === "REVENUE" && (item.code === "1" || /receita/i.test(item.name ?? "")))
+      ?? (chartAccounts as Array<{ id: string; kind?: string; active?: boolean }>).find((item) => item.active && item.kind === "REVENUE");
+    setPaymentDate(todayInOrganization);
+    setPaymentMethod(paymentMethod || "CASH");
+    setPaymentAccountId(String(financialAccounts.find((item) => item.active)?.id ?? ""));
+    setPaymentChartAccountId(String(revenueAccount?.id ?? ""));
+    setPaymentCostCenterId("");
+    setPaymentTagIds([]);
     setPaymentReference("");
+    setPaymentDescription(`${planName} · Contrato nº ${contractNumber} · ${installmentLabel}`);
+    setPaymentDocumentNumber(`SUB-${subscriptionId.slice(0, 8).toUpperCase()}-${sequence || 1}`);
+  }
+
+  function openPaymentDialog(subscriptionId: string, cycle: { id: unknown; cycle_number?: unknown; amount_cents?: unknown; due_on?: unknown }, method: string) {
+    setPaymentTarget({ kind: "LEGACY", subscriptionId, cycleId: String(cycle.id), amountCents: Number(cycle.amount_cents ?? 0), dueOn: String(cycle.due_on ?? "") });
+    preparePaymentReceipt(subscriptionId, cycle.cycle_number, method);
   }
 
   function openBundlePaymentDialog(subscriptionId: string, installment: Record<string, unknown>, method: string) {
-    setPaymentTarget({ kind: "BUNDLE", subscriptionId, installmentId: String(installment.id), amountCents: Number(installment.amount_cents ?? 0), method, dueOn: String(installment.due_on ?? ""), idempotencyKey: `manager-bundle-payment-${crypto.randomUUID()}` });
-    setPaymentDate(new Date().toISOString().slice(0, 10));
-    setPaymentAccountId(String(financialAccounts[0]?.id ?? ""));
-    setPaymentReference("");
+    setPaymentTarget({ kind: "BUNDLE", subscriptionId, installmentId: String(installment.id), amountCents: Number(installment.amount_cents ?? 0), dueOn: String(installment.due_on ?? ""), idempotencyKey: `manager-bundle-payment-${crypto.randomUUID()}` });
+    preparePaymentReceipt(subscriptionId, installment.installment_number, method, String(installment.kind ?? "INSTALLMENT"));
   }
 
-  async function recordBundlePayment(target: Extract<NonNullable<typeof paymentTarget>, { kind: "BUNDLE" }>) {
-    const chart = (chartAccounts as Array<{ id: string; name?: string }>)[0];
-    if (!chart) {
+  async function recordSubscriptionPaymentTarget() {
+    const target = paymentTarget;
+    if (!target) return false;
+    if (!paymentChartAccountId) {
       showManagerError("Cadastre uma conta de receita antes de registrar a parcela.");
+      return false;
+    }
+    if (!paymentAccountId) {
+      showManagerError("Selecione a conta financeira que recebeu o pagamento.");
       return false;
     }
     const saved = await runMutation(
       setMessage,
       async () => {
-        await assertResult(await connectedClient().rpc("record_subscription_bundle_payment", {
+        const receiptFields = {
           p_organization_id: organizationId,
-          p_installment_id: target.installmentId,
           p_amount_cents: target.amountCents,
-          p_chart_account_id: chart.id,
-          p_financial_account_id: paymentAccountId || null,
-          p_idempotency_key: target.idempotencyKey,
+          p_chart_account_id: paymentChartAccountId,
+          p_financial_account_id: paymentAccountId,
           p_external_reference: paymentReference || null,
           p_paid_on: paymentDate,
-        }));
+          p_cost_center_id: paymentCostCenterId || null,
+          p_document_number: paymentDocumentNumber.trim() || null,
+          p_tag_ids: paymentTagIds,
+          p_description: paymentDescription.trim(),
+        };
+        if (target.kind === "BUNDLE") {
+          await assertResult(await connectedClient().rpc("record_subscription_bundle_payment_with_receipt_metadata", {
+            ...receiptFields,
+            p_installment_id: target.installmentId,
+            p_method: paymentMethod,
+            p_idempotency_key: target.idempotencyKey,
+          }));
+        } else {
+          await assertResult(await connectedClient().rpc("record_subscription_payment_with_receipt_metadata", {
+            ...receiptFields,
+            p_subscription_id: target.subscriptionId,
+            p_cycle_id: target.cycleId,
+            p_method: paymentMethod,
+            p_idempotency_key: `manager-payment-${target.cycleId}`,
+          }));
+        }
       },
-      "Recebimento do plano registrado no Financeiro.",
+      "Recebimento confirmado e enviado ao Financeiro.",
     );
     if (saved) router.refresh();
     return saved;
@@ -2624,9 +2675,29 @@ export function CustomersManager({
             </form>
           </div>;
         })()}
-        {paymentTarget && (
-          <div className="modal-layer" role="presentation"><button className={styles.modalBackdrop} type="button" aria-label="Fechar recebimento" onClick={() => setPaymentTarget(null)} /><section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="subscription-payment-title"><header className={styles.modalHeader}><div><small>Recebimento de assinatura</small><h2 id="subscription-payment-title">Receber parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setPaymentTarget(null)}><X size={19} /></button></header><div className={styles.form}><Field label={paymentTarget.kind === "BUNDLE" ? "Saldo a receber (R$)" : "Valor (R$)"}><input value={(paymentTarget.amountCents / 100).toFixed(2).replace(".", ",")} readOnly /></Field><Field label="Vencimento"><input value={paymentTarget.dueOn} readOnly /></Field><Field label="Forma de pagamento"><input value={({ CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Link de pagamento", CRYPTO: "Cripto" } as Record<string, string>)[paymentTarget.method] ?? paymentTarget.method} readOnly /></Field><Field label="Data de pagamento"><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></Field><Field label="Conta financeira"><select value={paymentAccountId} onChange={(event) => setPaymentAccountId(event.target.value)} required><option value="">Selecione</option>{financialAccounts.map((account) => <option key={String(account.id)} value={String(account.id)}>{String(account.name)}</option>)}</select></Field><Field label="Referência" wide><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Link externo, comprovante ou protocolo" /></Field><div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="button" disabled={!paymentAccountId} onClick={async () => { const target = paymentTarget; const saved = target.kind === "BUNDLE" ? await recordBundlePayment(target) : await recordFirstPayment(target.subscriptionId, target.cycleId, target.amountCents, target.method, paymentAccountId, paymentDate, paymentReference); if (saved) setPaymentTarget(null); }}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setPaymentTarget(null)}>Cancelar</button></div></div></section></div>
-        )}
+        {paymentTarget && <div className="modal-layer" role="presentation">
+          <button className={styles.modalBackdrop} type="button" aria-label="Fechar recebimento" onClick={() => setPaymentTarget(null)} />
+          <section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="subscription-payment-title">
+            <header className={styles.modalHeader}><div><small>Recebimento de assinatura</small><h2 id="subscription-payment-title">Receber parcela</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" onClick={() => setPaymentTarget(null)}><X size={19} /></button></header>
+            <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void recordSubscriptionPaymentTarget().then((saved) => { if (saved) setPaymentTarget(null); }); }}>
+              <Field label="Contraparte / Cliente"><input value={historyCustomer?.full_name ?? "Cliente"} readOnly /></Field>
+              <Field label="Tipo"><input value="Receita" readOnly /></Field>
+              <Field label="Descrição" wide><input value={paymentDescription} onChange={(event) => setPaymentDescription(event.target.value)} required minLength={2} maxLength={500} /></Field>
+              <Field label="Saldo restante"><input value={(paymentTarget.amountCents / 100).toFixed(2).replace(".", ",")} readOnly /></Field>
+              <Field label="Valor final lançado (R$)"><input value={(paymentTarget.amountCents / 100).toFixed(2).replace(".", ",")} readOnly /></Field>
+              <Field label="Data do lançamento"><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} required /></Field>
+              <Field label="Vencimento"><input type="date" value={paymentTarget.dueOn} readOnly /></Field>
+              <Field label="Plano de conta"><select value={paymentChartAccountId} onChange={(event) => setPaymentChartAccountId(event.target.value)} required><option value="">Selecione</option>{(chartAccounts as Array<{ id: string; code?: string | null; name?: string; kind?: string; active?: boolean }>).filter((account) => account.active && account.kind === "REVENUE").map((account) => <option key={account.id} value={account.id}>{account.code ? `${account.code} · ` : ""}{account.name}</option>)}</select></Field>
+              <Field label="Banco ou caixa"><select value={paymentAccountId} onChange={(event) => setPaymentAccountId(event.target.value)} required><option value="">Selecione</option>{financialAccounts.filter((account) => account.active).map((account) => <option key={String(account.id)} value={String(account.id)}>{String(account.name)}</option>)}</select></Field>
+              <Field label="Centro de custo"><select value={paymentCostCenterId} onChange={(event) => setPaymentCostCenterId(event.target.value)}><option value="">Não informar</option>{costCenters.filter((center) => center.active).map((center) => <option key={center.id} value={center.id}>{center.name}</option>)}</select></Field>
+              <Field label="Número do documento"><input value={paymentDocumentNumber} onChange={(event) => setPaymentDocumentNumber(event.target.value)} required minLength={2} maxLength={100} /></Field>
+              <Field label="Tags"><select aria-label="Tags" multiple size={Math.min(Math.max(financialTags.filter((tag) => tag.active).length, 2), 4)} value={paymentTagIds} onChange={(event) => setPaymentTagIds(Array.from(event.currentTarget.selectedOptions, (option) => option.value))} disabled={!financialTags.some((tag) => tag.active)}>{financialTags.filter((tag) => tag.active).length === 0 ? <option>Nenhuma tag cadastrada</option> : financialTags.filter((tag) => tag.active).map((tag) => <option key={tag.id} value={tag.id} style={tag.color ? { color: tag.color } : undefined}>{tag.name}</option>)}</select></Field>
+              <Field label="Forma de recebimento"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} required><option value="CASH">Dinheiro</option><option value="PIX">PIX</option><option value="CARD">Cartão</option><option value="BOLETO">Boleto</option><option value="ONLINE">Link de pagamento</option><option value="UPFRONT">À vista</option></select></Field>
+              <Field label="Observações"><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="PIX, NSU ou comprovante" maxLength={500} /></Field>
+              <div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="submit" disabled={!paymentAccountId || !paymentChartAccountId}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setPaymentTarget(null)}>Cancelar</button></div>
+            </form>
+          </section>
+        </div>}
       </Panel>
     </div>
   );
