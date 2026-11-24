@@ -450,6 +450,7 @@ export interface FinancialCommissionDetailRecord {
   is_project?: boolean;
   source_type?: "APPOINTMENT" | "PROJECT_INTERNAL" | "SUBSCRIPTION_SESSION" | "SUBSCRIPTION_BUNDLE_SESSION";
   internal_service_id?: string | null;
+  subscription_session_number?: number | null;
 }
 
 export interface OrganizationAudienceRecord {
