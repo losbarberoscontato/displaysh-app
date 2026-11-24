@@ -67,6 +67,8 @@ type AgendaData = AwaitedReturn<typeof loadAgendaData>;
 type Props = Omit<AgendaData, "appointmentItems" | "packageItems" | "appointmentAuxiliaries" | "appointmentAuxiliaryRules" | "appointmentAuxiliaryModuleEnabled" | "receiptCatalogs" | "appointmentActivity" | "subscriptionSessions" | "subscriptionCycles" | "subscriptions" | "environments" | "dateBlocks" | "kanbanEnabled" | "kanbanBoards" | "kanbanCards" | "whatsappPending"> & { appointmentItems?: AppointmentItemRecord[]; packageItems?: AgendaData["packageItems"]; appointmentAuxiliaries?: AppointmentAuxiliaryRecord[]; appointmentAuxiliaryRules?: AppointmentAuxiliaryCommissionRuleRecord[]; appointmentAuxiliaryModuleEnabled?: boolean; receiptCatalogs?: AgendaData["receiptCatalogs"]; appointmentActivity?: AgendaData["appointmentActivity"]; subscriptionSessions?: AgendaData["subscriptionSessions"]; subscriptionCycles?: AgendaData["subscriptionCycles"]; subscriptions?: AgendaData["subscriptions"]; environments?: AgendaData["environments"]; dateBlocks?: OrganizationDateBlock[]; kanbanEnabled?: boolean; kanbanBoards?: AgendaData["kanbanBoards"]; kanbanCards?: AgendaData["kanbanCards"]; whatsappPending?: boolean; productKey?: ProductKey };
 type View = "day" | "week" | "month";
 type ManagerAppointmentEnvironmentSlot = { starts_at: string; ends_at: string; environment_id: string; environment_name: string };
+type AgendaWhatsAppAction = "CONFIRM" | "RESCHEDULE" | "CANCEL";
+type AgendaWhatsAppActionPrompt = { appointment: AppointmentRecord; action: AgendaWhatsAppAction; message: string };
 
 const hours = Array.from({ length: 14 }, (_, index) => `${String(index + 8).padStart(2, "0")}:00`);
 function formatDate(dateKey: string, options: Intl.DateTimeFormatOptions = { day: "numeric", month: "long", year: "numeric" }) {
@@ -171,6 +173,7 @@ export function AgendaManager(props: Props) {
   const [quickCustomerPhone, setQuickCustomerPhone] = useState("");
   const [createdCustomers, setCreatedCustomers] = useState<Props["customers"]>([]);
   const [rescheduling, setRescheduling] = useState<AppointmentRecord | null>(null);
+  const [whatsAppActionPrompt, setWhatsAppActionPrompt] = useState<AgendaWhatsAppActionPrompt | null>(null);
   const [receiptTarget, setReceiptTarget] = useState<AppointmentReceiptDraft | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const blocked = props.billingStatus === "BLOCKED";
@@ -621,7 +624,7 @@ export function AgendaManager(props: Props) {
       await assertResult(await connectedClient().rpc("confirm_appointment_manually_by_whatsapp", {
         p_appointment_id: appointment.id,
       }));
-    }, "Confirmação manual registrada; mensagens para cliente e profissional foram enfileiradas.");
+    }, "Presença confirmada manualmente; mensagens para os contatos disponíveis foram enfileiradas.");
     if (saved) { setSelected(null); router.refresh(); }
   }
 
@@ -645,6 +648,48 @@ export function AgendaManager(props: Props) {
       }));
     }, "Agendamento reagendado atomicamente.");
     if (saved) { setRescheduling(null); setSelected(null); setDate(String(data.get("date"))); setView("day"); router.refresh(); }
+  }
+
+  function runAgendaWhatsAppAction(action: AgendaWhatsAppAction, appointment: AppointmentRecord) {
+    if (action === "CONFIRM") {
+      void confirmManuallyByWhatsApp(appointment);
+    } else if (action === "RESCHEDULE") {
+      setRescheduling(appointment);
+    } else {
+      void cancel(appointment);
+    }
+  }
+
+  function requestAgendaWhatsAppAction(action: AgendaWhatsAppAction, appointment: AppointmentRecord) {
+    const customerHasWhatsApp = Boolean(customerById.get(appointment.customer_id)?.phone_e164?.trim());
+    const barberHasWhatsApp = Boolean(barberById.get(appointment.barber_id)?.whatsapp_e164?.trim());
+    let warning = "";
+
+    if (!customerHasWhatsApp && barberHasWhatsApp) {
+      warning = "Cliente não possui whatsapp cadastrado, apenas Profissional irá receber mensagem";
+    } else if (customerHasWhatsApp && !barberHasWhatsApp) {
+      warning = "Profissional não possui whatsapp cadastrado, apenas cliente irá receber mensagem";
+    } else if (!customerHasWhatsApp && !barberHasWhatsApp) {
+      const auxiliaryHasWhatsApp = (props.appointmentAuxiliaries ?? [])
+        .filter((auxiliary) => auxiliary.appointment_id === appointment.id)
+        .some((auxiliary) => Boolean(barberById.get(auxiliary.assistant_barber_id)?.whatsapp_e164?.trim()));
+      warning = auxiliaryHasWhatsApp
+        ? "Cliente e profissional não possuem whatsapp cadastrado. Apenas auxiliares com whatsapp cadastrado receberão mensagem."
+        : "Cliente e profissional não possuem whatsapp cadastrado. Nenhuma mensagem será enviada.";
+    }
+
+    if (warning) {
+      setWhatsAppActionPrompt({ appointment, action, message: warning });
+      return;
+    }
+    runAgendaWhatsAppAction(action, appointment);
+  }
+
+  function confirmAgendaWhatsAppAction() {
+    if (!whatsAppActionPrompt) return;
+    const { action, appointment } = whatsAppActionPrompt;
+    setWhatsAppActionPrompt(null);
+    runAgendaWhatsAppAction(action, appointment);
   }
 
   const selectedCustomerRecord = selected ? customerById.get(selected.customer_id) : null;
@@ -785,12 +830,12 @@ export function AgendaManager(props: Props) {
       <div className="appointment-detail__actions">
         {props.appointmentAuxiliaryModuleEnabled && !["COMPLETED", "CANCELED", "NO_SHOW", "EXPIRED"].includes(selected.status) && <button type="button" className="button button--soft" onClick={() => openAuxiliaryEditor(selected)}>Auxiliares e comissões</button>}
         {["HELD", "PENDING_PAYMENT"].includes(selected.status) && <button type="button" className="button button--soft" onClick={() => confirmWithoutPayment(selected)}>Confirmar sem pagamento</button>}
-        {selected.status === "CONFIRMED" && !["CONFIRMED_BY_WHATSAPP", "CONFIRMED_MANUALLY"].includes(selected.whatsapp_response_status ?? "PENDING") && <button type="button" className="button button--soft" onClick={() => confirmManuallyByWhatsApp(selected)}>Confirmar manualmente</button>}
+        {selected.status === "CONFIRMED" && !["CONFIRMED_BY_WHATSAPP", "CONFIRMED_MANUALLY"].includes(selected.whatsapp_response_status ?? "PENDING") && <button type="button" className="button button--soft" onClick={() => requestAgendaWhatsAppAction("CONFIRM", selected)}>Confirmar manualmente</button>}
         {selected.status === "CONFIRMED" && <button type="button" className="button button--dark" onClick={() => transition(selected, "IN_SERVICE")}><Check size={17} /> Iniciar</button>}
         {selected.status === "IN_SERVICE" && <button type="button" className="button button--dark" onClick={() => transition(selected, "COMPLETED")}><Check size={17} /> Concluir</button>}
-        {["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(selected.status) && <button type="button" className="button button--soft" disabled={blocked} onClick={() => setRescheduling(selected)}>Reagendar</button>}
+        {["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(selected.status) && <button type="button" className="button button--soft" disabled={blocked} onClick={() => requestAgendaWhatsAppAction("RESCHEDULE", selected)}>Reagendar</button>}
         {selected.status === "CONFIRMED" && <button type="button" className="button button--soft" onClick={() => transition(selected, "NO_SHOW")}>Não compareceu</button>}
-        {["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(selected.status) && <button type="button" className="button button--soft" onClick={() => cancel(selected)}>Cancelar</button>}
+        {["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(selected.status) && <button type="button" className="button button--soft" onClick={() => requestAgendaWhatsAppAction("CANCEL", selected)}>Cancelar</button>}
         {selected.status === "EXPIRED" && <button type="button" className="button button--danger" onClick={() => setDeleteExpiredTarget(selected)}><Trash2 size={16} /> Excluir agendamento</button>}
       </div>
     </section></div>}
@@ -854,5 +899,6 @@ export function AgendaManager(props: Props) {
       <div className="form-modal__footer"><button type="button" className="button button--dark" onClick={() => setAgendaHelpOpen(false)}>Entendi</button></div>
     </section></div>}
     {receiptTarget && <AppointmentReceiptDialog receipt={receiptTarget} {...(props.receiptCatalogs ?? {})} modalClassName={styles.receiptModal} layerClassName={styles.receiptModalLayer} onClose={() => setReceiptTarget(null)} onSaved={() => { setReceiptTarget(null); router.refresh(); }} setMessage={setMessage} />}
+    {whatsAppActionPrompt && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Cancelar ação" onClick={() => setWhatsAppActionPrompt(null)} /><section className="form-modal" role="alertdialog" aria-modal="true" aria-label="Confirmar envio de mensagens"><div className="form-modal__body"><p>{whatsAppActionPrompt.message}</p></div><div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={() => setWhatsAppActionPrompt(null)}>Cancelar</button><button type="button" className="button button--dark" onClick={confirmAgendaWhatsAppAction}>Confirmar</button></div></section></div>}
   </div>;
 }
