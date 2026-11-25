@@ -2997,9 +2997,6 @@ export function CustomersManager({
           const eligible = subscription
             ? eligibleSubscriptionBarbers(serviceIds, String(subscription.plan_id ?? "") || undefined)
             : [];
-          const canChooseProfessional = bundleSessionEditor.action !== "RESCHEDULE"
-            || !currentAppointment
-            || currentAppointment.status !== "CONFIRMED";
           const dialogTitle = bundleSessionEditor.action === "ADD"
             ? "Adicionar sessão cortesia"
             : bundleSessionEditor.action === "EDIT"
@@ -3026,9 +3023,7 @@ export function CustomersManager({
                     : <p className={styles.subscriptionBookingHint}>Auxiliares podem ser definidos quando a sessão estiver agendada.</p>}
                 </>}
                 {bundleSessionEditor.action !== "EDIT" && <>
-                  {canChooseProfessional
-                    ? <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value, slotStartsAt: "" } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
-                    : <label>Profissional<span className="input-shell"><input value={barbers.find((barber) => barber.id === bundleSessionEditor.barberId)?.display_name ?? "Profissional da sessão"} readOnly /></span></label>}
+                  <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value, slotStartsAt: "" } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
                   <div className="form-grid">
                     <label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={bundleSessionEditor.localDate} min={todayInOrganization} disabled={!bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localDate: event.target.value, slotStartsAt: "" } : current)} required /></span></label>
                     <label>Horário disponível<span className="select-input"><select value={bundleSessionEditor.slotStartsAt} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, slotStartsAt: event.target.value } : current)} disabled={bundleAvailabilityLoading || bundleSessionAvailability.failed || availableBundleSlots.length === 0} required>
