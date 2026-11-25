@@ -564,6 +564,7 @@ export async function loadTeamData() {
       .select("id,organization_id,name,active")
       .eq("organization_id", organizationId)
       .eq("active", true)
+      .is("archived_at", null)
       .order("name"),
     supabase
       .from("barber_subscription_plans")
