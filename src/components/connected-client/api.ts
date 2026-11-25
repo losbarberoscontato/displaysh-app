@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isMercadoPagoCheckoutUrl } from "@/components/connected-client/format";
+import { isMercadoPagoCheckoutUrl, localToday } from "@/components/connected-client/format";
 import type {
   AppointmentItem,
   Availability,
@@ -57,9 +57,13 @@ export function toClientError(error: unknown, fallback: string): string {
   }
   if (message.includes("not accepting")) return "Este estabelecimento não aceita novas reservas no momento.";
   if (message.includes("cannot perform") || message.includes("active barber not found")) return "Profissional não executa seleção escolhida. Escolha outro.";
+  if (message.includes("outside original two-week window")) return "Só é permitido reagendar dentro de 2 semanas antes ou depois da data original da sessão.";
+  if (message.includes("outside the professional schedule")) return "O dia/horário escolhido está fora da escala do profissional. Escolha um horário disponível.";
+  if (message.includes("subscription_overdue_installment")) return "Há parcela vencida neste plano. Regularize o pagamento antes de reagendar a sessão.";
+  if (message.includes("requested date is blocked")) return "A agenda está bloqueada neste período. Escolha outra data.";
+  if (message.includes("no environment is available") || message.includes("no longer available")) return "Este horário acabou de ficar indisponível. Escolha outro horário livre.";
   if (message.includes("mercado pago account is not connected")) return "O pagamento online ainda não foi conectado por este estabelecimento.";
   if (message.includes("reschedule deadline")) return "Prazo de reagendamento já terminou.";
-  if (message.includes("subscription_overdue_installment")) return "Há parcela vencida neste plano. Fale com o estabelecimento para regularizar antes de agendar.";
   if (message.includes("previous_subscription_session_not_finished")) return "A sessão anterior precisa ser concluída antes de agendar a próxima.";
   if (message.includes("authentication required") || message.includes("jwt")) return "Sessão expirou. Entre novamente.";
   if (message.includes("client account not found") || message.includes("query returned no rows")) {
@@ -428,6 +432,7 @@ export async function getMyAppointments(
   supabase: SupabaseClient,
   organizationId: string,
   customerId: string,
+  timezone: string,
 ): Promise<CustomerAppointment[]> {
   const { data: appointments, error } = await supabase
     .from("appointments")
@@ -473,23 +478,50 @@ export async function getMyAppointments(
   if (financialError) throw new Error(financialError.message);
   if (paymentOrdersError) throw new Error(paymentOrdersError.message);
   let schedulingModeBySession = new Map<string, "FIXED" | "FREE">();
+  let planIdBySession = new Map<string, string>();
+  let subscriptionIdBySession = new Map<string, string>();
+  let originalStartBySession = new Map<string, string | null>();
+  const overdueSubscriptionIds = new Set<string>();
   if (subscriptionSessionIds.length) {
     const { data: sessionRows, error: sessionError } = await supabase
       .from("customer_subscription_sessions")
-      .select("id,subscription_id")
+      .select("id,subscription_id,rescheduled_from")
       .eq("organization_id", organizationId)
       .in("id", subscriptionSessionIds);
     if (sessionError) throw new Error(sessionError.message);
     const sessions = (sessionRows as Array<{ id: string; subscription_id: string }> | null) ?? [];
+    subscriptionIdBySession = new Map(sessions.map((session) => [session.id, session.subscription_id]));
     const subscriptionIds = [...new Set(sessions.map((session) => session.subscription_id))];
+    originalStartBySession = new Map(sessions.map((session) => [
+      session.id,
+      (session as { rescheduled_from?: string | null }).rescheduled_from ?? null,
+    ]));
     if (subscriptionIds.length) {
-      const { data: subscriptionRows, error: subscriptionError } = await supabase
-        .from("customer_subscriptions")
-        .select("id,plan_version_id")
-        .eq("organization_id", organizationId)
-        .in("id", subscriptionIds);
+      const [
+        { data: subscriptionRows, error: subscriptionError },
+        { data: cycleRows, error: cycleError },
+      ] = await Promise.all([
+        supabase.from("customer_subscriptions")
+          .select("id,plan_id,plan_version_id")
+          .eq("organization_id", organizationId)
+          .in("id", subscriptionIds),
+        supabase.from("customer_subscription_cycles")
+          .select("subscription_id,due_on,status")
+          .eq("organization_id", organizationId)
+          .in("subscription_id", subscriptionIds)
+          .in("status", ["OPEN", "OVERDUE"]),
+      ]);
       if (subscriptionError) throw new Error(subscriptionError.message);
+      if (cycleError) throw new Error(cycleError.message);
       const subscriptions = (subscriptionRows as Array<{ id: string; plan_version_id: string }> | null) ?? [];
+      const planBySubscription = new Map((subscriptionRows as Array<{ id: string; plan_id: string }> | null ?? [])
+        .map((subscription) => [subscription.id, subscription.plan_id]));
+      const today = localToday(timezone);
+      for (const cycle of (cycleRows as Array<{ subscription_id: string; due_on: string; status: string }> | null) ?? []) {
+        if (cycle.status === "OVERDUE" || (cycle.status === "OPEN" && cycle.due_on < today)) {
+          overdueSubscriptionIds.add(cycle.subscription_id);
+        }
+      }
       const versionIds = [...new Set(subscriptions.map((subscription) => subscription.plan_version_id))];
       if (versionIds.length) {
         const { data: versions, error: versionsError } = await supabase
@@ -506,6 +538,10 @@ export async function getMyAppointments(
           const mode = versionId ? modeByVersion.get(versionId) : undefined;
           return mode ? [[session.id, mode] as const] : [];
         }));
+        planIdBySession = new Map(sessions.flatMap((session) => {
+          const planId = planBySubscription.get(session.subscription_id);
+          return planId ? [[session.id, planId] as const] : [];
+        }));
       }
     }
   }
@@ -517,6 +553,15 @@ export async function getMyAppointments(
     subscription_scheduling_mode: appointment.subscription_session_id
       ? schedulingModeBySession.get(appointment.subscription_session_id) ?? null
       : null,
+    subscription_plan_id: appointment.subscription_session_id
+      ? planIdBySession.get(appointment.subscription_session_id) ?? null
+      : null,
+    subscription_reschedule_original_starts_at: appointment.subscription_session_id
+      ? originalStartBySession.get(appointment.subscription_session_id) ?? null
+      : null,
+    subscription_has_overdue_installment: appointment.subscription_session_id
+      ? overdueSubscriptionIds.has(subscriptionIdBySession.get(appointment.subscription_session_id) ?? "")
+      : false,
     pending_payment_order_id: paymentOrderRows.find((item) => item.appointment_id === appointment.id)?.id ?? null,
     items: itemRows.filter((item) => item.appointment_id === appointment.id),
     financial: financialRows.find((item) => item.appointment_id === appointment.id) ?? {
@@ -558,12 +603,13 @@ export async function rescheduleAppointment(
 
 export async function rescheduleFixedSubscriptionSession(
   supabase: SupabaseClient,
-  input: { organizationId: string; subscriptionSessionId: string; startsAt: string },
+  input: { organizationId: string; subscriptionSessionId: string; barberId: string; startsAt: string },
 ): Promise<{ appointment_id: string; subscription_session_id: string; service_period: string; status: string }> {
   const { data, error } = await supabase.rpc("reschedule_fixed_customer_subscription_session", {
     p_organization_id: input.organizationId,
     p_subscription_session_id: input.subscriptionSessionId,
     p_new_starts_at: input.startsAt,
+    p_new_barber_id: input.barberId,
   });
   return assertData<{ appointment_id: string; subscription_session_id: string; service_period: string; status: string }>(
     data,

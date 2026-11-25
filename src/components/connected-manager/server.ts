@@ -198,7 +198,7 @@ export async function loadCustomersData() {
     supabase
       .from("customer_subscription_sessions")
       .select(
-        "id,subscription_id,cycle_id,session_number,status,appointment_id,available_until",
+        "id,subscription_id,cycle_id,session_number,status,appointment_id,available_until,rescheduled_from",
       )
       .eq("organization_id", organizationId)
       .order("session_number")
@@ -284,7 +284,7 @@ export async function loadCustomersData() {
       .order("version", { ascending: false }),
     supabase
       .from("organizations")
-      .select("timezone,slot_interval_minutes")
+      .select("timezone,slot_interval_minutes,slug")
       .eq("id", organizationId)
       .single(),
   ]);
@@ -328,6 +328,7 @@ export async function loadCustomersData() {
   });
   return {
     organizationId,
+    organizationSlug: organizationTimezone.data?.slug ?? "",
     timezone: organizationTimezone.data?.timezone ?? DEFAULT_FINANCIAL_TIMEZONE,
     slotIntervalMinutes: Number(organizationTimezone.data?.slot_interval_minutes ?? 15),
     billingStatus: context.billingStatus,

@@ -239,6 +239,9 @@ export type CustomerAppointment = {
   cancelled_at?: string | null;
   subscription_session_id?: string | null;
   subscription_scheduling_mode?: "FIXED" | "FREE" | null;
+  subscription_plan_id?: string | null;
+  subscription_reschedule_original_starts_at?: string | null;
+  subscription_has_overdue_installment?: boolean;
   service_period: string;
   payment_mode: "DEPOSIT" | "FULL" | "COUNTER" | "SUBSCRIPTION";
   currency: string;

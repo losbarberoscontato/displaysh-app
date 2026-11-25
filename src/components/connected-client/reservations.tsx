@@ -17,12 +17,15 @@ import {
   barberSupportsServices,
   bookingSelection,
   canCustomerReschedule,
+  addCalendarDays,
   catalogChoices,
   dateOptions,
   formatInstant,
   formatLocalDate,
   formatMoney,
   formatSlotTime,
+  localDateForInstant,
+  localToday,
   parsePostgresRange,
   selectionsFromAppointmentItems,
   serviceIdsForChoice,
@@ -43,6 +46,23 @@ const statusLabels: Record<CustomerAppointment["status"], string> = {
   NO_SHOW: "Não compareceu",
   EXPIRED: "Expirado",
 };
+
+function rescheduleDatesFor(appointment: CustomerAppointment, timezone: string): string[] {
+  if (!appointment.subscription_session_id || appointment.subscription_scheduling_mode !== "FIXED") {
+    return dateOptions(timezone, 10);
+  }
+  const originalStart = appointment.subscription_reschedule_original_starts_at
+    ?? parsePostgresRange(appointment.service_period).startsAt;
+  const originalDate = localDateForInstant(originalStart, timezone);
+  const firstDate = [localToday(timezone), addCalendarDays(originalDate, -14)]
+    .sort()
+    .at(-1) ?? localToday(timezone);
+  const lastDate = addCalendarDays(originalDate, 14);
+  if (firstDate > lastDate) return [];
+  const dates: string[] = [];
+  for (let date = firstDate; date <= lastDate; date = addCalendarDays(date, 1)) dates.push(date);
+  return dates;
+}
 
 function appointmentStatusLabel(appointment: CustomerAppointment): string {
   if (appointment.status === "CANCELED") {
@@ -99,7 +119,10 @@ function ReservationsContent() {
   const compatibleBarbers = useMemo(
     () => context?.barbers.filter((barber) => {
       if (rescheduleTarget?.subscription_session_id && rescheduleTarget.subscription_scheduling_mode === "FIXED") {
-        return barber.id === rescheduleTarget.barber_id;
+        return barberSupportsServices(requiredServiceIds, barber.service_ids)
+          && (!rescheduleTarget.subscription_plan_id
+            || !barber.subscription_plan_ids
+            || barber.subscription_plan_ids.includes(rescheduleTarget.subscription_plan_id));
       }
       if (!barberSupportsServices(requiredServiceIds, barber.service_ids)) return false;
       const packageId = rescheduleChoice?.kind === "PACKAGE"
@@ -136,7 +159,7 @@ function ReservationsContent() {
     setLoading(true);
     setError("");
     try {
-      setAppointments(await getMyAppointments(supabase, context.organization.id, customer.id));
+      setAppointments(await getMyAppointments(supabase, context.organization.id, customer.id, context.organization.timezone));
     } catch (cause: unknown) {
       setError(toClientError(cause, "Não foi possível carregar reservas."));
     } finally {
@@ -206,6 +229,7 @@ function ReservationsContent() {
   const history = appointments.filter((appointment) => !upcoming.some((item) => item.id === appointment.id));
   const timezone = context.organization.timezone;
   const acceptingBookings = context.organization.accepting_bookings;
+  const rescheduleDates = rescheduleTarget ? rescheduleDatesFor(rescheduleTarget, timezone) : [];
 
   async function performCancel() {
     if (!supabase || !cancelTarget) return;
@@ -232,13 +256,20 @@ function ReservationsContent() {
   function openReschedule(appointment: CustomerAppointment) {
     const { startsAt: currentStart } = parsePostgresRange(appointment.service_period);
     if (appointment.subscription_session_id && appointment.subscription_scheduling_mode !== "FIXED") return;
+    if (appointment.subscription_has_overdue_installment) {
+      setNotice("Há parcela vencida neste plano. Regularize o pagamento antes de reagendar a sessão.");
+      return;
+    }
+    const dates = rescheduleDatesFor(appointment, timezone);
+    const currentDate = localDateForInstant(currentStart, timezone);
     setRescheduleTarget(appointment);
     setBarberId(appointment.barber_id);
-    setLocalDate(dateOptions(timezone)[0]);
+    setLocalDate(dates.includes(currentDate) ? currentDate : dates[0] ?? "");
     setStartsAt("");
     setRescheduleChoiceId("");
     setModalError("");
-    if (!canCustomerReschedule(appointment.status, currentStart, appointment.cancellation_lead_minutes_snapshot, acceptingBookings)) {
+    const rescheduleLeadMinutes = appointment.subscription_scheduling_mode === "FIXED" ? 0 : appointment.cancellation_lead_minutes_snapshot;
+    if (!canCustomerReschedule(appointment.status, currentStart, rescheduleLeadMinutes, acceptingBookings)) {
       setModalError("Reserva fora do prazo ou estabelecimento pausou novos horários.");
     }
   }
@@ -252,6 +283,7 @@ function ReservationsContent() {
         await rescheduleFixedSubscriptionSession(supabase, {
           organizationId: tenantContext.organization.id,
           subscriptionSessionId: rescheduleTarget.subscription_session_id,
+          barberId,
           startsAt,
         });
         setNotice("Sessão do plano reagendada com sucesso.");
@@ -308,7 +340,8 @@ function ReservationsContent() {
             const { startsAt: sessionStart } = parsePostgresRange(appointment.service_period);
             const canRescheduleFixed = Boolean(appointment.subscription_session_id)
               && appointment.subscription_scheduling_mode === "FIXED"
-              && canCustomerReschedule(appointment.status, sessionStart, appointment.cancellation_lead_minutes_snapshot, context.organization.accepting_bookings);
+              && !appointment.subscription_has_overdue_installment
+              && canCustomerReschedule(appointment.status, sessionStart, 0, context.organization.accepting_bookings);
             return <ReservationCard key={appointment.id} appointment={appointment} timezone={timezone} barberName={context.barbers.find((item) => item.id === appointment.barber_id)?.name ?? vocabulary.professionalLabel} onCancel={() => { const { startsAt } = parsePostgresRange(appointment.service_period); const leadMinutes = appointment.cancellation_lead_minutes_snapshot ?? 0; setCancelTarget(appointment); setCancelBeforeDeadline(leadMinutes === 0 || Date.now() <= new Date(startsAt).getTime() - leadMinutes * 60_000); setCancelAcknowledged(false); setModalError(""); }} onResumePayment={() => void resumePayment(appointment)} onReschedule={() => openReschedule(appointment)} canReschedule={canRescheduleFixed} paymentBusy={paymentBusyId === appointment.id} acceptingBookings={context.organization.accepting_bookings} />;
           })}</div>}
           </section>
@@ -324,7 +357,34 @@ function ReservationsContent() {
 
       {cancelTarget && <div className={styles.modalLayer} role="presentation"><button type="button" className={styles.backdrop} onClick={() => setCancelTarget(null)} aria-label="Fechar cancelamento" /><section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="cancel-title"><button type="button" className={styles.modalClose} onClick={() => setCancelTarget(null)} aria-label="Fechar"><X /></button><AlertTriangle className={styles.warning} /><h2 id="cancel-title">Cancelar reserva?</h2>{cancelBeforeDeadline ? <p>Cancelamento dentro do prazo devolve a sessão para <strong>Em aberto</strong>. Você poderá agendar novamente.</p> : <><p>O cancelamento após o prazo limite encerrará esta sessão. Você não poderá reagendar.</p><label style={{ display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={cancelAcknowledged} onChange={(event) => setCancelAcknowledged(event.target.checked)} /><span>Estou ciente</span></label></>}<label>Motivo <small>opcional</small><select value={cancelReason} onChange={(event) => setCancelReason(event.target.value)}><option value="">Selecione</option><option value="personal_unforeseen">Imprevisto pessoal</option><option value="need_another_time">Preciso de outro horário</option><option value="other">Outro</option></select></label>{modalError && <p className={styles.error} role="alert">{modalError}</p>}<footer><button type="button" className={styles.secondaryButton} onClick={() => setCancelTarget(null)}>Manter reserva</button><button type="button" className={styles.dangerButton} disabled={mutationBusy} onClick={() => void performCancel()}>{mutationBusy ? "Cancelando…" : "Confirmar cancelamento da sessão"}</button></footer></section></div>}
 
-      {rescheduleTarget && <div className={styles.modalLayer} role="presentation"><button type="button" className={styles.backdrop} onClick={() => setRescheduleTarget(null)} aria-label="Fechar reagendamento" /><section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="reschedule-title"><button type="button" className={styles.modalClose} onClick={() => setRescheduleTarget(null)} aria-label="Fechar"><X /></button><RotateCcw className={styles.rescheduleIcon} /><h2 id="reschedule-title">Reagendar {rescheduleTarget.subscription_session_id ? "sessão do plano" : "reserva"}</h2><p>{rescheduleTarget.subscription_scheduling_mode === "FIXED" ? "Escolha outro horário para esta sessão. O profissional e os serviços do plano serão mantidos. O reagendamento pode ser feito até 24 horas antes do horário atual." : "Escolha um novo horário. Sua reserva atual será mantida se a alteração não for concluída."}</p>{!(rescheduleTarget.subscription_session_id && rescheduleTarget.subscription_scheduling_mode === "FIXED") && <fieldset className={styles.rescheduleCatalog}><legend>{vocabulary.serviceLabel} ou pacote</legend><button type="button" className={!rescheduleChoiceId ? styles.selected : undefined} onClick={() => setRescheduleChoiceId("")}><strong>Manter itens atuais</strong><small>{rescheduleTarget.items.map((item) => item.service_name_snapshot).join(" + ")}</small></button>{catalogChoices(context).map((choice) => <button type="button" key={choice.id} className={rescheduleChoiceId === choice.id ? styles.selected : undefined} onClick={() => setRescheduleChoiceId(choice.id)}><strong>{choice.name}</strong><small>{formatMoney(choice.priceCents, context.organization.currency)}</small></button>)}</fieldset>}{rescheduleTarget.subscription_session_id && rescheduleTarget.subscription_scheduling_mode === "FIXED" ? <p><strong>{vocabulary.professionalLabel}:</strong> {context.barbers.find((item) => item.id === rescheduleTarget.barber_id)?.name ?? vocabulary.professionalLabel}</p> : <label>{vocabulary.professionalLabel}<select value={barberId} onChange={(event) => setBarberId(event.target.value)}><option value="">Selecione</option>{compatibleBarbers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{compatibleBarbers.length === 0 && <p className={styles.empty}>Nenhum profissional habilitado para esta seleção.</p>}<div className={styles.dates}>{dateOptions(timezone, 10).map((date) => <button type="button" key={date} className={localDate === date ? styles.selected : undefined} onClick={() => setLocalDate(date)}><small>{formatLocalDate(date, { weekday: "short" })}</small><strong>{date.slice(-2)}</strong></button>)}</div>{slotsLoading ? <p className={styles.loadingLine}><LoaderCircle className={styles.spin} /> Consultando…</p> : <div className={styles.slots}>{slots.filter((slot) => new Date(slot.starts_at).getTime() > currentTime).map((slot) => <button type="button" key={slot.starts_at} className={startsAt === slot.starts_at ? styles.selected : undefined} onClick={() => setStartsAt(slot.starts_at)}>{formatSlotTime(slot.starts_at, timezone)}</button>)}</div>}{!slotsLoading && !slots.some((slot) => new Date(slot.starts_at).getTime() > currentTime) && !modalError && <p className={styles.empty}>Nenhum horário futuro nesta data.</p>}{modalError && <p className={styles.error} role="alert">{modalError}</p>}<footer><button type="button" className={styles.secondaryButton} onClick={() => setRescheduleTarget(null)}>Voltar</button><button type="button" className={styles.primaryButton} disabled={!startsAt || (!rescheduleTarget.subscription_session_id && !barberId) || mutationBusy || Boolean(modalError)} onClick={() => void performReschedule()}>{mutationBusy ? "Reagendando…" : "Confirmar novo horário"}</button></footer></section></div>}
+      {rescheduleTarget && <div className={styles.modalLayer} role="presentation">
+        <button type="button" className={styles.backdrop} onClick={() => setRescheduleTarget(null)} aria-label="Fechar reagendamento" />
+        <section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="reschedule-title">
+          <button type="button" className={styles.modalClose} onClick={() => setRescheduleTarget(null)} aria-label="Fechar"><X /></button>
+          <RotateCcw className={styles.rescheduleIcon} />
+          <h2 id="reschedule-title">Reagendar {rescheduleTarget.subscription_session_id ? "sessão do plano" : "reserva"}</h2>
+          <p>{rescheduleTarget.subscription_scheduling_mode === "FIXED"
+            ? "Escolha profissional, data e horário livre. Reagendamento permitido entre 2 semanas antes e 2 semanas depois da data original da sessão."
+            : "Escolha um novo horário. Sua reserva atual será mantida se a alteração não for concluída."}</p>
+          {!(rescheduleTarget.subscription_session_id && rescheduleTarget.subscription_scheduling_mode === "FIXED") && <fieldset className={styles.rescheduleCatalog}>
+            <legend>{vocabulary.serviceLabel} ou pacote</legend>
+            <button type="button" className={!rescheduleChoiceId ? styles.selected : undefined} onClick={() => setRescheduleChoiceId("")}><strong>Manter itens atuais</strong><small>{rescheduleTarget.items.map((item) => item.service_name_snapshot).join(" + ")}</small></button>
+            {catalogChoices(context).map((choice) => <button type="button" key={choice.id} className={rescheduleChoiceId === choice.id ? styles.selected : undefined} onClick={() => setRescheduleChoiceId(choice.id)}><strong>{choice.name}</strong><small>{formatMoney(choice.priceCents, context.organization.currency)}</small></button>)}
+          </fieldset>}
+          <label>{vocabulary.professionalLabel}
+            <select value={barberId} onChange={(event) => { setBarberId(event.target.value); setStartsAt(""); }}>
+              <option value="">Selecione</option>{compatibleBarbers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          {compatibleBarbers.length === 0 && <p className={styles.empty}>Nenhum profissional habilitado para esta seleção.</p>}
+          <div className={styles.dates}>{rescheduleDates.map((date) => <button type="button" key={date} className={localDate === date ? styles.selected : undefined} onClick={() => { setLocalDate(date); setStartsAt(""); }}><small>{formatLocalDate(date, { weekday: "short" })}</small><strong>{date.slice(-2)}</strong></button>)}</div>
+          {rescheduleTarget.subscription_scheduling_mode === "FIXED" && rescheduleDates.length === 0 && <p className={styles.error} role="alert">Não há datas futuras dentro do limite de 2 semanas da sessão original.</p>}
+          {slotsLoading ? <p className={styles.loadingLine}><LoaderCircle className={styles.spin} /> Consultando horários…</p> : <div className={styles.slots}>{slots.filter((slot) => new Date(slot.starts_at).getTime() > currentTime).map((slot) => <button type="button" key={slot.starts_at} className={startsAt === slot.starts_at ? styles.selected : undefined} onClick={() => setStartsAt(slot.starts_at)}>{formatSlotTime(slot.starts_at, timezone)}</button>)}</div>}
+          {!slotsLoading && barberId && localDate && !slots.some((slot) => new Date(slot.starts_at).getTime() > currentTime) && !modalError && <p className={styles.empty}>Nenhum horário disponível nesta data. Confira a escala, bloqueios e atendimentos já marcados para o profissional.</p>}
+          {modalError && <p className={styles.error} role="alert">{modalError}</p>}
+          <footer><button type="button" className={styles.secondaryButton} onClick={() => setRescheduleTarget(null)}>Voltar</button><button type="button" className={styles.primaryButton} disabled={!startsAt || !barberId || mutationBusy || Boolean(modalError)} onClick={() => void performReschedule()}>{mutationBusy ? "Reagendando…" : "Confirmar novo horário"}</button></footer>
+        </section>
+      </div>}
     </div>
   );
 }
@@ -333,5 +393,15 @@ function ReservationCard({ appointment, timezone, barberName, onCancel, onResume
   const { startsAt, endsAt } = parsePostgresRange(appointment.service_period);
   const canCancel = ["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(appointment.status);
   const canResumePayment = appointment.status === "PENDING_PAYMENT" && Boolean(appointment.pending_payment_order_id);
-  return <article className={styles.reservationCard}><header><span data-status={appointment.status}><Check size={13} /> {appointmentStatusLabel(appointment)}</span><small>{appointment.payment_mode === "SUBSCRIPTION" ? "Plano de assinatura" : appointment.financial.financial_status.replaceAll("_", " ")}</small></header><div className={styles.reservationBody}><div className={styles.dateBox}><strong>{new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit" }).format(new Date(startsAt))}</strong><span>{new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, month: "short" }).format(new Date(startsAt))}</span></div><div><h2>{appointment.items.map((item) => item.service_name_snapshot).join(" + ") || "Reserva"}</h2><p><Clock3 size={15} /> {formatSlotTime(startsAt, timezone)}–{formatSlotTime(endsAt, timezone)} · {barberName}</p><small>{formatInstant(startsAt, timezone, { dateStyle: "full", timeStyle: undefined })}</small></div><dl>{appointment.payment_mode === "SUBSCRIPTION" ? <div><dt>Pagamento</dt><dd>Incluída no plano</dd></div> : <><div><dt>Total</dt><dd>{formatMoney(appointment.total_cents_snapshot, appointment.currency)}</dd></div><div><dt>Pago líquido</dt><dd>{formatMoney(appointment.financial.net_paid_cents, appointment.currency)}</dd></div><div><dt>Saldo</dt><dd>{formatMoney(appointment.financial.outstanding_cents, appointment.currency)}</dd></div></>}</dl></div>{(canCancel || canResumePayment || canReschedule) && <footer>{canCancel && <button type="button" className={styles.textButton} onClick={onCancel}>Cancelar</button>}{canReschedule && <button type="button" className={styles.textButton} onClick={onReschedule}>Reagendar sessão</button>}{canResumePayment && <button type="button" className={styles.primaryButton} disabled={paymentBusy} onClick={onResumePayment}>{paymentBusy ? "Abrindo…" : "Retomar pagamento"}</button>}</footer>}</article>;
+  return <article className={styles.reservationCard}>
+    <header><span data-status={appointment.status}><Check size={13} /> {appointmentStatusLabel(appointment)}</span><small>{appointment.payment_mode === "SUBSCRIPTION" ? "Plano de assinatura" : appointment.financial.financial_status.replaceAll("_", " ")}</small></header>
+    <div className={styles.reservationBody}>
+      <div className={styles.dateBox}><strong>{new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit" }).format(new Date(startsAt))}</strong><span>{new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, month: "short" }).format(new Date(startsAt))}</span></div>
+      <div><h2>{appointment.items.map((item) => item.service_name_snapshot).join(" + ") || "Reserva"}</h2><p><Clock3 size={15} /> {formatSlotTime(startsAt, timezone)}–{formatSlotTime(endsAt, timezone)} · {barberName}</p><small>{formatInstant(startsAt, timezone, { dateStyle: "full", timeStyle: undefined })}</small>
+        {appointment.subscription_has_overdue_installment && <small className={styles.error}>Reagendamento bloqueado: há parcela vencida neste plano.</small>}
+      </div>
+      <dl>{appointment.payment_mode === "SUBSCRIPTION" ? <div><dt>Pagamento</dt><dd>Incluída no plano</dd></div> : <><div><dt>Total</dt><dd>{formatMoney(appointment.total_cents_snapshot, appointment.currency)}</dd></div><div><dt>Pago líquido</dt><dd>{formatMoney(appointment.financial.net_paid_cents, appointment.currency)}</dd></div><div><dt>Saldo</dt><dd>{formatMoney(appointment.financial.outstanding_cents, appointment.currency)}</dd></div></>}</dl>
+    </div>
+    {(canCancel || canResumePayment || canReschedule) && <footer>{canCancel && <button type="button" className={styles.textButton} onClick={onCancel}>Cancelar</button>}{canReschedule && <button type="button" className={styles.textButton} onClick={onReschedule}>Reagendar sessão</button>}{canResumePayment && <button type="button" className={styles.primaryButton} disabled={paymentBusy} onClick={onResumePayment}>{paymentBusy ? "Abrindo…" : "Retomar pagamento"}</button>}</footer>}
+  </article>;
 }

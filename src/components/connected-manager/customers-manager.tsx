@@ -20,6 +20,7 @@ type LoadedProps = AwaitedReturn<typeof loadCustomersData>;
 type Props = Omit<
   LoadedProps,
   | "timezone"
+  | "organizationSlug"
   | "subscriptionBundlePlans"
   | "subscriptions"
   | "subscriptionCancellationRequests"
@@ -42,6 +43,7 @@ type Props = Omit<
     Pick<
       LoadedProps,
       | "subscriptions"
+      | "organizationSlug"
       | "subscriptionCancellationRequests"
       | "timezone"
       | "subscriptionBundlePlans"
@@ -73,6 +75,7 @@ type BundleSessionEditor = {
   barberId: string;
   observation: string;
   lateCancellation: boolean;
+  originalDate: string | null;
 };
 type BundleSessionSlot = { starts_at: string; ends_at: string };
 type BundleSessionAvailability = {
@@ -81,6 +84,19 @@ type BundleSessionAvailability = {
   failed: boolean;
   slots: BundleSessionSlot[];
 };
+type SubscriptionBookingAvailability = BundleSessionAvailability;
+
+function shiftLocalDate(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days, 12)).toISOString().slice(0, 10);
+}
+
+function rescheduleDateBounds(originalDate: string | null, today: string) {
+  if (!originalDate) return { min: today, max: undefined };
+  const lowerBound = shiftLocalDate(originalDate, -14);
+  const upperBound = shiftLocalDate(originalDate, 14);
+  return { min: today > lowerBound ? today : lowerBound, max: upperBound };
+}
 
 function dateInTimezone(date: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -357,6 +373,7 @@ function birthdayReminder(birthDate: string | null): string | null {
 
 export function CustomersManager({
   organizationId,
+  organizationSlug = "",
   timezone = "America/Sao_Paulo",
   customers,
   appointments,
@@ -434,6 +451,8 @@ export function CustomersManager({
   const [subscriptionBookingDate, setSubscriptionBookingDate] = useState("");
   const [subscriptionBookingTime, setSubscriptionBookingTime] = useState("09:00");
   const [subscriptionBookingBarberId, setSubscriptionBookingBarberId] = useState("");
+  const [subscriptionBookingSlotStartsAt, setSubscriptionBookingSlotStartsAt] = useState("");
+  const [subscriptionBookingAvailability, setSubscriptionBookingAvailability] = useState<SubscriptionBookingAvailability>({ key: "", loading: false, failed: false, slots: [] });
   const [subscriptionOverdueReason, setSubscriptionOverdueReason] = useState("");
   const [bundleOfferDraft, setBundleOfferDraft] = useState<BundleOfferDraft | null>(null);
   const [bundleOfferSending, setBundleOfferSending] = useState(false);
@@ -463,6 +482,57 @@ export function CustomersManager({
   const bundleAvailabilityLoading = bundleAvailabilityKey !== "" && (!bundleAvailabilityMatches || bundleSessionAvailability.loading);
   const availableBundleSlots = bundleAvailabilityMatches ? bundleSessionAvailability.slots : [];
   const selectedBundleSlot = availableBundleSlots.find((slot) => slot.starts_at === (bundleAvailabilityEditor?.slotStartsAt ?? "")) ?? null;
+  const subscriptionBookingAvailabilityKey = subscriptionBooking?.mode === "RESCHEDULE"
+    && organizationSlug && subscriptionBookingBarberId && subscriptionBookingDate
+    ? [organizationId, subscriptionBooking.sessionId, subscriptionBookingBarberId, subscriptionBookingDate].join("|")
+    : "";
+  const subscriptionBookingAvailabilityMatches = subscriptionBookingAvailabilityKey !== ""
+    && subscriptionBookingAvailability.key === subscriptionBookingAvailabilityKey;
+  const subscriptionBookingSlots = subscriptionBookingAvailabilityMatches
+    ? subscriptionBookingAvailability.slots
+    : [];
+
+  useEffect(() => {
+    if (!subscriptionBookingAvailabilityKey || !subscriptionBooking) {
+      setSubscriptionBookingAvailability({ key: "", loading: false, failed: false, slots: [] });
+      return;
+    }
+    const selections = subscriptionBooking.serviceIds.map((serviceId) => ({
+      type: "SERVICE",
+      service_id: serviceId,
+      quantity: 1,
+    }));
+    if (!selections.length) {
+      setSubscriptionBookingAvailability({ key: subscriptionBookingAvailabilityKey, loading: false, failed: true, slots: [] });
+      return;
+    }
+    let active = true;
+    setSubscriptionBookingAvailability({ key: subscriptionBookingAvailabilityKey, loading: true, failed: false, slots: [] });
+    void (async () => {
+      try {
+        const { data, error } = await connectedClient().rpc("get_available_slots", {
+          p_organization_slug: organizationSlug,
+          p_barber_id: subscriptionBookingBarberId,
+          p_local_date: subscriptionBookingDate,
+          p_selections: selections,
+        });
+        if (error) throw new Error(error.message);
+        const rawSlots = (data as { slots?: unknown } | null)?.slots;
+        const slots: BundleSessionSlot[] = Array.isArray(rawSlots)
+          ? rawSlots.flatMap((value: unknown) => {
+              if (typeof value !== "object" || value === null || !("starts_at" in value) || !("ends_at" in value)) return [];
+              const startsAt = value.starts_at;
+              const endsAt = value.ends_at;
+              return typeof startsAt === "string" && typeof endsAt === "string" ? [{ starts_at: startsAt, ends_at: endsAt }] : [];
+            })
+          : [];
+        if (active) setSubscriptionBookingAvailability({ key: subscriptionBookingAvailabilityKey, loading: false, failed: false, slots });
+      } catch {
+        if (active) setSubscriptionBookingAvailability({ key: subscriptionBookingAvailabilityKey, loading: false, failed: true, slots: [] });
+      }
+    })();
+    return () => { active = false; };
+  }, [organizationSlug, organizationId, subscriptionBookingAvailabilityKey, subscriptionBooking?.sessionId, subscriptionBooking?.serviceIds, subscriptionBookingBarberId, subscriptionBookingDate]);
 
   useEffect(() => {
     if (!bundleAvailabilityKey) {
@@ -1571,6 +1641,8 @@ export function CustomersManager({
       return;
     }
     const localStart = localDateTimeInputs(range.start, timezone);
+    const originalStart = String(session.rescheduled_from ?? range.start.toISOString());
+    const originalDate = localDateTimeInputs(new Date(originalStart), timezone).date;
     setSubscriptionBooking({
       mode: "RESCHEDULE",
       appointmentId,
@@ -1579,7 +1651,7 @@ export function CustomersManager({
       customerId: String(subscription.customer_id),
       sessionNumber: Number(session.session_number ?? 0),
       totalSessions: Number(version.sessions_per_cycle ?? 0),
-      referenceDate: localStart.date,
+      referenceDate: originalDate,
       planName: String(plan?.name ?? "Plano de assinatura"),
       serviceNames: planServices.map((item) => String(item.service_name_snapshot)),
       serviceIds: planServices.map((item) => String(item.service_id)),
@@ -1587,6 +1659,7 @@ export function CustomersManager({
     setSubscriptionBookingDate(localStart.date);
     setSubscriptionBookingTime(localStart.time);
     setSubscriptionBookingBarberId(appointment.barber_id);
+    setSubscriptionBookingSlotStartsAt("");
     setSubscriptionOverdueReason("");
   }
 
@@ -1597,13 +1670,17 @@ export function CustomersManager({
       setMessage,
       async () => {
         const startsAt = subscriptionBooking.mode === "RESCHEDULE"
-          ? localDateTimeToIso(`${subscriptionBookingDate}T${subscriptionBookingTime}`, timezone)
+          ? subscriptionBookingAvailabilityMatches
+            ? subscriptionBookingSlots.find((slot) => slot.starts_at === subscriptionBookingSlotStartsAt)?.starts_at
+            : null
           : new Date(`${subscriptionBookingDate}T${subscriptionBookingTime}:00`).toISOString();
+        if (!startsAt) throw new Error("Selecione um horário disponível dentro do limite permitido.");
         if (subscriptionBooking.mode === "RESCHEDULE" && subscriptionBooking.appointmentId) {
           await assertResult(await connectedClient().rpc("reschedule_fixed_customer_subscription_session", {
             p_organization_id: organizationId,
             p_subscription_session_id: subscriptionBooking.sessionId,
             p_new_starts_at: startsAt,
+            p_new_barber_id: subscriptionBookingBarberId,
           }));
           return;
         }
@@ -1651,6 +1728,10 @@ export function CustomersManager({
     const localStart = startsAt && !Number.isNaN(startsAt.valueOf())
       ? localDateTimeInputs(startsAt, timezone)
       : null;
+    const originalStartsAt = String(session?.rescheduled_from ?? session?.scheduled_for ?? session?.canceled_from ?? "");
+    const originalDate = originalStartsAt && !Number.isNaN(new Date(originalStartsAt).valueOf())
+      ? localDateTimeInputs(new Date(originalStartsAt), timezone).date
+      : null;
     const nextDay = new Date(todayTimestamp + 86_400_000);
     const defaultDate = dateInTimezone(nextDay, timezone);
     const currentBarberId = String(appointment?.barber_id ?? session?.substitute_barber_id ?? session?.barber_id ?? eligible[0].id);
@@ -1688,6 +1769,7 @@ export function CustomersManager({
       barberId: currentBarberId,
       observation: String(session?.cancellation_observation ?? ""),
       lateCancellation: action === "RESCHEDULE" && String(session?.status) === "CONSUMED",
+      originalDate,
     });
   }
 
@@ -2997,6 +3079,11 @@ export function CustomersManager({
           const eligible = subscription
             ? eligibleSubscriptionBarbers(serviceIds, String(subscription.plan_id ?? "") || undefined)
             : [];
+          const bundleDateBounds = rescheduleDateBounds(
+            bundleSessionEditor.action === "RESCHEDULE" ? bundleSessionEditor.originalDate : null,
+            todayInOrganization,
+          );
+          const bundleHasFutureDateInWindow = !bundleDateBounds.max || bundleDateBounds.min <= bundleDateBounds.max;
           const dialogTitle = bundleSessionEditor.action === "ADD"
             ? "Adicionar sessão cortesia"
             : bundleSessionEditor.action === "EDIT"
@@ -3025,7 +3112,7 @@ export function CustomersManager({
                 {bundleSessionEditor.action !== "EDIT" && <>
                   <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value, slotStartsAt: "" } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
                   <div className="form-grid">
-                    <label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={bundleSessionEditor.localDate} min={todayInOrganization} disabled={!bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localDate: event.target.value, slotStartsAt: "" } : current)} required /></span></label>
+                    <label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={bundleSessionEditor.localDate} min={bundleDateBounds.min} max={bundleDateBounds.max} disabled={!bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localDate: event.target.value, slotStartsAt: "" } : current)} required /></span></label>
                     <label>Horário disponível<span className="select-input"><select value={bundleSessionEditor.slotStartsAt} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, slotStartsAt: event.target.value } : current)} disabled={bundleAvailabilityLoading || bundleSessionAvailability.failed || availableBundleSlots.length === 0} required>
                       <option value="">{bundleAvailabilityLoading ? "Consultando horários…" : bundleSessionAvailability.failed && bundleAvailabilityMatches ? "Não foi possível consultar" : availableBundleSlots.length ? "Selecione um horário" : "Nenhum horário livre"}</option>
                       {availableBundleSlots.map((slot) => {
@@ -3035,8 +3122,9 @@ export function CustomersManager({
                       })}
                     </select><ChevronDown size={15} /></span></label>
                   </div>
-                  {bundleSessionAvailability.failed && bundleAvailabilityMatches && <p className={styles.subscriptionBookingHint} role="alert">Não foi possível consultar os horários disponíveis. Altere a data e tente novamente.</p>}
-                  {!bundleAvailabilityLoading && !bundleSessionAvailability.failed && bundleAvailabilityMatches && availableBundleSlots.length === 0 && <p className={styles.subscriptionBookingHint}>Não há horários livres para este profissional nesta data.</p>}
+                  {bundleSessionEditor.action === "RESCHEDULE" && !bundleHasFutureDateInWindow && <p className={styles.subscriptionBookingHint} role="alert">Não há datas futuras dentro do limite de 2 semanas da data original da sessão.</p>}
+                  {bundleSessionAvailability.failed && bundleAvailabilityMatches && <p className={styles.subscriptionBookingHint} role="alert">Não foi possível consultar disponibilidade. Confira o limite de 2 semanas, altere a data ou tente novamente.</p>}
+                  {!bundleAvailabilityLoading && !bundleSessionAvailability.failed && bundleAvailabilityMatches && availableBundleSlots.length === 0 && <p className={styles.subscriptionBookingHint}>Nenhum horário livre nesta data. Verifique escala, bloqueios e atendimentos já marcados.</p>}
                   {bundleSessionEditor.action === "ADD" && <p className={styles.subscriptionBookingHint}>A comissão seguirá a regra vigente do profissional escolhido. Nenhuma parcela será criada ou alterada.</p>}
                 </>}
               </div>
@@ -3055,6 +3143,11 @@ export function CustomersManager({
           const customer = customers.find((item) => item.id === subscriptionBooking.customerId);
           const currentSubscription = subscriptions.find((item) => String(item.id) === subscriptionBooking.subscriptionId);
           const eligible = eligibleSubscriptionBarbers(subscriptionBooking.serviceIds, String(currentSubscription?.plan_id ?? "") || undefined);
+          const bookingBounds = rescheduleDateBounds(
+            subscriptionBooking.mode === "RESCHEDULE" ? subscriptionBooking.referenceDate : null,
+            todayInOrganization,
+          );
+          const bookingHasFutureDateInWindow = !bookingBounds.max || bookingBounds.min <= bookingBounds.max;
           return <div className="modal-layer" role="presentation">
             <button className="modal-layer__backdrop" type="button" aria-label="Fechar reserva de assinatura" onClick={() => setSubscriptionBooking(null)} />
             <form className="form-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-booking-title" onSubmit={bookSubscriptionSession}>
@@ -3063,12 +3156,21 @@ export function CustomersManager({
                 <p className={styles.subscriptionBookingReference}>Sessão {subscriptionBooking.sessionNumber} de {subscriptionBooking.totalSessions} de {new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${subscriptionBooking.referenceDate}T12:00:00`))}</p>
                 <label>Cliente<span className="input-shell"><UserRound size={17} /><input value={customer?.full_name ?? "Cliente"} readOnly /></span></label>
                 <label>Serviço ou pacote<span className="input-shell"><input value={subscriptionBooking.planName} readOnly /></span></label>
-                <label>Profissional<span className="select-input"><select value={subscriptionBookingBarberId} onChange={(event) => setSubscriptionBookingBarberId(event.target.value)} required disabled={subscriptionBooking.mode === "RESCHEDULE"}><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
-                <div className="form-grid"><label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={subscriptionBookingDate} onChange={(event) => setSubscriptionBookingDate(event.target.value)} required /></span></label><label>Horário<span className="input-shell"><Clock3 size={17} /><input type="time" value={subscriptionBookingTime} onChange={(event) => setSubscriptionBookingTime(event.target.value)} step={15 * 60} required /></span></label></div>
-                <p className={styles.subscriptionBookingHint}>{subscriptionBooking.mode === "RESCHEDULE" ? "O reagendamento mantém o profissional, os serviços e a cobrança da sessão." : "O cliente e o serviço pertencem ao plano e não podem ser alterados."}</p>
+                <label>Profissional<span className="select-input"><select value={subscriptionBookingBarberId} onChange={(event) => { setSubscriptionBookingBarberId(event.target.value); setSubscriptionBookingSlotStartsAt(""); }} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
+                <div className="form-grid"><label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={subscriptionBookingDate} min={bookingBounds.min} max={bookingBounds.max} onChange={(event) => { setSubscriptionBookingDate(event.target.value); setSubscriptionBookingSlotStartsAt(""); }} required /></span></label>
+                  {subscriptionBooking.mode === "RESCHEDULE"
+                    ? <label>Horário disponível<span className="select-input"><select value={subscriptionBookingSlotStartsAt} onChange={(event) => setSubscriptionBookingSlotStartsAt(event.target.value)} disabled={subscriptionBookingAvailability.loading || subscriptionBookingAvailability.failed || subscriptionBookingSlots.length === 0} required><option value="">{subscriptionBookingAvailability.loading ? "Consultando horários…" : subscriptionBookingAvailability.failed ? "Não foi possível consultar" : subscriptionBookingSlots.length ? "Selecione um horário" : "Nenhum horário livre"}</option>{subscriptionBookingSlots.map((slot) => <option key={slot.starts_at} value={slot.starts_at}>{localDateTimeInputs(new Date(slot.starts_at), timezone).time}–{localDateTimeInputs(new Date(slot.ends_at), timezone).time}</option>)}</select><ChevronDown size={15} /></span></label>
+                    : <label>Horário<span className="input-shell"><Clock3 size={17} /><input type="time" value={subscriptionBookingTime} onChange={(event) => setSubscriptionBookingTime(event.target.value)} step={15 * 60} required /></span></label>}
+                </div>
+                {subscriptionBooking.mode === "RESCHEDULE"
+                  ? <p className={styles.subscriptionBookingHint}>Escolha horário livre na escala do profissional. Reagendamento permitido entre 2 semanas antes e 2 semanas depois da data original.</p>
+                  : <p className={styles.subscriptionBookingHint}>O cliente e o serviço pertencem ao plano e não podem ser alterados.</p>}
+                {subscriptionBooking.mode === "RESCHEDULE" && !bookingHasFutureDateInWindow && <p className={styles.subscriptionBookingHint} role="alert">Não há datas futuras dentro do limite de 2 semanas da data original da sessão.</p>}
+                {subscriptionBooking.mode === "RESCHEDULE" && subscriptionBookingAvailability.failed && subscriptionBookingAvailabilityMatches && <p className={styles.subscriptionBookingHint} role="alert">Não foi possível consultar disponibilidade. Altere a data ou o profissional e tente novamente.</p>}
+                {subscriptionBooking.mode === "RESCHEDULE" && !subscriptionBookingAvailability.loading && !subscriptionBookingAvailability.failed && subscriptionBookingAvailabilityMatches && subscriptionBookingSlots.length === 0 && <p className={styles.subscriptionBookingHint}>Nenhum horário livre nesta data. Verifique escala, bloqueios e atendimentos já marcados.</p>}
                 {subscriptionBooking.mode === "BOOK" && <label>Motivo de exceção por parcela vencida (apenas se necessário)<span className="input-shell"><textarea value={subscriptionOverdueReason} onChange={(event) => setSubscriptionOverdueReason(event.target.value)} minLength={5} maxLength={1000} placeholder="Informe o motivo para liberar este agendamento" /></span></label>}
               </div>
-              <div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={() => setSubscriptionBooking(null)}>Cancelar</button><button type="submit" className="button button--dark"><Check size={17} /> {subscriptionBooking.mode === "RESCHEDULE" ? "Confirmar reagendamento" : "Agendar sessão"}</button></div>
+              <div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={() => setSubscriptionBooking(null)}>Cancelar</button><button type="submit" className="button button--dark" disabled={subscriptionBooking.mode === "RESCHEDULE" && (!subscriptionBookingSlotStartsAt || !subscriptionBookingAvailabilityMatches || subscriptionBookingAvailability.loading || subscriptionBookingAvailability.failed)}><Check size={17} /> {subscriptionBooking.mode === "RESCHEDULE" ? "Confirmar reagendamento" : "Agendar sessão"}</button></div>
             </form>
           </div>;
         })()}
