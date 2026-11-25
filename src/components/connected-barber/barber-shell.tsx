@@ -118,7 +118,7 @@ export function BarberShell({ context, children }: { context: BarberAppContext; 
         <button className="icon-button manager-topbar__menu" type="button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={21} /></button>
         <div className="manager-topbar__mobile-brand"><Brand href={link("/barbeiro/agenda")} compact name={brandName} mark={identity?.brand.mark} logoUrl={identity?.brand.logoUrl} /><span><strong>{context.organization_name}</strong><small>Acesso ao {organizationName}</small></span></div>
         <button type="button" className="global-search" aria-label="Buscar na agenda"><Search size={18} /><span>Buscar {customerPlural}, agendamento...</span><kbd>Ctrl K</kbd></button>
-        <div className="manager-topbar__actions"><button type="button" className="icon-button notification-button" aria-label="Notificações"><Bell size={19} /></button><Avatar initials={currentInitials} tone="amber" size="sm" /></div>
+        <div className="manager-topbar__actions"><button type="button" className="icon-button notification-button" aria-label="Notificações"><Bell size={19} /></button></div>
       </header>
       <main className="manager-main">{children}</main>
     </div>

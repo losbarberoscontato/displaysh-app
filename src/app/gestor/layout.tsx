@@ -50,7 +50,6 @@ export default async function GestorLayout({ children }: { children: React.React
   // reachable so CANCELED_RETENTION can export data; CLOSED sees it disabled.
 
   let organizationName = productKey === "ateliepro" ? "Seu ateliê" : productKey === "pro-stetic" ? "Seu estúdio" : productKey === "music-pro" ? "Sua escola" : productKey === "le-gras" ? "Seu estúdio" : "Sua barbearia";
-  let organizationLogoUrl: string | undefined;
   let locationName = "Unidade principal";
   let userName = "Gestor";
   let projectsModuleEnabled = false;
@@ -61,7 +60,7 @@ export default async function GestorLayout({ children }: { children: React.React
     const supabase = await getSupabaseServerClient();
     if (supabase) {
       const [{ data: organization }, { data: location }, { data: profile }, { data: projectsModule }, { data: kanbanModule }, { data: assignment }] = await Promise.all([
-        supabase.from("organizations").select("name,timezone,logo_path").eq("id", context.organizationId).maybeSingle(),
+        supabase.from("organizations").select("name,timezone").eq("id", context.organizationId).maybeSingle(),
         supabase.from("locations").select("name").eq("organization_id", context.organizationId).eq("active", true).maybeSingle(),
         supabase.from("profiles").select("display_name").eq("id", context.userId).maybeSingle(),
         supabase.from("organization_module_entitlements").select("enabled").eq("organization_id", context.organizationId).eq("module_key", "projects").maybeSingle(),
@@ -77,9 +76,6 @@ export default async function GestorLayout({ children }: { children: React.React
         }
       }
       organizationName = organization?.name ?? organizationName;
-      if (organization?.logo_path) {
-        organizationLogoUrl = supabase.storage.from("organization-logos").getPublicUrl(organization.logo_path).data.publicUrl;
-      }
       locationName = location?.name ?? locationName;
       userName = profile?.display_name ?? userName;
       projectsModuleEnabled = Boolean(projectsModule?.enabled);
@@ -89,7 +85,7 @@ export default async function GestorLayout({ children }: { children: React.React
   }
 
   return (
-    <ManagerShell agendaCount={agendaCount} organizationId={context?.organizationId} demoMode={!hasSupabaseConfig} projectsModuleEnabled={hasSupabaseConfig ? projectsModuleEnabled : true} kanbanModuleEnabled={kanbanModuleEnabled} billingBlocked={context?.billingStatus === "BLOCKED"} organizationName={hasSupabaseConfig ? organizationName : "Los Barberos"} organizationLogoUrl={organizationLogoUrl} locationName={hasSupabaseConfig ? locationName : "Vila Madalena"} userName={hasSupabaseConfig ? userName : "Guilherme Castro"} identity={identity} productKey={productKey}>
+    <ManagerShell agendaCount={agendaCount} organizationId={context?.organizationId} demoMode={!hasSupabaseConfig} projectsModuleEnabled={hasSupabaseConfig ? projectsModuleEnabled : true} kanbanModuleEnabled={kanbanModuleEnabled} billingBlocked={context?.billingStatus === "BLOCKED"} organizationName={hasSupabaseConfig ? organizationName : "Los Barberos"} locationName={hasSupabaseConfig ? locationName : "Vila Madalena"} userName={hasSupabaseConfig ? userName : "Guilherme Castro"} identity={identity} productKey={productKey}>
       {children}
     </ManagerShell>
   );

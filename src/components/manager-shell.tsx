@@ -6,7 +6,6 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   Bell,
   CalendarDays,
-  ChevronDown,
   CircleHelp,
   CreditCard,
   FolderKanban,
@@ -29,7 +28,6 @@ import { ATELIE_PRO_IDENTITY_FALLBACK, LE_GRAS_IDENTITY_FALLBACK, MUSIC_PRO_IDEN
 import { systemLoginHref } from "@/lib/system-auth";
 import type { ProductKey } from "@/lib/product-context";
 import { productBillingPath } from "@/lib/product-routes";
-import { getProductVocabulary } from "@/lib/product-vocabulary";
 import { showManagerError } from "@/components/manager-error-dialog";
 
 const navigation = [
@@ -126,34 +124,12 @@ function ManagerNavigation({ onNavigate, agendaCount, projectsModuleEnabled, kan
   );
 }
 
-function OrganizationSwitcher({ organizationName, locationName, organizationLogoUrl, onClick, showNotice, organizationTerm = "barbearia", brandMark = "LB" }: { organizationName: string; locationName: string; organizationLogoUrl?: string; onClick: () => void; showNotice: boolean; organizationTerm?: string; brandMark?: string }) {
-  return <div className="organization-switcher-wrap">
-    <button className="organization-switcher" type="button" aria-label={`Trocar ${organizationTerm}`} onClick={onClick}>
-      <span
-        className={`organization-switcher__mark${organizationLogoUrl ? " organization-switcher__mark--logo" : ""}`}
-        aria-label={organizationLogoUrl ? `Logo de ${organizationName}` : undefined}
-        role={organizationLogoUrl ? "img" : undefined}
-        style={organizationLogoUrl ? { backgroundImage: `url("${organizationLogoUrl}")` } : undefined}
-      >
-        {!organizationLogoUrl && brandMark}
-      </span>
-      <span>
-        <strong>{organizationName}</strong>
-        <small>{locationName}</small>
-      </span>
-      <ChevronDown size={16} />
-    </button>
-    {showNotice && <p className="organization-switcher__notice" role="status">Em breve, você poderá alternar entre as unidades desta organização.</p>}
-  </div>;
-}
-
 type ManagerNotification = { id: string; title: string; body: string; href: string; read_at: string | null; created_at: string };
 
-export function ManagerShell({ children, demoMode = false, billingBlocked = false, projectsModuleEnabled = false, kanbanModuleEnabled = false, organizationId, organizationName = "Sua barbearia", organizationLogoUrl, locationName = "Unidade principal", userName = "Gestor", agendaCount = 0, identity, productKey = "los-barberos" }: { children: React.ReactNode; demoMode?: boolean; billingBlocked?: boolean; projectsModuleEnabled?: boolean; kanbanModuleEnabled?: boolean; organizationId?: string | null; organizationName?: string; organizationLogoUrl?: string; locationName?: string; userName?: string; agendaCount?: number; identity?: ProductIdentityConfig; productKey?: ProductKey }) {
+export function ManagerShell({ children, demoMode = false, billingBlocked = false, projectsModuleEnabled = false, kanbanModuleEnabled = false, organizationId, organizationName = "Sua barbearia", locationName = "Unidade principal", userName = "Gestor", agendaCount = 0, identity, productKey = "los-barberos" }: { children: React.ReactNode; demoMode?: boolean; billingBlocked?: boolean; projectsModuleEnabled?: boolean; kanbanModuleEnabled?: boolean; organizationId?: string | null; organizationName?: string; organizationLogoUrl?: string; locationName?: string; userName?: string; agendaCount?: number; identity?: ProductIdentityConfig; productKey?: ProductKey }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const [organizationNotice, setOrganizationNotice] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<ManagerNotification[]>([]);
   const [notificationsOrganizationId, setNotificationsOrganizationId] = useState<string | null>(null);
@@ -264,7 +240,6 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
   }
 
   const effectiveIdentity = identity ?? (productKey === "ateliepro" ? ATELIE_PRO_IDENTITY_FALLBACK : productKey === "le-gras" ? LE_GRAS_IDENTITY_FALLBACK : productKey === "music-pro" ? MUSIC_PRO_IDENTITY_FALLBACK : productKey === "pro-stetic" ? PRO_STETIC_IDENTITY_FALLBACK : undefined);
-  const organizationTerm = getProductVocabulary(productKey, effectiveIdentity?.vocabulary).organization;
   const identityStyle = productIdentityStyle(effectiveIdentity);
 
   const managerProfile = (
@@ -297,7 +272,6 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
         <div className="manager-sidebar__brand">
           <Brand href="/gestor" light name={effectiveIdentity?.brand.name} tagline={effectiveIdentity?.brand.tagline} mark={effectiveIdentity?.brand.mark} logoUrl={effectiveIdentity?.brand.logoUrl} />
         </div>
-          <OrganizationSwitcher organizationName={organizationName} locationName={locationName} organizationLogoUrl={organizationLogoUrl} onClick={() => setOrganizationNotice((visible) => !visible)} showNotice={organizationNotice} organizationTerm={organizationTerm} brandMark={effectiveIdentity?.brand.mark} />
         <ManagerNavigation agendaCount={agendaCount} projectsModuleEnabled={projectsModuleEnabled} kanbanModuleEnabled={kanbanModuleEnabled} productKey={productKey} />
         <div className="manager-sidebar__footer">
           {managerProfile}
@@ -319,7 +293,6 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
             <X size={20} />
           </button>
         </div>
-        <OrganizationSwitcher organizationName={organizationName} locationName={locationName} organizationLogoUrl={organizationLogoUrl} onClick={() => setOrganizationNotice((visible) => !visible)} showNotice={organizationNotice} organizationTerm={organizationTerm} brandMark={effectiveIdentity?.brand.mark} />
         <ManagerNavigation agendaCount={agendaCount} projectsModuleEnabled={projectsModuleEnabled} kanbanModuleEnabled={kanbanModuleEnabled} productKey={productKey} onNavigate={() => setMenuOpen(false)} />
         <div className="manager-sidebar__footer">
           {managerProfile}
@@ -352,7 +325,6 @@ export function ManagerShell({ children, demoMode = false, billingBlocked = fals
               </button>}
               {visibleNotifications.length === 0 ? <p className="manager-notifications-popover__empty">Nenhuma notificação pendente.</p> : <div className="manager-notifications-popover__list">{visibleNotifications.map((notification) => <button type="button" key={notification.id} className="manager-notification" onClick={() => void openNotification(notification)}><strong>{notification.title}</strong><span>{notification.body}</span><small>{new Date(notification.created_at).toLocaleString("pt-BR")}</small></button>)}</div>}
             </div>}
-            <Avatar initials="GC" tone="amber" size="sm" />
           </div>
         </header>
         {demoMode && <div className="demo-mode-banner"><Sparkles size={14} /><span><strong>Modo demonstração</strong> · dados locais para explorar a interface</span></div>}

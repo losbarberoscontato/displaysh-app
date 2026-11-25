@@ -26,7 +26,7 @@ export function AdminDashboard({ demoMode = false }: { demoMode?: boolean }) {
         <div className="admin-sidebar__footer"><span><small>Ambiente</small><strong><i /> Produção</strong></span><Link href="/"><LogOut size={17} /> Sair</Link></div>
       </aside>
       <div className="admin-workspace">
-        <header className="admin-topbar"><div><span className="admin-mobile-mark">LB</span><strong>Control plane</strong><small>/ visão geral</small></div><label className="admin-global-search"><Search size={17} /><input placeholder="Buscar tenant, owner ou ID" /></label><button type="button" className="icon-button notification-button"><Bell size={18} /><span /></button><Avatar initials="JA" tone="ink" size="sm" /></header>
+        <header className="admin-topbar"><div><span className="admin-mobile-mark">LB</span><strong>Control plane</strong><small>/ visão geral</small></div><label className="admin-global-search"><Search size={17} /><input placeholder="Buscar tenant, owner ou ID" /></label><button type="button" className="icon-button notification-button"><Bell size={18} /><span /></button></header>
         <main className="admin-main">
           {demoMode && <div className="demo-mode-banner demo-mode-banner--admin"><ShieldCheck size={14} /><span><strong>Modo demonstração</strong> · control plane sem conexão remota</span></div>}
           <header className="admin-page-heading"><div><span className="eyebrow">Control plane</span><h1>Operação Los Barberos</h1><p>Saúde da plataforma, tenants e assinaturas em um só lugar.</p></div><span className="admin-live"><i /> Sistemas operacionais</span></header>
