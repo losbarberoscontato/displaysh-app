@@ -276,11 +276,19 @@
 .subscriptionInstallment strong { color: #24342d; font-size: 1.05rem; }
 .subscriptionFinanceTableWrap { min-width: 0; }
 .subscriptionFinanceTableScroll { overflow-x: auto; border: 1px solid #e1e8df; border-radius: 14px; background: #fff; }
-.subscriptionFinanceTable { width: 100%; min-width: 850px; border-collapse: collapse; font-size: .8rem; }
+.subscriptionFinanceTable { width: 100%; min-width: 1420px; border-collapse: collapse; font-size: .8rem; }
 .subscriptionFinanceTable th, .subscriptionFinanceTable td { padding: .7rem .75rem; border-bottom: 1px solid #edf0eb; text-align: left; vertical-align: middle; }
 .subscriptionFinanceTable th { background: #f3f7f2; color: #536259; font-size: .72rem; white-space: nowrap; }
 .subscriptionFinanceTable tr:last-child td { border-bottom: 0; }
 .subscriptionFinanceStatus { display: inline-flex; width: max-content; padding: .25rem .5rem; border-radius: 999px; background: #eef4ec; color: #45634c; font-size: .72rem; font-weight: 800; white-space: nowrap; }
+.subscriptionFinanceCellList { display: grid; gap: .2rem; min-width: 5.5rem; }
+.subscriptionFinanceCellList span { white-space: nowrap; }
+.subscriptionFinanceStatusOpen { background: #fff1dc; color: #9a6100; }
+.subscriptionFinanceStatusPaid { background: #e9f5ec; color: #287448; }
+.subscriptionFinanceStatusOverdue { background: #fce9e7; color: #ad352d; }
+.subscriptionFinanceStatusCanceled { background: #f0f1ef; color: #747c76; }
+.subscriptionFinanceOverdueRow td { background: #fff2f0; color: #8e302a; border-bottom-color: #f3cbc6; }
+.subscriptionFinanceOverdueRow td:first-child { box-shadow: inset 3px 0 0 #c94339; }
 .subscriptionFinanceActions { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
 .subscriptionFinanceActions .button { min-height: 2rem; padding: .4rem .55rem; font-size: .72rem; }
 .chartColumns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: 1rem; }
@@ -1119,7 +1127,7 @@ button.commissionRow:hover { border-color: #9ab297; background: #f8faf7; }
   .subscriptionControlBody { max-height: calc(100dvh - 8rem); padding: 1rem; }
   .subscriptionControlTabs { position: sticky; top: -1rem; z-index: 2; background: #fbfcfa; }
   .subscriptionControlTab, .subscriptionControlTabActive { flex: 1 1 auto; }
-  .subscriptionFinanceTable { min-width: 800px; }
+  .subscriptionFinanceTable { min-width: 1420px; }
   .subscriptionSessionTable { min-width: 1180px; }
   .formCompactSchedule { grid-template-columns: 1fr; }
   .subscriptionMonthTitle { align-items: flex-start; flex-direction: column; gap: .25rem; }

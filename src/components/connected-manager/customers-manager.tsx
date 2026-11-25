@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarClock, CalendarDays, CalendarPlus, Check, ChevronDown, Clock3, Pencil, Plus, Save, Trash2, UserRound, UserPlus, X } from "lucide-react";
+import { CalendarClock, CalendarDays, CalendarPlus, Check, ChevronDown, CircleDollarSign, Clock3, Pencil, Plus, Save, Trash2, UserRound, UserPlus, X } from "lucide-react";
 import { PageHeader } from "@/components/ui";
 import type { loadCustomersData } from "./server";
 import type { AwaitedReturn } from "./utility-types";
@@ -78,6 +78,22 @@ type BundleSessionEditor = {
   originalDate: string | null;
 };
 type BundleSessionSlot = { starts_at: string; ends_at: string };
+type BundleExtraInstallmentDraft = {
+  subscriptionId: string;
+  installmentNumber: number;
+  amount: string;
+  issueOn: string;
+  dueOn: string;
+  method: string;
+  chartAccountId: string;
+  financialAccountId: string;
+  costCenterId: string;
+  documentNumber: string;
+  tagIds: string[];
+  description: string;
+  observations: string;
+  idempotencyKey: string;
+};
 type BundleSessionAvailability = {
   key: string;
   loading: boolean;
@@ -427,6 +443,8 @@ export function CustomersManager({
   const [subscriptionControlTab, setSubscriptionControlTab] = useState<"SESSIONS" | "FINANCE" | "SUMMARY">("SESSIONS");
   const [subscriptionBundleContracts, setSubscriptionBundleContracts] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleInstallments, setSubscriptionBundleInstallments] = useState<Array<Record<string, unknown>>>([]);
+  const [subscriptionBundleSettlementUsers, setSubscriptionBundleSettlementUsers] = useState<Record<string, string>>({});
+  const [subscriptionLegacySettlements, setSubscriptionLegacySettlements] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleSessions, setSubscriptionBundleSessions] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleAppointments, setSubscriptionBundleAppointments] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleAppointmentItems, setSubscriptionBundleAppointmentItems] = useState<Array<Record<string, unknown>>>([]);
@@ -444,6 +462,8 @@ export function CustomersManager({
   const [subscriptionCycleDeleteTarget, setSubscriptionCycleDeleteTarget] = useState<Record<string, unknown> | null>(null);
   const [deletingSubscriptionCycle, setDeletingSubscriptionCycle] = useState(false);
   const [subscriptionBundleInstallmentDeleteTarget, setSubscriptionBundleInstallmentDeleteTarget] = useState<Record<string, unknown> | null>(null);
+  const [bundleExtraInstallmentDraft, setBundleExtraInstallmentDraft] = useState<BundleExtraInstallmentDraft | null>(null);
+  const [savingBundleExtraInstallment, setSavingBundleExtraInstallment] = useState(false);
   const [subscriptionInstallmentEdit, setSubscriptionInstallmentEdit] = useState<{ kind: "LEGACY" | "BUNDLE"; subscriptionId: string; installmentId: string; amount: string; dueOn: string } | null>(null);
   const [savingSubscriptionInstallmentEdit, setSavingSubscriptionInstallmentEdit] = useState(false);
   const [subscriptionCancellationDraft, setSubscriptionCancellationDraft] = useState<SubscriptionCancellationDraft | null>(null);
@@ -640,19 +660,25 @@ export function CustomersManager({
       const [entries, settlements] = entryIds.length > 0
         ? await Promise.all([
             connectedClient().from("financial_entries").select("id,canceled_at,total_cents,due_date").eq("organization_id", organizationId).in("id", entryIds),
-            connectedClient().from("financial_settlements").select("id,entry_id,amount_cents,settled_on,payment_method,reference,kind").eq("organization_id", organizationId).in("entry_id", entryIds).order("settled_on"),
+            connectedClient().from("financial_settlements").select("id,entry_id,financial_account_id,created_by,amount_cents,settled_on,payment_method,reference,kind").eq("organization_id", organizationId).in("entry_id", entryIds).order("settled_on"),
           ])
         : [{ data: [], error: null }, { data: [], error: null }];
       if (entries.error || settlements.error) {
         setMessage(`Não foi possível carregar os recebimentos das parcelas: ${entries.error?.message ?? settlements.error?.message}`);
         return;
       }
+      const settlementUserIds = [...new Set(((settlements.data ?? []) as Array<Record<string, unknown>>).map((item) => String(item.created_by ?? "")).filter(Boolean))];
+      const settlementProfiles = settlementUserIds.length > 0
+        ? await connectedClient().from("profiles").select("id,display_name").in("id", settlementUserIds)
+        : { data: [], error: null };
+      const settlementUserNames = Object.fromEntries(((settlementProfiles.data ?? []) as Array<{ id: string; display_name?: string | null }>).map((profile) => [profile.id, profile.display_name || "Usuário"]));
       const entriesById = new Map(((entries.data ?? []) as Array<Record<string, unknown>>).map((entry) => [String(entry.id), entry]));
       const settlementsByEntry = new Map<string, Array<Record<string, unknown>>>();
       for (const settlement of (settlements.data ?? []) as Array<Record<string, unknown>>) {
         const entryId = String(settlement.entry_id ?? "");
         settlementsByEntry.set(entryId, [...(settlementsByEntry.get(entryId) ?? []), settlement]);
       }
+      setSubscriptionBundleSettlementUsers(settlementUserNames);
       setSubscriptionBundleContracts(contract.data ? [contract.data as Record<string, unknown>] : []);
       setSubscriptionBundleInstallments(installmentRows.map((installment) => ({
         ...installment,
@@ -670,6 +696,56 @@ export function CustomersManager({
     });
     return () => { active = false; };
   }, [organizationId, subscriptionControlId, subscriptions, subscriptionBundleRefresh]);
+  useEffect(() => {
+    const subscription = subscriptions.find((item) => String(item.id) === subscriptionControlId);
+    const version = subscription?.plan_version as { model?: string } | null | undefined;
+    if (!subscriptionControlId || version?.model === "SESSION_BUNDLE_V1") return;
+    let active = true;
+    void (async () => {
+      const { data: cycles, error: cyclesError } = await connectedClient().from("customer_subscription_cycles")
+        .select("id,financial_entry_id")
+        .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId);
+      if (!active) return;
+      if (cyclesError) {
+        setMessage(`Não foi possível carregar os recebimentos das parcelas: ${cyclesError.message}`);
+        return;
+      }
+      const cycleRows = (cycles ?? []) as Array<Record<string, unknown>>;
+      const entryIds = [...new Set(cycleRows.map((cycle) => String(cycle.financial_entry_id ?? "")).filter(Boolean))];
+      const [settlements, profiles] = entryIds.length > 0
+        ? await (async () => {
+            const { data, error } = await connectedClient().from("financial_settlements")
+              .select("id,entry_id,financial_account_id,created_by,amount_cents,settled_on,payment_method,kind")
+              .eq("organization_id", organizationId).in("entry_id", entryIds).order("settled_on");
+            if (error) return [{ data: null, error }, { data: [], error: null }];
+            const userIds = [...new Set(((data ?? []) as Array<Record<string, unknown>>).map((item) => String(item.created_by ?? "")).filter(Boolean))];
+            const profileResult = userIds.length > 0
+              ? await connectedClient().from("profiles").select("id,display_name").in("id", userIds)
+              : { data: [], error: null };
+            return [{ data, error: null }, profileResult];
+          })()
+        : [{ data: [], error: null }, { data: [], error: null }];
+      if (!active) return;
+      if (settlements.error) {
+        setMessage(`Não foi possível carregar os recebimentos das parcelas: ${settlements.error.message}`);
+        return;
+      }
+      const byEntry = new Map<string, Array<Record<string, unknown>>>();
+      for (const settlement of (settlements.data ?? []) as Array<Record<string, unknown>>) {
+        const entryId = String(settlement.entry_id ?? "");
+        byEntry.set(entryId, [...(byEntry.get(entryId) ?? []), settlement]);
+      }
+      const profileNames = Object.fromEntries(((profiles.data ?? []) as Array<{ id: string; display_name?: string | null }>).map((profile) => [profile.id, profile.display_name || "Usuário"]));
+      setSubscriptionBundleSettlementUsers((current) => ({ ...current, ...profileNames }));
+      setSubscriptionLegacySettlements(cycleRows.map((cycle) => ({
+        cycle_id: String(cycle.id),
+        settlements: byEntry.get(String(cycle.financial_entry_id ?? "")) ?? [],
+      })));
+    })().catch((cause: unknown) => {
+      if (active) setMessage(cause instanceof Error ? cause.message : "Não foi possível carregar os recebimentos das parcelas.");
+    });
+    return () => { active = false; };
+  }, [organizationId, subscriptionControlId, subscriptions]);
   useEffect(() => {
     if (subscriptionControlId) setSubscriptionControlTab("SESSIONS");
   }, [subscriptionControlId]);
@@ -1273,6 +1349,80 @@ export function CustomersManager({
   function openBundlePaymentDialog(subscriptionId: string, installment: Record<string, unknown>, method: string) {
     setPaymentTarget({ kind: "BUNDLE", subscriptionId, installmentId: String(installment.id), amountCents: Number(installment.amount_cents ?? 0), dueOn: String(installment.due_on ?? ""), idempotencyKey: `manager-bundle-payment-${crypto.randomUUID()}` });
     preparePaymentReceipt(subscriptionId, installment.installment_number, method, String(installment.kind ?? "INSTALLMENT"));
+  }
+
+  function openExtraInstallmentDialog(subscriptionId: string, subscription: Record<string, unknown>) {
+    const installments = subscriptionBundleInstallments.filter((item) => String(item.subscription_id) === subscriptionId);
+    const installmentNumber = Math.max(0, ...installments.map((item) => Number(item.installment_number ?? 0))) + 1;
+    if (installmentNumber > 300) {
+      showManagerError("Este contrato já atingiu o limite de parcelas extras.");
+      return;
+    }
+    const lastInstallment = [...installments].sort((left, right) => Number(right.installment_number ?? 0) - Number(left.installment_number ?? 0))[0];
+    const contract = subscriptionBundleContracts.find((item) => String(item.subscription_id) === subscriptionId);
+    const contractNumber = String(subscription.contract_number ?? subscriptionId.slice(0, 8).toUpperCase());
+    const plan = subscription.plan as { name?: string } | null;
+    const dueCandidate = lastInstallment?.due_on ? addMonthClamped(String(lastInstallment.due_on)) : addMonthClamped(todayInOrganization);
+    const dueOn = dueCandidate < todayInOrganization ? todayInOrganization : dueCandidate;
+    const revenueAccount = (chartAccounts as Array<{ id: string; kind?: string; active?: boolean; code?: string | null; name?: string }>).find((item) => item.active && item.kind === "REVENUE" && (item.code === "1" || /receita/i.test(item.name ?? "")))
+      ?? (chartAccounts as Array<{ id: string; kind?: string; active?: boolean }>).find((item) => item.active && item.kind === "REVENUE");
+    const defaultAmount = Number(lastInstallment?.amount_cents ?? contract?.total_price_cents ?? 0);
+    setBundleExtraInstallmentDraft({
+      subscriptionId,
+      installmentNumber,
+      amount: bundleMoneyInput(defaultAmount),
+      issueOn: todayInOrganization,
+      dueOn,
+      method: String(subscription.payment_method ?? "CASH"),
+      chartAccountId: String(revenueAccount?.id ?? ""),
+      financialAccountId: String(financialAccounts.find((item) => item.active)?.id ?? ""),
+      costCenterId: "",
+      documentNumber: `SUB-${subscriptionId.slice(0, 8).toUpperCase()}-${installmentNumber}`,
+      tagIds: [],
+      description: `${plan?.name ?? "Plano de assinatura"} · Contrato nº ${contractNumber} · Parcela ${installmentNumber}`,
+      observations: "",
+      idempotencyKey: `manager-extra-installment-${crypto.randomUUID()}`,
+    });
+  }
+
+  async function createExtraInstallment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const draft = bundleExtraInstallmentDraft;
+    if (!draft || savingBundleExtraInstallment) return;
+    const amountCents = safeBundleCentsInput(draft.amount);
+    if (amountCents <= 0 || !draft.issueOn || !draft.dueOn || draft.dueOn < draft.issueOn) {
+      showManagerError("Informe um valor maior que zero e vencimento igual ou posterior à data do lançamento.");
+      return;
+    }
+    if (!draft.chartAccountId || !draft.financialAccountId) {
+      showManagerError("Selecione o plano de conta e o banco ou caixa para criar a parcela.");
+      return;
+    }
+    setSavingBundleExtraInstallment(true);
+    const saved = await runMutation(setMessage, async () => {
+      await assertResult(await connectedClient().rpc("add_subscription_bundle_installment", {
+        p_organization_id: organizationId,
+        p_subscription_id: draft.subscriptionId,
+        p_amount_cents: amountCents,
+        p_due_on: draft.dueOn,
+        p_issue_on: draft.issueOn,
+        p_method: draft.method,
+        p_chart_account_id: draft.chartAccountId,
+        p_financial_account_id: draft.financialAccountId,
+        p_cost_center_id: draft.costCenterId || null,
+        p_document_number: draft.documentNumber.trim(),
+        p_tag_ids: draft.tagIds,
+        p_description: draft.description.trim(),
+        p_observations: draft.observations.trim() || null,
+        p_idempotency_key: draft.idempotencyKey,
+      }));
+    }, "Parcela extra criada em aberto e enviada para Contas a receber.");
+    setSavingBundleExtraInstallment(false);
+    if (saved) {
+      setBundleExtraInstallmentDraft(null);
+      setSubscriptionBundleRefresh((revision) => revision + 1);
+      router.refresh();
+    }
   }
 
   async function recordSubscriptionPaymentTarget() {
@@ -2968,8 +3118,9 @@ export function CustomersManager({
                   </table></div>
                 </section>}
                 {subscriptionControlTab === "FINANCE" && <section className={styles.subscriptionFinanceTableWrap} aria-label="Parcelas da assinatura">
+                  {isBundlePlan && <div className={styles.subscriptionSessionTableHeading}><strong>Parcelas do plano</strong><button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} title="Adicionar parcela extra" aria-label="Adicionar parcela extra" onClick={() => openExtraInstallmentDialog(subscriptionControlId, subscription)}><Plus size={17} /></button></div>}
                   <div className={styles.subscriptionFinanceTableScroll}><table className={styles.subscriptionFinanceTable}>
-                    <thead><tr><th>N. Parcela</th><th>Valor</th><th>Vencimento</th><th>Recebimento</th><th>Status</th><th>Ações</th></tr></thead>
+                    <thead><tr><th>N. Parcela</th><th>Valor</th><th>Vencimento</th><th>Data Pgto</th><th>Valor Pago</th><th>Forma de pagamento</th><th>Banco</th><th>Usuário</th><th>Status</th><th>Ações</th></tr></thead>
                     <tbody>
                       {isBundlePlan ? bundleInstallments.map((installment) => {
                         const installmentId = String(installment.id);
@@ -2978,18 +3129,29 @@ export function CustomersManager({
                         const status = String(installment.status ?? "OPEN");
                         const canManage = status === "OPEN" || status === "OVERDUE";
                         const settlements = (installment.settlements ?? []) as Array<Record<string, unknown>>;
-                        const receipt = settlements.map((settlement) => `${String(settlement.kind) === "REVERSAL" ? "Estorno" : "Recebido"} ${formatCents(Number(settlement.amount_cents ?? 0))} · ${formatBundleDate(String(settlement.settled_on ?? ""))} · ${settlementMethodLabels[String(settlement.payment_method)] ?? String(settlement.payment_method ?? "")}`).join("; ");
+                        const paymentSettlements = settlements.filter((settlement) => String(settlement.kind) === "SETTLEMENT");
                         const netSettledCents = settlements.reduce((total, settlement) => total + (String(settlement.kind) === "REVERSAL" ? -1 : 1) * Number(settlement.amount_cents ?? 0), 0);
-                        const remainingCents = Math.max(0, Number(installment.amount_cents ?? 0) - netSettledCents);
+                        const paidCents = Math.max(0, netSettledCents) || (status === "PAID" ? Number(installment.amount_cents ?? 0) : 0);
+                        const remainingCents = Math.max(0, Number(installment.amount_cents ?? 0) - paidCents);
                         const label = String(installment.kind) === "ENTRY" ? "Entrada" : String(installmentNumber).padStart(2, "0");
                         const paymentTargetInstallment = { ...installment, subscription_id: subscriptionControlId };
-                        return <tr key={installmentId}>
+                        const isOverdue = status === "OVERDUE" || (status === "OPEN" && dueOn < todayInOrganization);
+                        const displayStatus = status === "PAID" ? "Pago" : status === "CANCELED" ? "Cancelada" : isOverdue ? "Atrasado" : "Em aberto";
+                        const accountNames = [...new Set(paymentSettlements.map((settlement) => financialAccounts.find((account) => String(account.id) === String(settlement.financial_account_id ?? ""))?.name).filter((name): name is string => Boolean(name)))];
+                        const paymentMethods = [...new Set(paymentSettlements.map((settlement) => settlementMethodLabels[String(settlement.payment_method)] ?? String(settlement.payment_method ?? "")).filter(Boolean))];
+                        const userNames = [...new Set(paymentSettlements.map((settlement) => subscriptionBundleSettlementUsers[String(settlement.created_by ?? "")] ?? (settlement.created_by ? "Usuário" : "—")))];
+                        return <tr key={installmentId} className={isOverdue ? styles.subscriptionFinanceOverdueRow : undefined}>
                           <td>{label}</td><td>{formatCents(Number(installment.amount_cents ?? 0))}</td><td>{formatBundleDate(dueOn)}</td>
-                          <td>{receipt || (status === "PAID" ? "Recebido" : "—")}</td><td><span className={styles.subscriptionFinanceStatus}>{status === "PAID" ? "Pago" : status === "CANCELED" ? "Cancelada" : status === "OVERDUE" || (status === "OPEN" && dueOn < todayInOrganization) ? "Em atraso" : "Em aberto"}</span></td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{paymentSettlements.length ? paymentSettlements.map((settlement) => <span key={String(settlement.id)}>{formatBundleDate(String(settlement.settled_on ?? ""))}</span>) : installment.paid_at ? formatBundleDate(String(installment.paid_at).slice(0, 10)) : "—"}</div></td>
+                          <td>{paidCents > 0 ? formatCents(paidCents) : "—"}</td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{paymentMethods.length ? paymentMethods.map((method) => <span key={method}>{method}</span>) : status === "PAID" ? settlementMethodLabels[String(subscription.payment_method)] ?? "—" : "—"}</div></td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{accountNames.length ? accountNames.map((name) => <span key={name}>{name}</span>) : <span>—</span>}</div></td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{userNames.length ? userNames.map((name) => <span key={name}>{name}</span>) : <span>—</span>}</div></td>
+                          <td><span className={`${styles.subscriptionFinanceStatus} ${status === "PAID" ? styles.subscriptionFinanceStatusPaid : isOverdue ? styles.subscriptionFinanceStatusOverdue : status === "CANCELED" ? styles.subscriptionFinanceStatusCanceled : styles.subscriptionFinanceStatusOpen}`}>{displayStatus}</span></td>
                           <td><div className={styles.subscriptionFinanceActions}>
-                            <button type="button" className={`${styles.button} ${styles.buttonSmall}`} disabled={!canManage || remainingCents <= 0 || !chartAccounts.length || !financialAccounts.length} title={!chartAccounts.length || !financialAccounts.length ? "Configure as contas financeiras para registrar recebimentos" : canManage ? "Receber saldo da parcela" : "Parcela encerrada"} onClick={() => openBundlePaymentDialog(subscriptionControlId, { ...paymentTargetInstallment, amount_cents: remainingCents }, String(subscription.payment_method ?? "CASH"))}>Receber</button>
-                            <button type="button" className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} disabled={!canManage} onClick={() => setSubscriptionInstallmentEdit({ kind: "BUNDLE", subscriptionId: subscriptionControlId, installmentId, amount: bundleMoneyInput(Number(installment.amount_cents ?? 0)), dueOn })}><Pencil size={14} /> Editar</button>
-                            <button type="button" className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} disabled={!canManage} onClick={() => setSubscriptionBundleInstallmentDeleteTarget(paymentTargetInstallment)}><Trash2 size={14} /> Excluir</button>
+                            <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} disabled={!canManage || remainingCents <= 0 || !chartAccounts.length || !financialAccounts.length} title={!chartAccounts.length || !financialAccounts.length ? "Configure as contas financeiras para registrar recebimentos" : canManage ? "Receber saldo da parcela" : "Parcela encerrada"} aria-label={`Receber parcela ${label}`} onClick={() => openBundlePaymentDialog(subscriptionControlId, { ...paymentTargetInstallment, amount_cents: remainingCents }, String(subscription.payment_method ?? "CASH"))}><CircleDollarSign size={16} /></button>
+                            <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} disabled={!canManage} title="Editar parcela" aria-label={`Editar parcela ${label}`} onClick={() => setSubscriptionInstallmentEdit({ kind: "BUNDLE", subscriptionId: subscriptionControlId, installmentId, amount: bundleMoneyInput(Number(installment.amount_cents ?? 0)), dueOn })}><Pencil size={15} /></button>
+                            <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton} ${styles.subscriptionSessionDeleteButton}`} disabled={!canManage} title="Excluir parcela" aria-label={`Excluir parcela ${label}`} onClick={() => setSubscriptionBundleInstallmentDeleteTarget(paymentTargetInstallment)}><Trash2 size={15} /></button>
                           </div></td>
                         </tr>;
                       }) : financeCycles.map((cycle) => {
@@ -2997,14 +3159,29 @@ export function CustomersManager({
                         const canReceive = canManage && (!upfront || String(cycle.id) === String(firstOpenCycle?.id));
                         const canDelete = canManage && !upfront && sessions.filter((session) => String(session.cycle_id) === String(cycle.id)).every((session) => session.status === "AVAILABLE" || session.status === "CANCELED");
                         const amount = upfront ? (cycle.status === "PAID" ? cycles : cycle.status === "CANCELED" ? [cycle] : openCycles).reduce((total, item) => total + Number(item.amount_cents ?? 0), 0) : Number(cycle.amount_cents ?? version?.price_cents ?? 0);
-                        const receipt = cycle.paid_at ? `${formatBundleDate(String(cycle.paid_at).slice(0, 10))} · ${paymentLabels[String(subscription.payment_method)] ?? String(subscription.payment_method)}` : "—";
-                        return <tr key={String(cycle.id)}>
-                          <td>{upfront ? "À vista" : String(cycle.cycle_number ?? "—")}</td><td>{formatCents(amount)}</td><td>{formatBundleDate(String(cycle.due_on ?? ""))}</td><td>{receipt}</td>
-                          <td><span className={styles.subscriptionFinanceStatus}>{cycle.status === "PAID" ? "Pago" : cycle.status === "CANCELED" ? "Cancelada" : cycle.status === "OVERDUE" || (cycle.status === "OPEN" && String(cycle.due_on ?? "") < todayInOrganization) ? "Em atraso" : "Em aberto"}</span></td>
+                        const dueOn = String(cycle.due_on ?? "");
+                        const isOverdue = cycle.status === "OVERDUE" || (cycle.status === "OPEN" && dueOn < todayInOrganization);
+                        const displayStatus = cycle.status === "PAID" ? "Pago" : cycle.status === "CANCELED" ? "Cancelada" : isOverdue ? "Atrasado" : "Em aberto";
+                        const cycleSettlementRow = subscriptionLegacySettlements.find((row) => String(row.cycle_id) === String(cycle.id));
+                        const cycleSettlements = (cycleSettlementRow?.settlements ?? []) as Array<Record<string, unknown>>;
+                        const paymentSettlements = cycleSettlements.filter((settlement) => String(settlement.kind) === "SETTLEMENT");
+                        const netSettledCents = cycleSettlements.reduce((total, settlement) => total + (String(settlement.kind) === "REVERSAL" ? -1 : 1) * Number(settlement.amount_cents ?? 0), 0);
+                        const paidCents = Math.max(0, netSettledCents) || (cycle.status === "PAID" ? amount : 0);
+                        const paymentMethods = [...new Set(paymentSettlements.map((settlement) => settlementMethodLabels[String(settlement.payment_method)] ?? String(settlement.payment_method ?? "")).filter(Boolean))];
+                        const accountNames = [...new Set(paymentSettlements.map((settlement) => financialAccounts.find((account) => String(account.id) === String(settlement.financial_account_id ?? ""))?.name).filter((name): name is string => Boolean(name)))];
+                        const userNames = [...new Set(paymentSettlements.map((settlement) => subscriptionBundleSettlementUsers[String(settlement.created_by ?? "")] ?? (settlement.created_by ? "Usuário" : "—")))];
+                        return <tr key={String(cycle.id)} className={isOverdue ? styles.subscriptionFinanceOverdueRow : undefined}>
+                          <td>{upfront ? "À vista" : String(cycle.cycle_number ?? "—")}</td><td>{formatCents(amount)}</td><td>{formatBundleDate(dueOn)}</td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{paymentSettlements.length ? paymentSettlements.map((settlement) => <span key={String(settlement.id)}>{formatBundleDate(String(settlement.settled_on ?? ""))}</span>) : cycle.paid_at ? formatBundleDate(String(cycle.paid_at).slice(0, 10)) : "—"}</div></td>
+                          <td>{paidCents > 0 ? formatCents(paidCents) : "—"}</td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{paymentMethods.length ? paymentMethods.map((method) => <span key={method}>{method}</span>) : cycle.status === "PAID" ? paymentLabels[String(subscription.payment_method)] ?? "—" : "—"}</div></td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{accountNames.length ? accountNames.map((name) => <span key={name}>{name}</span>) : "—"}</div></td>
+                          <td><div className={styles.subscriptionFinanceCellList}>{userNames.length ? userNames.map((name) => <span key={name}>{name}</span>) : "—"}</div></td>
+                          <td><span className={`${styles.subscriptionFinanceStatus} ${cycle.status === "PAID" ? styles.subscriptionFinanceStatusPaid : isOverdue ? styles.subscriptionFinanceStatusOverdue : cycle.status === "CANCELED" ? styles.subscriptionFinanceStatusCanceled : styles.subscriptionFinanceStatusOpen}`}>{displayStatus}</span></td>
                           <td><div className={styles.subscriptionFinanceActions}>
-                            <button type="button" className={`${styles.button} ${styles.buttonSmall}`} disabled={!canReceive} title={upfront && canManage && !canReceive ? "À vista: o saldo é recebido pelo primeiro ciclo" : "Receber parcela"} onClick={() => openPaymentDialog(String(subscription.id), { id: cycle.id, amount_cents: amount, due_on: cycle.due_on }, String(subscription.payment_method ?? "CASH"))}>Receber</button>
-                            <button type="button" className={`${styles.button} ${styles.buttonSoft} ${styles.buttonSmall}`} disabled={!canManage || upfront} title={upfront ? "Ajuste o valor total do contrato à vista" : "Editar parcela"} onClick={() => setSubscriptionInstallmentEdit({ kind: "LEGACY", subscriptionId: subscriptionControlId, installmentId: String(cycle.id), amount: bundleMoneyInput(amount), dueOn: String(cycle.due_on ?? "") })}><Pencil size={14} /> Editar</button>
-                            <button type="button" className={`${styles.button} ${styles.buttonDanger} ${styles.buttonSmall}`} disabled={!canDelete} onClick={() => setSubscriptionCycleDeleteTarget(cycle)}><Trash2 size={14} /> Excluir</button>
+                            <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} disabled={!canReceive} title={upfront && canManage && !canReceive ? "À vista: o saldo é recebido pelo primeiro ciclo" : "Receber parcela"} aria-label={`Receber parcela ${String(cycle.cycle_number ?? "")}`} onClick={() => openPaymentDialog(String(subscription.id), { id: cycle.id, amount_cents: amount, due_on: cycle.due_on }, String(subscription.payment_method ?? "CASH"))}><CircleDollarSign size={16} /></button>
+                            <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} disabled={!canManage || upfront} title={upfront ? "Ajuste o valor total do contrato à vista" : "Editar parcela"} aria-label={`Editar parcela ${String(cycle.cycle_number ?? "")}`} onClick={() => setSubscriptionInstallmentEdit({ kind: "LEGACY", subscriptionId: subscriptionControlId, installmentId: String(cycle.id), amount: bundleMoneyInput(amount), dueOn })}><Pencil size={15} /></button>
+                            <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton} ${styles.subscriptionSessionDeleteButton}`} disabled={!canDelete} title="Excluir parcela" aria-label={`Excluir parcela ${String(cycle.cycle_number ?? "")}`} onClick={() => setSubscriptionCycleDeleteTarget(cycle)}><Trash2 size={15} /></button>
                           </div></td>
                         </tr>;
                       })}
@@ -3194,6 +3371,29 @@ export function CustomersManager({
               <Field label="Forma de recebimento"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} required><option value="CASH">Dinheiro</option><option value="PIX">PIX</option><option value="CARD">Cartão</option><option value="BOLETO">Boleto</option><option value="ONLINE">Link de pagamento</option><option value="UPFRONT">À vista</option></select></Field>
               <Field label="Observações"><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="PIX, NSU ou comprovante" maxLength={500} /></Field>
               <div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="submit" disabled={!paymentAccountId || !paymentChartAccountId}>Confirmar recebimento</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setPaymentTarget(null)}>Cancelar</button></div>
+            </form>
+          </section>
+        </div>}
+        {bundleExtraInstallmentDraft && <div className="modal-layer" role="presentation">
+          <button className={styles.modalBackdrop} type="button" aria-label="Fechar parcela extra" disabled={savingBundleExtraInstallment} onClick={() => setBundleExtraInstallmentDraft(null)} />
+          <section className={`${styles.modal} ${styles.modalWide}`} role="dialog" aria-modal="true" aria-labelledby="subscription-extra-installment-title">
+            <header className={styles.modalHeader}><div><small>Recebimento de assinatura</small><h2 id="subscription-extra-installment-title">Adicionar parcela extra</h2></div><button className={styles.modalClose} type="button" aria-label="Fechar" disabled={savingBundleExtraInstallment} onClick={() => setBundleExtraInstallmentDraft(null)}><X size={19} /></button></header>
+            <form className={styles.form} onSubmit={(event) => void createExtraInstallment(event)}>
+              <Field label="Contraparte / Cliente"><input value={historyCustomer?.full_name ?? "Cliente"} readOnly /></Field>
+              <Field label="Tipo"><input value="Receita" readOnly /></Field>
+              <Field label="Descrição" wide><input value={bundleExtraInstallmentDraft.description} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, description: event.target.value } : draft)} required minLength={2} maxLength={500} /></Field>
+              <Field label="Saldo a receber"><input value={bundleExtraInstallmentDraft.amount || "0,00"} readOnly /></Field>
+              <Field label="Valor final lançado (R$)"><input inputMode="decimal" value={bundleExtraInstallmentDraft.amount} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, amount: event.target.value } : draft)} required /></Field>
+              <Field label="Data do lançamento"><input type="date" value={bundleExtraInstallmentDraft.issueOn} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, issueOn: event.target.value } : draft)} required /></Field>
+              <Field label="Vencimento"><input type="date" min={bundleExtraInstallmentDraft.issueOn} value={bundleExtraInstallmentDraft.dueOn} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, dueOn: event.target.value } : draft)} required /></Field>
+              <Field label="Plano de conta"><select value={bundleExtraInstallmentDraft.chartAccountId} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, chartAccountId: event.target.value } : draft)} required><option value="">Selecione</option>{(chartAccounts as Array<{ id: string; code?: string | null; name?: string; kind?: string; active?: boolean }>).filter((account) => account.active && account.kind === "REVENUE").map((account) => <option key={account.id} value={account.id}>{account.code ? `${account.code} · ` : ""}{account.name}</option>)}</select></Field>
+              <Field label="Banco ou caixa"><select value={bundleExtraInstallmentDraft.financialAccountId} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, financialAccountId: event.target.value } : draft)} required><option value="">Selecione</option>{financialAccounts.filter((account) => account.active).map((account) => <option key={String(account.id)} value={String(account.id)}>{String(account.name)}</option>)}</select></Field>
+              <Field label="Centro de custo"><select value={bundleExtraInstallmentDraft.costCenterId} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, costCenterId: event.target.value } : draft)}><option value="">Não informar</option>{costCenters.filter((center) => center.active).map((center) => <option key={center.id} value={center.id}>{center.name}</option>)}</select></Field>
+              <Field label="Número do documento"><input value={bundleExtraInstallmentDraft.documentNumber} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, documentNumber: event.target.value } : draft)} required minLength={2} maxLength={100} /></Field>
+              <Field label="Tags"><select aria-label="Tags" multiple size={Math.min(Math.max(financialTags.filter((tag) => tag.active).length, 2), 4)} value={bundleExtraInstallmentDraft.tagIds} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, tagIds: Array.from(event.currentTarget.selectedOptions, (option) => option.value) } : draft)} disabled={!financialTags.some((tag) => tag.active)}>{financialTags.filter((tag) => tag.active).length === 0 ? <option>Nenhuma tag cadastrada</option> : financialTags.filter((tag) => tag.active).map((tag) => <option key={tag.id} value={tag.id} style={tag.color ? { color: tag.color } : undefined}>{tag.name}</option>)}</select></Field>
+              <Field label="Forma de recebimento"><select value={bundleExtraInstallmentDraft.method} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, method: event.target.value } : draft)} required><option value="CASH">Dinheiro</option><option value="PIX">PIX</option><option value="CARD">Cartão</option><option value="BOLETO">Boleto</option><option value="ONLINE">Link de pagamento</option><option value="UPFRONT">À vista</option></select></Field>
+              <Field label="Observações" wide><input value={bundleExtraInstallmentDraft.observations} onChange={(event) => setBundleExtraInstallmentDraft((draft) => draft ? { ...draft, observations: event.target.value } : draft)} placeholder="Observações do lançamento" maxLength={500} /></Field>
+              <div className={`${styles.toolbarGroup} ${styles.formWide}`}><button className={styles.button} type="submit" disabled={savingBundleExtraInstallment || !bundleExtraInstallmentDraft.chartAccountId || !bundleExtraInstallmentDraft.financialAccountId}>{savingBundleExtraInstallment ? "Salvando…" : "Adicionar parcela em aberto"}</button><button className={`${styles.button} ${styles.buttonSoft}`} type="button" disabled={savingBundleExtraInstallment} onClick={() => setBundleExtraInstallmentDraft(null)}>Cancelar</button></div>
             </form>
           </section>
         </div>}
