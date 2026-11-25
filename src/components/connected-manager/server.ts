@@ -762,6 +762,7 @@ export async function loadAgendaData() {
       .from("subscription_bundle_sessions")
       .select("id,subscription_id,session_number,status,appointment_id")
       .eq("organization_id", organizationId)
+      .is("deleted_at", null)
       .limit(MANAGER_ROW_LIMIT * 20),
     supabase
       .from("subscription_bundle_installments")

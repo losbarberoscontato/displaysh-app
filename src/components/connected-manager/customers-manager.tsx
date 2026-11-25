@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, ChevronDown, Clock3, Pencil, Save, Trash2, UserRound, UserPlus, X } from "lucide-react";
+import { CalendarClock, CalendarDays, CalendarPlus, Check, ChevronDown, Clock3, Pencil, Plus, Save, Trash2, UserRound, UserPlus, X } from "lucide-react";
 import { PageHeader } from "@/components/ui";
 import type { loadCustomersData } from "./server";
 import type { AwaitedReturn } from "./utility-types";
@@ -14,6 +14,7 @@ import { normalizePhoneE164 } from "@/lib/phone";
 import { centsFromInput, formatCents, formatRange, localDateTimeToIso, parsePostgresRange } from "./format";
 import { cpfCnpjDigits, formatCpfCnpj, isCpfCnpjValid } from "@/lib/cpf-cnpj";
 import { showManagerError } from "@/components/manager-error-dialog";
+import { AppointmentAuxiliaryFields, auxiliaryDraftToServicePayload, type AuxiliaryDraft } from "./appointment-auxiliary-fields";
 
 type LoadedProps = AwaitedReturn<typeof loadCustomersData>;
 type Props = Omit<
@@ -63,6 +64,16 @@ type Props = Omit<
 type CustomerFilter = "ACTIVE" | "INACTIVE";
 type SubscriptionDisplayStatus = "pending" | "cancellationPending" | "due" | "finished" | "overdue" | "active" | "declined" | "canceled";
 type SubscriptionFilter = "ALL" | SubscriptionDisplayStatus;
+type BundleSessionEditor = {
+  action: "EDIT" | "RESCHEDULE" | "ADD";
+  sessionId: string | null;
+  appointmentId: string | null;
+  localDate: string;
+  localTime: string;
+  barberId: string;
+  observation: string;
+  lateCancellation: boolean;
+};
 
 function dateInTimezone(date: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -393,7 +404,16 @@ export function CustomersManager({
   const [subscriptionBundleContracts, setSubscriptionBundleContracts] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleInstallments, setSubscriptionBundleInstallments] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleSessions, setSubscriptionBundleSessions] = useState<Array<Record<string, unknown>>>([]);
+  const [subscriptionBundleAppointments, setSubscriptionBundleAppointments] = useState<Array<Record<string, unknown>>>([]);
+  const [subscriptionBundleAppointmentItems, setSubscriptionBundleAppointmentItems] = useState<Array<Record<string, unknown>>>([]);
+  const [subscriptionBundleAuxiliaries, setSubscriptionBundleAuxiliaries] = useState<Array<Record<string, unknown>>>([]);
+  const [subscriptionBundleAuxiliaryRules, setSubscriptionBundleAuxiliaryRules] = useState<Array<Record<string, unknown>>>([]);
   const [subscriptionBundleFixedSlots, setSubscriptionBundleFixedSlots] = useState<Array<Record<string, unknown>>>([]);
+  const [subscriptionBundleRefresh, setSubscriptionBundleRefresh] = useState(0);
+  const [bundleSessionEditor, setBundleSessionEditor] = useState<BundleSessionEditor | null>(null);
+  const [bundleSessionAuxiliaryDrafts, setBundleSessionAuxiliaryDrafts] = useState<AuxiliaryDraft[]>([]);
+  const [bundleSessionSaving, setBundleSessionSaving] = useState(false);
+  const [bundleSessionDeletingId, setBundleSessionDeletingId] = useState<string | null>(null);
   const [deletingSubscriptionId, setDeletingSubscriptionId] = useState<string | null>(null);
   const [subscriptionCycleDeleteTarget, setSubscriptionCycleDeleteTarget] = useState<Record<string, unknown> | null>(null);
   const [deletingSubscriptionCycle, setDeletingSubscriptionCycle] = useState(false);
@@ -435,7 +455,8 @@ export function CustomersManager({
         .select("id,subscription_id,installment_number,kind,due_on,amount_cents,payment_method,status,paid_at,financial_entry_id")
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).order("installment_number"),
       connectedClient().from("subscription_bundle_sessions")
-        .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id,barber_id,environment_id")
+        .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id,barber_id,substitute_barber_id,environment_id,rescheduled_from,canceled_from,cancellation_observation,deleted_at")
+        .is("deleted_at", null)
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).order("session_number"),
       connectedClient().from("subscription_bundle_fixed_slots")
         .select("id,subscription_id,slot_number,weekday,local_time,barber_name_snapshot,environment_name_snapshot")
@@ -445,6 +466,45 @@ export function CustomersManager({
       const failed = contract.error ?? installments.error ?? sessions.error ?? slots.error;
       if (failed) {
         setMessage(`Não foi possível carregar os detalhes do plano: ${failed.message}`);
+        return;
+      }
+      const sessionRows = (sessions.data ?? []) as Array<Record<string, unknown>>;
+      const sessionIds = sessionRows.map((session) => String(session.id));
+      const currentAppointmentIds = [...new Set(sessionRows.map((session) => String(session.appointment_id ?? "")).filter(Boolean))];
+      const [bundleAppointmentsResult, bundleItemsResult, bundleAuxiliariesResult] = sessionIds.length > 0
+        ? await Promise.all([
+            connectedClient().from("appointments")
+              .select("id,subscription_bundle_session_id,status,service_period,barber_id")
+              .eq("organization_id", organizationId).in("subscription_bundle_session_id", sessionIds),
+            currentAppointmentIds.length > 0
+              ? connectedClient().from("appointment_items")
+                  .select("id,appointment_id,service_id,service_name_snapshot,quantity")
+                  .eq("organization_id", organizationId).in("appointment_id", currentAppointmentIds)
+              : Promise.resolve({ data: [], error: null }),
+            currentAppointmentIds.length > 0
+              ? connectedClient().from("appointment_auxiliaries")
+                  .select("id,appointment_id,assistant_barber_id")
+                  .eq("organization_id", organizationId).in("appointment_id", currentAppointmentIds)
+              : Promise.resolve({ data: [], error: null }),
+          ])
+        : [
+            { data: [], error: null },
+            { data: [], error: null },
+            { data: [], error: null },
+          ];
+      if (bundleAppointmentsResult.error || bundleItemsResult.error || bundleAuxiliariesResult.error) {
+        setMessage(`Não foi possível carregar os detalhes das sessões: ${bundleAppointmentsResult.error?.message ?? bundleItemsResult.error?.message ?? bundleAuxiliariesResult.error?.message}`);
+        return;
+      }
+      const auxiliaryRows = (bundleAuxiliariesResult.data ?? []) as Array<Record<string, unknown>>;
+      const auxiliaryIds = auxiliaryRows.map((auxiliary) => String(auxiliary.id));
+      const bundleAuxiliaryRulesResult = auxiliaryIds.length > 0
+        ? await connectedClient().from("appointment_auxiliary_commission_rules")
+            .select("auxiliary_id,appointment_item_id,commission_mode,fixed_cents,percentage_bps")
+            .eq("organization_id", organizationId).in("auxiliary_id", auxiliaryIds)
+        : { data: [], error: null };
+      if (bundleAuxiliaryRulesResult.error) {
+        setMessage(`Não foi possível carregar as comissões dos auxiliares: ${bundleAuxiliaryRulesResult.error.message}`);
         return;
       }
       const installmentRows = (installments.data ?? []) as Array<Record<string, unknown>>;
@@ -471,13 +531,17 @@ export function CustomersManager({
         financial_entry: entriesById.get(String(installment.financial_entry_id ?? "")) ?? null,
         settlements: settlementsByEntry.get(String(installment.financial_entry_id ?? "")) ?? [],
       })));
-      setSubscriptionBundleSessions((sessions.data ?? []) as Array<Record<string, unknown>>);
+      setSubscriptionBundleSessions(sessionRows);
+      setSubscriptionBundleAppointments((bundleAppointmentsResult.data ?? []) as Array<Record<string, unknown>>);
+      setSubscriptionBundleAppointmentItems((bundleItemsResult.data ?? []) as Array<Record<string, unknown>>);
+      setSubscriptionBundleAuxiliaries(auxiliaryRows);
+      setSubscriptionBundleAuxiliaryRules((bundleAuxiliaryRulesResult.data ?? []) as Array<Record<string, unknown>>);
       setSubscriptionBundleFixedSlots((slots.data ?? []) as Array<Record<string, unknown>>);
     }).catch((cause: unknown) => {
       if (active) setMessage(cause instanceof Error ? cause.message : "Não foi possível carregar o plano.");
     });
     return () => { active = false; };
-  }, [organizationId, subscriptionControlId, subscriptions]);
+  }, [organizationId, subscriptionControlId, subscriptions, subscriptionBundleRefresh]);
   useEffect(() => {
     if (subscriptionControlId) setSubscriptionControlTab("SESSIONS");
   }, [subscriptionControlId]);
@@ -1500,6 +1564,166 @@ export function CustomersManager({
     );
     if (saved) {
       setSubscriptionBooking(null);
+      router.refresh();
+    }
+  }
+
+  function bundleServiceIdsFor(subscription: Record<string, unknown>) {
+    const version = subscription.plan_version as { id?: string; bundle_service_id?: string | null } | null;
+    if (version?.bundle_service_id) return [String(version.bundle_service_id)];
+    return subscriptionPlanServices
+      .filter((item) => String(item.plan_version_id) === String(version?.id ?? ""))
+      .map((item) => String(item.service_id));
+  }
+
+  function openBundleSessionEditor(action: BundleSessionEditor["action"], session?: Record<string, unknown>) {
+    const subscription = subscriptions.find((item) => String(item.id) === subscriptionControlId);
+    if (!subscription) return;
+    const serviceIds = bundleServiceIdsFor(subscription);
+    const eligible = eligibleSubscriptionBarbers(serviceIds, String(subscription.plan_id ?? "") || undefined);
+    if (serviceIds.length === 0 || eligible.length === 0) {
+      showManagerError("Nenhum profissional habilitado para este serviço e plano.");
+      return;
+    }
+    const appointmentId = String(session?.appointment_id ?? "") || null;
+    const appointment = appointmentId
+      ? subscriptionBundleAppointments.find((item) => String(item.id) === appointmentId)
+      : null;
+    const startsAt = session?.scheduled_for ? new Date(String(session.scheduled_for)) : null;
+    const localStart = startsAt && !Number.isNaN(startsAt.valueOf())
+      ? localDateTimeInputs(startsAt, timezone)
+      : null;
+    const nextDay = new Date(todayTimestamp + 86_400_000);
+    const defaultDate = dateInTimezone(nextDay, timezone);
+    const currentBarberId = String(appointment?.barber_id ?? session?.substitute_barber_id ?? session?.barber_id ?? eligible[0].id);
+
+    setBundleSessionAuxiliaryDrafts([]);
+    if (action === "EDIT" && appointmentId && appointment?.status === "CONFIRMED") {
+      const appointmentItemsForSession = subscriptionBundleAppointmentItems.filter((item) => String(item.appointment_id) === appointmentId);
+      const auxiliaries = subscriptionBundleAuxiliaries
+        .filter((item) => String(item.appointment_id) === appointmentId)
+        .map((auxiliary) => {
+          const rules = subscriptionBundleAuxiliaryRules.filter((rule) => String(rule.auxiliary_id) === String(auxiliary.id));
+          const commissions = Object.fromEntries(appointmentItemsForSession.map((item) => {
+            const rule = rules.find((candidate) => String(candidate.appointment_item_id) === String(item.id));
+            const isFixed = String(rule?.commission_mode ?? "FIXED") === "FIXED";
+            const fixedCents = rule?.fixed_cents == null ? null : Number(rule.fixed_cents);
+            const percentageBps = rule?.percentage_bps == null ? null : Number(rule.percentage_bps);
+            return [String(item.service_id), {
+              commission_mode: isFixed ? "FIXED" as const : "PERCENT" as const,
+              fixed_cents: fixedCents,
+              percentage_bps: percentageBps,
+              fixed_input: fixedCents === null ? "" : (fixedCents / 100).toFixed(2).replace(".", ","),
+              percentage_input: percentageBps === null ? "" : (percentageBps / 100).toFixed(2).replace(".", ","),
+            }];
+          }));
+          return { barber_id: String(auxiliary.assistant_barber_id), commissions };
+        });
+      setBundleSessionAuxiliaryDrafts(auxiliaries);
+    }
+    setBundleSessionEditor({
+      action,
+      sessionId: session ? String(session.id) : null,
+      appointmentId: action === "ADD" ? null : appointmentId,
+      localDate: action === "RESCHEDULE" && localStart ? localStart.date : defaultDate,
+      localTime: action === "RESCHEDULE" && localStart ? localStart.time : "09:00",
+      barberId: currentBarberId,
+      observation: String(session?.cancellation_observation ?? ""),
+      lateCancellation: action === "RESCHEDULE" && String(session?.status) === "CONSUMED",
+    });
+  }
+
+  async function saveBundleSessionEditor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!bundleSessionEditor || !subscriptionControlId || !bundleSessionEditor.barberId) return;
+    setBundleSessionSaving(true);
+    const saved = await runMutation(
+      setMessage,
+      async () => {
+        const client = connectedClient();
+        if (bundleSessionEditor.action === "ADD") {
+          const startsAt = localDateTimeToIso(`${bundleSessionEditor.localDate}T${bundleSessionEditor.localTime}`, timezone);
+          await assertResult(await client.rpc("add_subscription_bundle_courtesy_session", {
+            p_organization_id: organizationId,
+            p_subscription_id: subscriptionControlId,
+            p_barber_id: bundleSessionEditor.barberId,
+            p_starts_at: startsAt,
+          }));
+          return;
+        }
+        if (!bundleSessionEditor.sessionId) throw new Error("Sessão não encontrada.");
+        if (bundleSessionEditor.action === "RESCHEDULE") {
+          const startsAt = localDateTimeToIso(`${bundleSessionEditor.localDate}T${bundleSessionEditor.localTime}`, timezone);
+          await assertResult(await client.rpc("manage_subscription_bundle_session", {
+            p_organization_id: organizationId,
+            p_session_id: bundleSessionEditor.sessionId,
+            p_action: "RESCHEDULE",
+            p_barber_id: bundleSessionEditor.barberId,
+            p_starts_at: startsAt,
+            p_confirm_late_cancel: bundleSessionEditor.lateCancellation,
+          }));
+          return;
+        }
+        let auxiliaries: Array<Record<string, unknown>> | null = null;
+        if (bundleSessionEditor.appointmentId) {
+          const appointmentItemsForSession = subscriptionBundleAppointmentItems
+            .filter((item) => String(item.appointment_id) === bundleSessionEditor.appointmentId);
+          const servicePayload = auxiliaryDraftToServicePayload(bundleSessionAuxiliaryDrafts);
+          auxiliaries = servicePayload.map((auxiliary) => ({
+            barber_id: auxiliary.barber_id,
+            commissions: appointmentItemsForSession.map((item) => {
+              const rule = auxiliary.commissions.find((commission) => commission.service_id === String(item.service_id));
+              if (!rule) throw new Error("Defina a comissão de cada auxiliar para o serviço da sessão.");
+              return {
+                appointment_item_id: String(item.id),
+                commission_mode: rule.commission_mode,
+                fixed_cents: rule.fixed_cents,
+                percentage_bps: rule.percentage_bps,
+              };
+            }),
+          }));
+        }
+        await assertResult(await client.rpc("manage_subscription_bundle_session", {
+          p_organization_id: organizationId,
+          p_session_id: bundleSessionEditor.sessionId,
+          p_action: "EDIT",
+          p_barber_id: bundleSessionEditor.barberId,
+          p_observation: bundleSessionEditor.observation.trim() || null,
+          p_auxiliaries: auxiliaries,
+        }));
+      },
+      bundleSessionEditor.action === "ADD"
+        ? "Sessão cortesia adicionada e agendada. O contrato e as parcelas não foram alterados."
+        : bundleSessionEditor.action === "RESCHEDULE"
+          ? "Sessão agendada ou reagendada."
+          : "Sessão atualizada.",
+    );
+    setBundleSessionSaving(false);
+    if (saved) {
+      setBundleSessionEditor(null);
+      setSubscriptionBundleRefresh((value) => value + 1);
+      router.refresh();
+    }
+  }
+
+  async function deleteBundleSession(session: Record<string, unknown>) {
+    const sessionId = String(session.id);
+    if (!window.confirm(`Excluir a sessão ${String(session.session_number)}? Se ela estiver agendada, o atendimento será cancelado e os avisos de cancelamento serão enviados.`)) return;
+    setBundleSessionDeletingId(sessionId);
+    const saved = await runMutation(
+      setMessage,
+      async () => {
+        await assertResult(await connectedClient().rpc("manage_subscription_bundle_session", {
+          p_organization_id: organizationId,
+          p_session_id: sessionId,
+          p_action: "DELETE",
+        }));
+      },
+      "Sessão excluída.",
+    );
+    setBundleSessionDeletingId(null);
+    if (saved) {
+      setSubscriptionBundleRefresh((value) => value + 1);
       router.refresh();
     }
   }
@@ -2546,14 +2770,53 @@ export function CustomersManager({
                 })}
                 </>}
                 {isBundlePlan && subscriptionControlTab === "SESSIONS" && <section className={styles.subscriptionStack}>
-                  <strong>Sessões do plano</strong>
-                  <div className={styles.subscriptionSessionList}>{bundleSessions.map((session) => {
-                    const linkedAppointment = appointments.find((item) => String(item.id) === String(session.appointment_id ?? ""));
-                    const scheduled = session.scheduled_for ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: timezone }).format(new Date(String(session.scheduled_for))) : "";
-                    const barber = barbers.find((item) => item.id === String(session.barber_id ?? linkedAppointment?.barber_id ?? ""));
-                    const state = ({ AVAILABLE: "Disponível", SCHEDULED: "Agendada", COMPLETED: "Concluída", CONSUMED: "Consumida", CANCELED: "Cancelada" } as Record<string, string>)[String(session.status)] ?? String(session.status);
-                    return <article className={styles.subscriptionSessionChip} key={String(session.id)}><strong>Sessão {String(session.session_number).padStart(2, "0")}</strong><span>{state}{scheduled ? ` · ${scheduled}` : ""}{barber ? ` · ${barber.display_name}` : ""}</span></article>;
-                  })}</div>
+                  <div className={styles.subscriptionSessionTableHeading}><strong>Sessões do plano</strong><button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} title="Adicionar sessão cortesia" aria-label="Adicionar sessão cortesia" onClick={() => openBundleSessionEditor("ADD")}><Plus size={17} /></button></div>
+                  <div className={`${styles.subscriptionFinanceTableScroll} ${styles.subscriptionSessionTableScroll}`}><table className={`${styles.subscriptionFinanceTable} ${styles.subscriptionSessionTable}`}>
+                    <thead><tr><th>Sessão</th><th>Data/hora</th><th>Profissional</th><th>Status</th><th>Observação</th><th>Profissional sub</th><th>Auxiliares</th><th>Ações</th></tr></thead>
+                    <tbody>{bundleSessions.map((session) => {
+                      const sessionId = String(session.id);
+                      const appointmentId = String(session.appointment_id ?? "");
+                      const appointment = subscriptionBundleAppointments.find((item) => String(item.id) === appointmentId);
+                      const sessionAuxiliaries = subscriptionBundleAuxiliaries.filter((item) => String(item.appointment_id) === appointmentId);
+                      const primaryId = String(session.barber_id ?? appointment?.barber_id ?? "");
+                      const substituteId = String(session.substitute_barber_id ?? "");
+                      const primary = barbers.find((item) => item.id === primaryId);
+                      const substitute = barbers.find((item) => item.id === substituteId);
+                      const currentDate = session.scheduled_for ? String(session.scheduled_for) : "";
+                      const previousDate = session.rescheduled_from ? String(session.rescheduled_from) : "";
+                      const canceledDate = session.canceled_from ? String(session.canceled_from) : "";
+                      const formatSessionDate = (value: string) => value
+                        ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: timezone }).format(new Date(value))
+                        : "—";
+                      const wasCanceled = Boolean(canceledDate || session.cancellation_observation);
+                      const sessionStatus = String(session.status);
+                      const statusLabel = sessionStatus === "COMPLETED" ? "Concluída"
+                        : sessionStatus === "SCHEDULED" ? (previousDate ? "Reagendada" : "Agendada")
+                          : wasCanceled || sessionStatus === "CONSUMED" || sessionStatus === "CANCELED" ? "Cancelada"
+                            : "Em aberto";
+                      const statusTone = statusLabel === "Concluída" ? styles.subscriptionSessionStatusCompleted
+                        : statusLabel === "Agendada" || statusLabel === "Reagendada" ? styles.subscriptionSessionStatusScheduled
+                          : statusLabel === "Cancelada" ? styles.subscriptionSessionStatusCanceled
+                            : styles.subscriptionSessionStatusAvailable;
+                      const isStartedOrDone = sessionStatus === "COMPLETED" || appointment?.status === "IN_SERVICE" || appointment?.status === "COMPLETED" || appointment?.status === "NO_SHOW" || appointment?.status === "EXPIRED";
+                      const canReschedule = !isStartedOrDone && ["AVAILABLE", "SCHEDULED", "CONSUMED", "CANCELED"].includes(sessionStatus);
+                      const auxiliaryNames = sessionAuxiliaries.map((auxiliary) => barbers.find((item) => item.id === String(auxiliary.assistant_barber_id))?.display_name ?? "Profissional");
+                      return <tr key={sessionId}>
+                        <td><strong>{String(session.session_number).padStart(2, "0")}</strong></td>
+                        <td><div className={styles.subscriptionSessionDateCell}>{previousDate && <small>{formatSessionDate(previousDate)}</small>}<span>{formatSessionDate(currentDate || (!previousDate ? canceledDate : ""))}</span></div></td>
+                        <td>{primary ? <span className={substitute ? styles.subscriptionSessionOriginalBarber : undefined}>{primary.display_name}</span> : "—"}</td>
+                        <td><span className={`${styles.subscriptionFinanceStatus} ${statusTone}`}>{statusLabel}</span></td>
+                        <td className={styles.subscriptionSessionObservation}>{String(session.cancellation_observation ?? "").trim() || "—"}</td>
+                        <td>{substitute?.display_name ?? "—"}</td>
+                        <td><div className={styles.subscriptionSessionAuxiliaries}>{auxiliaryNames.length ? auxiliaryNames.map((name, index) => <span key={`${sessionId}-aux-${index}`}>{name}</span>) : "—"}</div></td>
+                        <td><div className={styles.subscriptionFinanceActions}>
+                          {!isStartedOrDone && <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} title="Editar sessão" aria-label={`Editar sessão ${String(session.session_number)}`} onClick={() => openBundleSessionEditor("EDIT", session)}><Pencil size={15} /></button>}
+                          {canReschedule && <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton}`} title={statusLabel === "Em aberto" || statusLabel === "Cancelada" ? "Agendar sessão" : "Reagendar sessão"} aria-label={`${statusLabel === "Em aberto" || statusLabel === "Cancelada" ? "Agendar" : "Reagendar"} sessão ${String(session.session_number)}`} onClick={() => openBundleSessionEditor("RESCHEDULE", session)}>{statusLabel === "Em aberto" || statusLabel === "Cancelada" ? <CalendarPlus size={16} /> : <CalendarClock size={16} />}</button>}
+                          {!isStartedOrDone && <button type="button" className={`${styles.button} ${styles.subscriptionSessionIconButton} ${styles.subscriptionSessionDeleteButton}`} title="Excluir sessão" aria-label={`Excluir sessão ${String(session.session_number)}`} disabled={bundleSessionDeletingId === sessionId} onClick={() => void deleteBundleSession(session)}><Trash2 size={15} /></button>}
+                        </div></td>
+                      </tr>;
+                    })}</tbody>
+                  </table></div>
                 </section>}
                 {subscriptionControlTab === "FINANCE" && <section className={styles.subscriptionFinanceTableWrap} aria-label="Parcelas da assinatura">
                   <div className={styles.subscriptionFinanceTableScroll}><table className={styles.subscriptionFinanceTable}>
@@ -2652,6 +2915,69 @@ export function CustomersManager({
                 <footer className={styles.modalActions}><button className={`${styles.button} ${styles.buttonSoft}`} type="button" onClick={() => setSubscriptionCancellationDraft(null)}>Cancelar</button><button className={`${styles.button} ${styles.buttonDanger}`} type="submit">Confirmar cancelamento</button></footer>
               </form>
             </section>
+          </div>;
+        })()}
+        {bundleSessionEditor && (() => {
+          const subscription = subscriptions.find((item) => String(item.id) === subscriptionControlId);
+          const session = subscriptionBundleSessions.find((item) => String(item.id) === String(bundleSessionEditor.sessionId ?? ""));
+          const currentAppointment = bundleSessionEditor.appointmentId
+            ? subscriptionBundleAppointments.find((item) => String(item.id) === bundleSessionEditor.appointmentId)
+            : null;
+          const sessionItems = bundleSessionEditor.appointmentId
+            ? subscriptionBundleAppointmentItems.filter((item) => String(item.appointment_id) === bundleSessionEditor.appointmentId)
+            : [];
+          const serviceIds = subscription ? bundleServiceIdsFor(subscription) : [];
+          const eligible = subscription
+            ? eligibleSubscriptionBarbers(serviceIds, String(subscription.plan_id ?? "") || undefined)
+            : [];
+          const canChooseProfessional = bundleSessionEditor.action !== "RESCHEDULE"
+            || !currentAppointment
+            || currentAppointment.status !== "CONFIRMED";
+          const dialogTitle = bundleSessionEditor.action === "ADD"
+            ? "Adicionar sessão cortesia"
+            : bundleSessionEditor.action === "EDIT"
+              ? `Editar sessão ${String(session?.session_number ?? "")}`
+              : `${currentAppointment?.status === "CONFIRMED" ? "Reagendar" : "Agendar"} sessão ${String(session?.session_number ?? "")}`;
+          return <div className="modal-layer" role="presentation">
+            <button className="modal-layer__backdrop" type="button" aria-label="Fechar sessão" disabled={bundleSessionSaving} onClick={() => setBundleSessionEditor(null)} />
+            <form className="form-modal" role="dialog" aria-modal="true" aria-labelledby="bundle-session-editor-title" onSubmit={(event) => void saveBundleSessionEditor(event)}>
+              <div className="form-modal__head"><span><small>Controle da assinatura</small><strong id="bundle-session-editor-title">{dialogTitle}</strong></span><button type="button" className="icon-button" onClick={() => setBundleSessionEditor(null)} aria-label="Fechar" disabled={bundleSessionSaving}><X size={19} /></button></div>
+              <div className="form-modal__body">
+                {bundleSessionEditor.action === "ADD" && <p className={styles.subscriptionBookingHint}>Sessão cortesia. O preço do contrato, a quantidade de parcelas e os valores cobrados permanecem iguais.</p>}
+                {bundleSessionEditor.action === "RESCHEDULE" && bundleSessionEditor.lateCancellation && <div className={styles.subscriptionSessionLateWarning} role="alert"><strong>Esta sessão foi cancelada fora do prazo limite.</strong><span>Você pode agendar uma sessão de reposição ou manter o cancelamento atual.</span></div>}
+                {bundleSessionEditor.action === "EDIT" && <>
+                  <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
+                  <label>Observação do cancelamento<span className="input-shell"><textarea value={bundleSessionEditor.observation} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, observation: event.target.value } : current)} maxLength={500} placeholder="Motivo informado no cancelamento" /></span></label>
+                  {currentAppointment?.status === "CONFIRMED" && sessionItems.length > 0
+                    ? <AppointmentAuxiliaryFields
+                        barbers={barbers.filter((barber) => barber.active)}
+                        excludedBarberId={bundleSessionEditor.barberId}
+                        services={sessionItems.flatMap((item) => item.service_id ? [{ service_id: String(item.service_id), name: String(item.service_name_snapshot ?? "Serviço"), quantity: Number(item.quantity ?? 1) }] : [])}
+                        value={bundleSessionAuxiliaryDrafts}
+                        onChange={setBundleSessionAuxiliaryDrafts}
+                      />
+                    : <p className={styles.subscriptionBookingHint}>Auxiliares podem ser definidos quando a sessão estiver agendada.</p>}
+                </>}
+                {bundleSessionEditor.action !== "EDIT" && <>
+                  {canChooseProfessional
+                    ? <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
+                    : <label>Profissional<span className="input-shell"><input value={barbers.find((barber) => barber.id === bundleSessionEditor.barberId)?.display_name ?? "Profissional da sessão"} readOnly /></span></label>}
+                  <div className="form-grid">
+                    <label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={bundleSessionEditor.localDate} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localDate: event.target.value } : current)} required /></span></label>
+                    <label>Horário<span className="input-shell"><Clock3 size={17} /><input type="time" value={bundleSessionEditor.localTime} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localTime: event.target.value } : current)} step={Math.max(1, Number(slotIntervalMinutes) || 15) * 60} required /></span></label>
+                  </div>
+                  {bundleSessionEditor.action === "ADD" && <p className={styles.subscriptionBookingHint}>A comissão seguirá a regra vigente do profissional escolhido. Nenhuma parcela será criada ou alterada.</p>}
+                </>}
+              </div>
+              <div className="form-modal__footer">
+                {bundleSessionEditor.lateCancellation
+                  ? <button type="button" className="button button--ghost" disabled={bundleSessionSaving} onClick={() => setBundleSessionEditor(null)}>Manter cancelamento</button>
+                  : <button type="button" className="button button--ghost" disabled={bundleSessionSaving} onClick={() => setBundleSessionEditor(null)}>Cancelar</button>}
+                <button type="submit" className="button button--dark" disabled={bundleSessionSaving || !bundleSessionEditor.barberId || (bundleSessionEditor.lateCancellation && !bundleSessionEditor.sessionId)}>
+                  {bundleSessionSaving ? "Salvando…" : bundleSessionEditor.action === "EDIT" ? "Salvar alterações" : bundleSessionEditor.lateCancellation ? "Agendar mesmo assim" : bundleSessionEditor.action === "ADD" ? "Adicionar e agendar" : currentAppointment?.status === "CONFIRMED" ? "Confirmar reagendamento" : "Agendar sessão"}
+                </button>
+              </div>
+            </form>
           </div>;
         })()}
         {subscriptionBooking && (() => {

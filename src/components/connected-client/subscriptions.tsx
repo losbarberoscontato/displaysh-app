@@ -240,7 +240,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
             .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).neq("status", "CANCELED").order("installment_number"),
           client.from("subscription_bundle_sessions")
             .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id")
-            .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).order("session_number"),
+            .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).is("deleted_at", null).order("session_number"),
           client.from("subscription_bundle_fixed_slots")
             .select("id,subscription_id,slot_number,weekday,local_time,barber_name_snapshot,environment_name_snapshot")
             .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).order("slot_number"),
