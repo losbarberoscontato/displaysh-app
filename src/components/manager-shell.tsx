@@ -72,7 +72,6 @@ function ManagerNavigation({ onNavigate, agendaCount, projectsModuleEnabled, kan
 
   return (
     <nav className="manager-nav" aria-label="Navegação do gestor">
-      <p className="manager-nav__label">Operação</p>
       {visibleNavigation.map((item) => {
         const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
         const Icon = item.icon;

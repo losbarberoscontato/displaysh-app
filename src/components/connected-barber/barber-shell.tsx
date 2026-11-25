@@ -32,7 +32,6 @@ function BarberNavigation({ navigation, profile, pathname, suffix, professionalN
   const isActive = (href: string) => pathname.startsWith(href);
   const link = (href: string) => `${href}${suffix}`;
   return <nav className="manager-nav" aria-label={`Navegação do ${professionalName}`}>
-    <p className="manager-nav__label">Operação</p>
     {navigation.map((item) => {
       const Icon = item.icon;
       const active = isActive(item.href);
