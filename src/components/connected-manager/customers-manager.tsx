@@ -69,10 +69,17 @@ type BundleSessionEditor = {
   sessionId: string | null;
   appointmentId: string | null;
   localDate: string;
-  localTime: string;
+  slotStartsAt: string;
   barberId: string;
   observation: string;
   lateCancellation: boolean;
+};
+type BundleSessionSlot = { starts_at: string; ends_at: string };
+type BundleSessionAvailability = {
+  key: string;
+  loading: boolean;
+  failed: boolean;
+  slots: BundleSessionSlot[];
 };
 
 function dateInTimezone(date: Date, timezone: string): string {
@@ -413,6 +420,8 @@ export function CustomersManager({
   const [bundleSessionEditor, setBundleSessionEditor] = useState<BundleSessionEditor | null>(null);
   const [bundleSessionAuxiliaryDrafts, setBundleSessionAuxiliaryDrafts] = useState<AuxiliaryDraft[]>([]);
   const [bundleSessionSaving, setBundleSessionSaving] = useState(false);
+  const [bundleSessionAvailability, setBundleSessionAvailability] = useState<BundleSessionAvailability>({ key: "", loading: false, failed: false, slots: [] });
+  const [bundleSessionAvailabilityRevision, setBundleSessionAvailabilityRevision] = useState(0);
   const [bundleSessionDeletingId, setBundleSessionDeletingId] = useState<string | null>(null);
   const [deletingSubscriptionId, setDeletingSubscriptionId] = useState<string | null>(null);
   const [subscriptionCycleDeleteTarget, setSubscriptionCycleDeleteTarget] = useState<Record<string, unknown> | null>(null);
@@ -442,6 +451,55 @@ export function CustomersManager({
   const [customerFormTab, setCustomerFormTab] = useState<"details" | "dependents">("details");
   const [dependentDraft, setDependentDraft] = useState<{ id?: string; fullName: string; birthDate: string; relationship: "CHILD" | "SPOUSE" | "EMPLOYEE" | "PARENT" | "OTHER" }>({ fullName: "", birthDate: "", relationship: "CHILD" });
   const [todayTimestamp] = useState(() => Date.now());
+  const bundleAvailabilityEditor = bundleSessionEditor && bundleSessionEditor.action !== "EDIT" ? bundleSessionEditor : null;
+  const bundleAvailabilitySubscriptionId = bundleAvailabilityEditor && subscriptionControlId ? subscriptionControlId : "";
+  const bundleAvailabilitySessionId = bundleAvailabilityEditor?.sessionId ?? "";
+  const bundleAvailabilityBarberId = bundleAvailabilityEditor?.barberId ?? "";
+  const bundleAvailabilityDate = bundleAvailabilityEditor?.localDate ?? "";
+  const bundleAvailabilityKey = bundleAvailabilitySubscriptionId && bundleAvailabilityBarberId && bundleAvailabilityDate
+    ? [organizationId, bundleAvailabilitySubscriptionId, bundleAvailabilitySessionId || "new", bundleAvailabilityBarberId, bundleAvailabilityDate, bundleSessionAvailabilityRevision].join("|")
+    : "";
+  const bundleAvailabilityMatches = bundleAvailabilityKey !== "" && bundleSessionAvailability.key === bundleAvailabilityKey;
+  const bundleAvailabilityLoading = bundleAvailabilityKey !== "" && (!bundleAvailabilityMatches || bundleSessionAvailability.loading);
+  const availableBundleSlots = bundleAvailabilityMatches ? bundleSessionAvailability.slots : [];
+  const selectedBundleSlot = availableBundleSlots.find((slot) => slot.starts_at === (bundleAvailabilityEditor?.slotStartsAt ?? "")) ?? null;
+
+  useEffect(() => {
+    if (!bundleAvailabilityKey) {
+      setBundleSessionAvailability({ key: "", loading: false, failed: false, slots: [] });
+      return;
+    }
+    let active = true;
+    setBundleSessionAvailability({ key: bundleAvailabilityKey, loading: true, failed: false, slots: [] });
+    void (async () => {
+      try {
+        const { data, error } = await connectedClient().rpc("get_manager_subscription_bundle_slots", {
+          p_organization_id: organizationId,
+          p_subscription_id: bundleAvailabilitySubscriptionId,
+          p_session_id: bundleAvailabilitySessionId || null,
+          p_barber_id: bundleAvailabilityBarberId,
+          p_local_date: bundleAvailabilityDate,
+        });
+        if (error) throw new Error(error.message);
+        const rawSlots = (data as { slots?: unknown } | null)?.slots;
+        const slots: BundleSessionSlot[] = Array.isArray(rawSlots)
+          ? rawSlots.flatMap((value: unknown) => {
+              if (typeof value !== "object" || value === null || !("starts_at" in value) || !("ends_at" in value)) return [];
+              const startsAt = value.starts_at;
+              const endsAt = value.ends_at;
+              return typeof startsAt === "string" && typeof endsAt === "string"
+                ? [{ starts_at: startsAt, ends_at: endsAt }]
+                : [];
+            })
+          : [];
+        if (active) setBundleSessionAvailability({ key: bundleAvailabilityKey, loading: false, failed: false, slots });
+      } catch {
+        if (active) setBundleSessionAvailability({ key: bundleAvailabilityKey, loading: false, failed: true, slots: [] });
+      }
+    })();
+    return () => { active = false; };
+  }, [organizationId, bundleAvailabilityKey, bundleAvailabilitySubscriptionId, bundleAvailabilitySessionId, bundleAvailabilityBarberId, bundleAvailabilityDate]);
+
   useEffect(() => {
     const subscription = subscriptions.find((item) => String(item.id) === subscriptionControlId);
     const version = subscription?.plan_version as { model?: string } | null | undefined;
@@ -1626,7 +1684,7 @@ export function CustomersManager({
       sessionId: session ? String(session.id) : null,
       appointmentId: action === "ADD" ? null : appointmentId,
       localDate: action === "RESCHEDULE" && localStart ? localStart.date : defaultDate,
-      localTime: action === "RESCHEDULE" && localStart ? localStart.time : "09:00",
+      slotStartsAt: "",
       barberId: currentBarberId,
       observation: String(session?.cancellation_observation ?? ""),
       lateCancellation: action === "RESCHEDULE" && String(session?.status) === "CONSUMED",
@@ -1642,7 +1700,10 @@ export function CustomersManager({
       async () => {
         const client = connectedClient();
         if (bundleSessionEditor.action === "ADD") {
-          const startsAt = localDateTimeToIso(`${bundleSessionEditor.localDate}T${bundleSessionEditor.localTime}`, timezone);
+          const startsAt = bundleSessionAvailability.key === bundleAvailabilityKey
+            ? bundleSessionAvailability.slots.find((slot) => slot.starts_at === bundleSessionEditor.slotStartsAt)?.starts_at
+            : null;
+          if (!startsAt) throw new Error("Selecione um horário disponível para este profissional.");
           await assertResult(await client.rpc("add_subscription_bundle_courtesy_session", {
             p_organization_id: organizationId,
             p_subscription_id: subscriptionControlId,
@@ -1653,7 +1714,10 @@ export function CustomersManager({
         }
         if (!bundleSessionEditor.sessionId) throw new Error("Sessão não encontrada.");
         if (bundleSessionEditor.action === "RESCHEDULE") {
-          const startsAt = localDateTimeToIso(`${bundleSessionEditor.localDate}T${bundleSessionEditor.localTime}`, timezone);
+          const startsAt = bundleSessionAvailability.key === bundleAvailabilityKey
+            ? bundleSessionAvailability.slots.find((slot) => slot.starts_at === bundleSessionEditor.slotStartsAt)?.starts_at
+            : null;
+          if (!startsAt) throw new Error("Selecione um horário disponível para este profissional.");
           await assertResult(await client.rpc("manage_subscription_bundle_session", {
             p_organization_id: organizationId,
             p_session_id: bundleSessionEditor.sessionId,
@@ -1699,6 +1763,9 @@ export function CustomersManager({
           : "Sessão atualizada.",
     );
     setBundleSessionSaving(false);
+    if (!saved && bundleSessionEditor.action !== "EDIT") {
+      setBundleSessionAvailabilityRevision((revision) => revision + 1);
+    }
     if (saved) {
       setBundleSessionEditor(null);
       setSubscriptionBundleRefresh((value) => value + 1);
@@ -2960,12 +3027,21 @@ export function CustomersManager({
                 </>}
                 {bundleSessionEditor.action !== "EDIT" && <>
                   {canChooseProfessional
-                    ? <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
+                    ? <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value, slotStartsAt: "" } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
                     : <label>Profissional<span className="input-shell"><input value={barbers.find((barber) => barber.id === bundleSessionEditor.barberId)?.display_name ?? "Profissional da sessão"} readOnly /></span></label>}
                   <div className="form-grid">
-                    <label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={bundleSessionEditor.localDate} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localDate: event.target.value } : current)} required /></span></label>
-                    <label>Horário<span className="input-shell"><Clock3 size={17} /><input type="time" value={bundleSessionEditor.localTime} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localTime: event.target.value } : current)} step={Math.max(1, Number(slotIntervalMinutes) || 15) * 60} required /></span></label>
+                    <label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={bundleSessionEditor.localDate} min={todayInOrganization} disabled={!bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, localDate: event.target.value, slotStartsAt: "" } : current)} required /></span></label>
+                    <label>Horário disponível<span className="select-input"><select value={bundleSessionEditor.slotStartsAt} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, slotStartsAt: event.target.value } : current)} disabled={bundleAvailabilityLoading || bundleSessionAvailability.failed || availableBundleSlots.length === 0} required>
+                      <option value="">{bundleAvailabilityLoading ? "Consultando horários…" : bundleSessionAvailability.failed && bundleAvailabilityMatches ? "Não foi possível consultar" : availableBundleSlots.length ? "Selecione um horário" : "Nenhum horário livre"}</option>
+                      {availableBundleSlots.map((slot) => {
+                        const starts = localDateTimeInputs(new Date(slot.starts_at), timezone);
+                        const ends = localDateTimeInputs(new Date(slot.ends_at), timezone);
+                        return <option key={slot.starts_at} value={slot.starts_at}>{starts.time}–{ends.time}</option>;
+                      })}
+                    </select><ChevronDown size={15} /></span></label>
                   </div>
+                  {bundleSessionAvailability.failed && bundleAvailabilityMatches && <p className={styles.subscriptionBookingHint} role="alert">Não foi possível consultar os horários disponíveis. Altere a data e tente novamente.</p>}
+                  {!bundleAvailabilityLoading && !bundleSessionAvailability.failed && bundleAvailabilityMatches && availableBundleSlots.length === 0 && <p className={styles.subscriptionBookingHint}>Não há horários livres para este profissional nesta data.</p>}
                   {bundleSessionEditor.action === "ADD" && <p className={styles.subscriptionBookingHint}>A comissão seguirá a regra vigente do profissional escolhido. Nenhuma parcela será criada ou alterada.</p>}
                 </>}
               </div>
@@ -2973,7 +3049,7 @@ export function CustomersManager({
                 {bundleSessionEditor.lateCancellation
                   ? <button type="button" className="button button--ghost" disabled={bundleSessionSaving} onClick={() => setBundleSessionEditor(null)}>Manter cancelamento</button>
                   : <button type="button" className="button button--ghost" disabled={bundleSessionSaving} onClick={() => setBundleSessionEditor(null)}>Cancelar</button>}
-                <button type="submit" className="button button--dark" disabled={bundleSessionSaving || !bundleSessionEditor.barberId || (bundleSessionEditor.lateCancellation && !bundleSessionEditor.sessionId)}>
+                <button type="submit" className="button button--dark" disabled={bundleSessionSaving || !bundleSessionEditor.barberId || (bundleSessionEditor.action !== "EDIT" && (!selectedBundleSlot || bundleAvailabilityLoading || bundleSessionAvailability.failed)) || (bundleSessionEditor.lateCancellation && !bundleSessionEditor.sessionId)}>
                   {bundleSessionSaving ? "Salvando…" : bundleSessionEditor.action === "EDIT" ? "Salvar alterações" : bundleSessionEditor.lateCancellation ? "Agendar mesmo assim" : bundleSessionEditor.action === "ADD" ? "Adicionar e agendar" : currentAppointment?.status === "CONFIRMED" ? "Confirmar reagendamento" : "Agendar sessão"}
                 </button>
               </div>

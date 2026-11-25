@@ -114,6 +114,7 @@ export function humanizeError(error: unknown) {
     [/appointment is outside the current barber schedule/i, "A duração do serviço ultrapassa o fim da escala deste profissional. Escolha outro horário."],
     [/start time is not aligned to slot interval/i, "Escolha um horário alinhado ao intervalo de slots da agenda."],
     [/requested slot is no longer available|exclusion constraint/i, "Esse horário acabou de ser ocupado."],
+    [/requested subscription time is no longer available/i, "Esse horário acabou de ficar indisponível. Os horários livres foram atualizados; escolha outro."],
     [/organization_date_block_conflict/i, "Há agendamento ativo neste período. Reagende ou cancele antes de bloquear."],
     [/date block overlaps an existing date block/i, "Este período já tem outro bloqueio cadastrado."],
     [/schedule interval has future appointments|exception period has future appointments/i, "Há atendimento agendado neste horário. Reagende ou cancele antes de alterar a escala."],
