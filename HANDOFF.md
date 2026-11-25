@@ -1,5 +1,14 @@
 # Handoff — Los Barberos
 
+## Avisos de reagendamento no WhatsApp — 25/11/2026
+
+- O fluxo compartilhado do Display agora envia avisos específicos ao cliente, profissional principal e auxiliares quando uma sessão confirmada é reagendada pela Agenda ou pela aba Sessões do contrato. Cada destinatário é enfileirado de forma independente; ausência de WhatsApp em um contato não impede os demais envios. O fluxo de confirmação de presença continua separado.
+- A mensagem configurável `Mensagem de reagendamento` usa modelos distintos para cliente, profissional e auxiliar, com `{horario_original}` e `{horario_novo}`. A observação preenchida ao reagendar fica registrada na sessão do contrato.
+- A migration `20261125151846_appointment_reschedule_whatsapp_notifications.sql` foi aplicada ao Supabase `bwdjkhqshmppescunwer`; o dry-run posterior confirmou banco alinhado. `whatsapp-v2-dispatcher` está `ACTIVE`, versão 73.
+- Commit de implementação `19ad2a918741cc197b8bee64d21e887d8ced6c92` publicado em `main`. Vercel `dpl_8SUV5RERydX8qpwahRTViGphC5iM` chegou a `READY` nesse SHA e atende `displaysh-app.vercel.app`; smoke `/`, `/entrar`, `/privacidade`, `/termos` retornou HTTP 200 e `/gestor` 307 para login.
+- Envio de teste autorizado: contrato 9, sessão 06 do cliente Julio, de 09/12/2026 14:00 para 08/12/2026 14:00 (America/Sao_Paulo). A fila confirmou `APPOINTMENT_RESCHEDULED_CLIENT` e `APPOINTMENT_RESCHEDULED_STAFF` como `DELIVERED`, uma tentativa cada. Não havia auxiliar cadastrado; `read_at` permanece vazio, portanto o estado prova entrega registrada pelo provedor, não leitura no aparelho.
+- Typecheck, build e testes focados passaram. O CI `45647729332` não ficou verde: E2E passou; `verify` parou no lint por três erros `react-hooks/set-state-in-effect` em efeitos existentes de `customers-manager.tsx`; `edge-functions` apontou formatação do helper recém-alterado e de dois arquivos antigos sem relação; `database` falhou em `supabase start`, e etapas posteriores foram puladas. A formatação do helper desta mudança foi corrigida depois e `deno fmt --check` nele passou; os outros dois arquivos e os três erros de lint seguem fora do escopo.
+
 ## WhatsApp: confirmação em reserva recente — 18/11/2026
 
 - Para reservas cujo lembrete de presença já venceu no momento da criação, o cliente recebe uma única mensagem: confirmação do agendamento usando o template configurado, seguida das opções de confirmação de presença. A mensagem separada de confirmação do agendamento é cancelada antes do dispatcher poder enviá-la.

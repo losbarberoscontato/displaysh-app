@@ -154,8 +154,13 @@ export function textFor(job: Job): string {
     ? job.payload.message_kind
     : "";
   const when = formatStart(job.payload);
-  const timezone = typeof job.payload.timezone === "string" ? job.payload.timezone : "America/Sao_Paulo";
-  const originalWhen = formatTimestamp(job.payload.original_starts_at, timezone);
+  const timezone = typeof job.payload.timezone === "string"
+    ? job.payload.timezone
+    : "America/Sao_Paulo";
+  const originalWhen = formatTimestamp(
+    job.payload.original_starts_at,
+    timezone,
+  );
   const newWhen = formatTimestamp(job.payload.starts_at, timezone);
   const auxiliary = job.payload.message_audience === "AUXILIARY";
   let fallback: string;
@@ -216,11 +221,14 @@ export function textFor(job: Job): string {
           ? `O gestor confirmou manualmente o atendimento de ${name} em ${when}. Você está escalado como auxiliar.`
           : `Agendamento confirmado manualmente: ${name}, ${when}.`;
       } else if (messageKind === "APPOINTMENT_RESCHEDULED_CLIENT") {
-        fallback = `Prezado(a) ${name}, sua sessão do dia ${originalWhen}, foi reagendada para o dia ${newWhen} com o profissional ${barber}.`;
+        fallback =
+          `Prezado(a) ${name}, sua sessão do dia ${originalWhen}, foi reagendada para o dia ${newWhen} com o profissional ${barber}.`;
       } else if (messageKind === "APPOINTMENT_RESCHEDULED_STAFF") {
-        fallback = `Sessão reagendada. Cliente: ${name}, De: ${originalWhen}, para: ${newWhen}`;
+        fallback =
+          `Sessão reagendada. Cliente: ${name}, De: ${originalWhen}, para: ${newWhen}`;
       } else if (messageKind === "APPOINTMENT_RESCHEDULED_AUXILIARY") {
-        fallback = `Sessão reagendada. Cliente: ${name}, De: ${originalWhen}, para: ${newWhen}`;
+        fallback =
+          `Sessão reagendada. Cliente: ${name}, De: ${originalWhen}, para: ${newWhen}`;
       } else if (messageKind === "RESERVATION_CHOICE") {
         fallback = typeof job.payload.body === "string"
           ? job.payload.body

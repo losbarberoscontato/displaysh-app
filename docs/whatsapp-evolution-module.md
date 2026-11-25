@@ -1,5 +1,13 @@
 # Módulo WhatsApp Evolution
 
+## Avisos de reagendamento — 25/11/2026
+
+- `enqueue_appointment_reschedule_whatsapp()` enfileira `APPOINTMENT_RESCHEDULED_CLIENT`, `APPOINTMENT_RESCHEDULED_STAFF` e uma cópia `APPOINTMENT_RESCHEDULED_AUXILIARY` por auxiliar com WhatsApp. Atualização de horário/profissional de uma sessão confirmada dispara o aviso; reservas iniciais continuam na confirmação normal.
+- Os avisos usam `MANUAL_OUTBOUND_TEXT`, consentimento transacional do cliente, conexão QR ativa e controles de envio da equipe. Destinatários são independentes; telefone ausente não bloqueia os demais. O gate de pausa para sessões de assinatura só permite esses tipos dedicados, sem reativar outros avisos.
+- Os três templates ficam editáveis nas configurações WhatsApp. Variáveis disponíveis: `{cliente}`, `{profissional}`, `{horario_original}` e `{horario_novo}`. Datas são formatadas no timezone da organização. `reschedule_observation` registra o motivo do reagendamento pela RPC de sessão.
+- Migration `20261125151846_appointment_reschedule_whatsapp_notifications.sql` aplicada e Supabase alinhado; dispatcher `ACTIVE` v73. Teste autorizado da sessão 06 do contrato 9: dois jobs (cliente e profissional) chegaram a `DELIVERED`, uma tentativa por job; sem auxiliar; `read_at` vazio. Isso comprova o estado de entrega gravado, não leitura no aparelho.
+- Commit `19ad2a9` em `main`; Vercel `READY` e smoke público validado. CI `45647729332`: E2E passou; verify falhou no lint por três erros em efeitos existentes de `customers-manager.tsx`, edge-functions falhou em formatação e database falhou em `supabase start`. O helper de templates alterado neste fluxo já foi formatado; os demais itens do CI precisam de escopo próprio antes de qualquer ajuste.
+
 ## Confirmação da presença em reservas próximas — 18/11/2026
 
 - Quando o lembrete configurado já venceu no momento da reserva, apenas o cliente recebe uma mensagem combinada: confirmação do agendamento com template configurado e opções para confirmar presença. O segundo aviso de cliente fica cancelado; notificações do profissional e dos auxiliares não são alteradas.
