@@ -5,7 +5,7 @@ import { getPublishedProductIdentity } from "@/lib/product-identity-server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 const neutralMetadata: Metadata = {
-  title: { absolute: "Entrar · Display SH" },
+  title: { absolute: "Entrar · Display App" },
   icons: { icon: "/display-sh/icon.svg" },
 };
 

@@ -39,10 +39,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
       router.replace(`/cliente/reservas${suffix}`);
     }
   }, [pathname, router, subscriptionAccess, suffix]);
-  const visibleNavigation = useMemo(
-    () => navigation.filter((item) => item.href !== "/cliente/assinaturas" || subscriptionAccess === true),
-    [subscriptionAccess],
-  );
+  const visibleNavigation = navigation;
   const logoPath = context?.organization.logo_path ?? entry?.logo_path;
   const logoUrl = logoPath && supabase
     ? supabase.storage.from("organization-logos").getPublicUrl(logoPath).data.publicUrl

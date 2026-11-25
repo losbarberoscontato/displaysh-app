@@ -704,6 +704,26 @@ describe("cliente conectado", () => {
     expect(screen.queryByText("Minha barbearia")).not.toBeInTheDocument();
   });
 
+  it("mantém o cabeçalho Display App e os cinco menus durante o carregamento", async () => {
+    installProviderClient({ authenticated: false });
+
+    render(
+      <ConnectedClientShell>
+        <ConnectedClientGate><span>Conteúdo carregado</span></ConnectedClientGate>
+      </ConnectedClientShell>,
+    );
+
+    expect(await screen.findByText("Carregando estabelecimento…")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Display · Início" })).toHaveAttribute("href", "/cliente/inicio");
+    expect(screen.queryByRole("button", { name: /sair da conta/iu })).not.toBeInTheDocument();
+    expect(screen.queryByText("JH")).not.toBeInTheDocument();
+
+    const navigation = screen.getAllByRole("navigation", { name: "Navegação do cliente" });
+    expect(Array.from(navigation[1].querySelectorAll("a"), (link) => link.textContent?.trim())).toEqual([
+      "Home", "Agendar", "Reservas", "Assinaturas", "Perfil",
+    ]);
+  });
+
   it("mantém logo do estabelecimento no cabeçalho e vocabulário Le Gras no agendamento", async () => {
     installProviderClient({ authenticated: true, initiallyLinked: true, productKey: "le-gras", logoPath: "studio/logo.png" });
     const view = render(
@@ -1093,7 +1113,7 @@ describe("cliente conectado", () => {
   it("separa entrar de criar conta e oferece Google nos dois modos", () => {
     render(<ClientAuthForm initialSlug="barbearia-real" initialNext="/cliente/agendar" />);
 
-    expect(screen.getByRole("heading", { name: "Acesse sua barbearia" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Acesse sua conta no Display App" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Entrar" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: "Continuar com Google" })).toBeEnabled();
 
@@ -1341,7 +1361,7 @@ describe("cliente conectado", () => {
     await waitFor(() => expect(authMocks.client?.auth.resend).toHaveBeenCalledWith({
       type: "signup",
       email: "ana@example.com",
-      options: { emailRedirectTo: "http://localhost:3000/auth/callback?next=%2Fcliente%2Fagendar&barbearia=barbearia-real" },
+      options: { emailRedirectTo: "http://localhost:3000/auth/callback?next=%2Fcliente%2Freservas&barbearia=barbearia-real" },
     }));
   });
 
@@ -1452,7 +1472,7 @@ describe("cliente conectado", () => {
     expect(authMocks.client?.rpc).toHaveBeenCalledOnce();
 
     resolveRpc({ data: "account-1", error: null });
-    await waitFor(() => expect(authMocks.push).toHaveBeenCalledWith("/cliente?barbearia=barbearia-real"));
+    await waitFor(() => expect(authMocks.push).toHaveBeenCalledWith("/cliente/reservas?barbearia=barbearia-real"));
   });
 
   it("releases auth lock after a rejected provider promise", async () => {
@@ -1524,7 +1544,7 @@ describe("cliente conectado", () => {
     fireEvent.submit(screen.getByRole("form", { name: "Redefinir senha" }));
 
     await waitFor(() => expect(authMocks.client?.auth.updateUser).toHaveBeenCalledWith({ password: "NovaSenha#123" }));
-    expect(authMocks.push).toHaveBeenCalledWith("/cliente?barbearia=barbearia-real");
+    expect(authMocks.push).toHaveBeenCalledWith("/cliente/reservas?barbearia=barbearia-real");
   });
 
   it("rejects weak recovery password before provider mutation", async () => {

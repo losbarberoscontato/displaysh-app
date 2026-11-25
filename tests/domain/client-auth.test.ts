@@ -3,7 +3,7 @@ import { clientAuthDestination, clientOAuthCompletionDestination, clientSignupSc
 
 describe("clientAuthDestination", () => {
   it.each([
-    ["/cliente", "/cliente?barbearia=barbearia-real"],
+    ["/cliente", "/cliente/reservas?barbearia=barbearia-real"],
     ["/cliente/agendar", "/cliente/agendar?barbearia=barbearia-real"],
     ["/cliente/reservas", "/cliente/reservas?barbearia=barbearia-real"],
     ["/cliente/perfil", "/cliente/perfil?barbearia=barbearia-real"],
@@ -12,24 +12,28 @@ describe("clientAuthDestination", () => {
   });
 
   it.each([
-    ["https://evil.example", "/cliente/agendar?barbearia=barbearia-real"],
-    ["//evil.example", "/cliente/agendar?barbearia=barbearia-real"],
-    ["/cliente\\evil", "/cliente/agendar?barbearia=barbearia-real"],
-    ["/cliente%5Cevil", "/cliente/agendar?barbearia=barbearia-real"],
-    ["/cliente/%2e%2e/gestor", "/cliente/agendar?barbearia=barbearia-real"],
-    ["/cliente?barbearia=other", "/cliente?barbearia=barbearia-real"],
-    ["/cliente?barbearia=barbearia-real&barbearia=other", "/cliente?barbearia=barbearia-real"],
-    ["/cliente#unsafe", "/cliente?barbearia=barbearia-real"],
-    ["/cliente/redefinir-senha", "/cliente/agendar?barbearia=barbearia-real"],
-    ["/gestor", "/cliente/agendar?barbearia=barbearia-real"],
+    ["https://evil.example", "/cliente/reservas?barbearia=barbearia-real"],
+    ["//evil.example", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/cliente\\evil", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/cliente%5Cevil", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/cliente/%2e%2e/gestor", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/cliente?barbearia=other", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/cliente?barbearia=barbearia-real&barbearia=other", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/cliente#unsafe", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/cliente/redefinir-senha", "/cliente/reservas?barbearia=barbearia-real"],
+    ["/gestor", "/cliente/reservas?barbearia=barbearia-real"],
   ])("rejects unsafe or non-allowlisted next %s", (next, expected) => {
     expect(clientAuthDestination({ next, slug: "barbearia-real" })).toBe(expected);
   });
 
-  it("opens booking when client login has no explicit destination", () => {
+  it("opens Reservations when client login has an establishment but no explicit destination", () => {
     expect(clientAuthDestination({ slug: "barbearia-real" })).toBe(
-      "/cliente/agendar?barbearia=barbearia-real",
+      "/cliente/reservas?barbearia=barbearia-real",
     );
+  });
+
+  it("opens Home when client login has no establishment", () => {
+    expect(clientAuthDestination({})).toBe("/cliente/inicio");
   });
 
   it("preserves a valid public booking link through client authentication", () => {

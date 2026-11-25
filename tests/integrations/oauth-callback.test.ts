@@ -30,7 +30,17 @@ describe("OAuth callback return path", () => {
       "/cliente/agendar?barbearia=barbearia-real",
     );
     expect(clientAuthDestination({ next: "https://evil.example", slug: "barbearia-real" })).toBe(
-      "/cliente/agendar?barbearia=barbearia-real",
+      "/cliente/reservas?barbearia=barbearia-real",
+    );
+  });
+
+  it("sends standalone client access to Home and establishment access to Reservations", () => {
+    expect(clientAuthDestination({})).toBe("/cliente/inicio");
+    expect(clientAuthDestination({ slug: "Estudio-Gras" })).toBe(
+      "/cliente/reservas?barbearia=estudio-gras",
+    );
+    expect(clientAuthDestination({ next: "/cliente", slug: "music-pro" })).toBe(
+      "/cliente/reservas?barbearia=music-pro",
     );
   });
 
@@ -113,7 +123,7 @@ describe("OAuth callback return path", () => {
 
     expect(exchangeCodeForSession).toHaveBeenCalledWith("recovery-code");
     expect(response.headers.get("location")).toBe(
-      "https://app.example/cliente/agendar?barbearia=barbearia-real",
+      "https://app.example/cliente/reservas?barbearia=barbearia-real",
     );
   });
 

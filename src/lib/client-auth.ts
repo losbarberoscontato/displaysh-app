@@ -2,7 +2,7 @@ import { z } from "zod";
 import { normalizeTenantSlug } from "@/components/connected-client/format";
 import { normalizeSafeReturnPath } from "@/lib/integrations/state";
 
-const defaultClientDestination = "/cliente/agendar";
+const defaultClientDestination = "/cliente/inicio";
 const clientDestinations = new Set([
   defaultClientDestination,
   "/cliente",
@@ -45,14 +45,19 @@ export function clientAuthDestination(input: {
   booking?: string | null;
 }): string {
   const requestedBooking = normalizeBookingPublicId(input.booking);
-  const fallback = requestedBooking ? "/cliente" : defaultClientDestination;
+  const slug = normalizeTenantSlug(input.slug);
+  const fallback = requestedBooking
+    ? "/cliente"
+    : slug
+      ? "/cliente/reservas"
+      : defaultClientDestination;
   const normalizedPath = normalizeSafeReturnPath(input.next, fallback);
   const nextUrl = new URL(normalizedPath, "https://cliente.local");
   const booking = requestedBooking ?? normalizeBookingPublicId(nextUrl.searchParams.get("booking"));
-  const destination = clientDestinations.has(nextUrl.pathname)
+  const requestedDestination = clientDestinations.has(nextUrl.pathname)
     ? nextUrl.pathname
-    : defaultClientDestination;
-  const slug = normalizeTenantSlug(input.slug);
+    : fallback;
+  const destination = requestedDestination === "/cliente" && !booking ? fallback : requestedDestination;
   const params = new URLSearchParams();
   if (slug) params.set("barbearia", slug);
   if (booking && destination === "/cliente") params.set("booking", booking);
