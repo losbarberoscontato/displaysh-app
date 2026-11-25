@@ -5,7 +5,7 @@ import { ConnectedClientShell } from "@/components/connected-client/shell";
 import { hasSupabaseConfig } from "@/lib/env";
 
 export const metadata: Metadata = {
-  title: { absolute: "Cliente · Display SH" },
+  title: { absolute: "Display App · Cliente" },
   icons: { icon: "/display-sh/icon.svg" },
 };
 

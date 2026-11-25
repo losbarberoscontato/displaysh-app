@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarDays, CalendarPlus2, ChevronRight, CreditCard, LogOut, MapPin, Menu, UserRound, X } from "lucide-react";
+import { CalendarDays, CalendarPlus2, ChevronRight, CreditCard, House, MapPin, Menu, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Brand } from "@/components/brand";
 import { ConnectedClientProvider, useConnectedClient } from "@/components/connected-client/context";
-import { initials, locationLabel } from "@/components/connected-client/format";
+import { locationAddressLine } from "@/components/connected-client/format";
 import styles from "@/components/connected-client/connected-client.module.css";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { productIdentityStyle } from "@/lib/product-identity";
 import { useNavigationAccess } from "./use-navigation-access";
 
 const navigation = [
+  { href: "/cliente/inicio", label: "Home", icon: House },
   { href: "/cliente/agendar", label: "Agendar", icon: CalendarPlus2 },
   { href: "/cliente/reservas", label: "Reservas", icon: CalendarDays },
   { href: "/cliente/assinaturas", label: "Assinaturas", icon: CreditCard },
@@ -22,15 +23,14 @@ const navigation = [
 function ShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
   const router = useRouter();
-  const { context, customer, organizations, user, slug, entry, identity, entryLoading, signOut, switchTenant } = useConnectedClient();
+  const { context, customer, organizations, user, slug, entry, identity, switchTenant } = useConnectedClient();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [targetSlug, setTargetSlug] = useState<string | null>(null);
   const suffix = slug ? `?barbearia=${encodeURIComponent(slug)}` : "";
-  const displayName = customer?.full_name ?? user?.user_metadata?.full_name ?? user?.email ?? "Cliente";
   const target = targetSlug
     ? organizations.find((item) => item.organization_slug === targetSlug) ?? null
     : null;
-  const supabase = getSupabaseBrowserClient();
+  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const { subscriptionAccess, commercialOfferUnread } = useNavigationAccess(
     supabase, context, customer, user,
   );
@@ -43,10 +43,10 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     () => navigation.filter((item) => item.href !== "/cliente/assinaturas" || subscriptionAccess === true),
     [subscriptionAccess],
   );
-  const logoUrl = context?.organization.logo_path && supabase
-    ? supabase.storage.from("organization-logos").getPublicUrl(context.organization.logo_path).data.publicUrl
+  const logoPath = context?.organization.logo_path ?? entry?.logo_path;
+  const logoUrl = logoPath && supabase
+    ? supabase.storage.from("organization-logos").getPublicUrl(logoPath).data.publicUrl
     : null;
-  const productName = identity?.brand.name ?? (entry?.product_key === "los-barberos" ? "Los Barberos" : "Display SH");
   const productLabel = (key: string | null | undefined) => ({
     "los-barberos": "Los Barberos", "le-gras": "Le Gras", "pro-stetic": "ProStetic", "music-pro": "MusicPro", "ateliepro": "AteliePro",
   })[key ?? ""] ?? "Produto indisponível";
@@ -58,12 +58,14 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     <div className={`${styles.shell} ${themed ? styles.productTheme : ""} ${isAccessPage && themed ? styles.productAccess : ""}`} style={identityStyle}>
       <header className={styles.topbar}>
         <div className={styles.topbarInner}>
-          <Brand href={`/cliente/agendar${suffix}`} name={entryLoading ? "Display SH" : productName} tagline={identity?.brand.tagline ?? (entry?.product_key === "los-barberos" ? "gestão para barbearias" : "Área do cliente")} mark={identity?.brand.mark ?? (entry?.product_key === "los-barberos" ? "LB" : "DS")} logoUrl={entryLoading ? undefined : identity?.brand.logoUrl} />
+          <Brand href={`/cliente/inicio${suffix}`} name="Display" tagline="App" mark="D" />
           <nav className={styles.desktopNav} aria-label="Navegação do cliente">
             {visibleNavigation.map((item) => {
               const Icon = item.icon;
-              const active = pathname.startsWith(item.href);
-                return (
+              const active = item.href === "/cliente/agendar"
+                ? pathname === "/cliente" || pathname.startsWith(item.href)
+                : pathname.startsWith(item.href);
+              return (
                 <Link key={item.href} href={`${item.href}${suffix}`} aria-current={active ? "page" : undefined} className={`${active ? styles.active : ""} ${item.href === "/cliente/assinaturas" && commercialOfferUnread ? styles.offerPulse : ""}`}>
                   <Icon size={17} aria-hidden="true" />
                   {item.label}
@@ -71,32 +73,20 @@ function ShellContent({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
-          {user && organizations.length > 1 && (
-            <button type="button" className={styles.tenantMenuButton} onClick={() => setSwitcherOpen((open) => !open)} aria-expanded={switcherOpen} aria-controls="client-tenant-menu">
-              {switcherOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
-              <span>Estabelecimentos</span>
-            </button>
-          )}
-          {user ? (
-            <button type="button" className={styles.account} onClick={() => void signOut()} aria-label="Sair da conta">
-              <span>{initials(displayName)}</span>
-              <LogOut size={18} aria-hidden="true" />
-            </button>
-          ) : <span className={styles.guest}>Visitante</span>}
         </div>
       </header>
       <div className={styles.locationStrip}>
-        {logoUrl && <img className={styles.locationLogo} src={logoUrl} alt="" />}
-        <MapPin size={15} aria-hidden="true" />
-        <span>
-          {context
-            ? `${context.organization.name} · ${context.location?.name ?? "Unidade"} · ${locationLabel(context.location?.address)}`
-            : "Selecione um estabelecimento"}
-        </span>
-        {context && (
-          <strong className={context.organization.accepting_bookings ? styles.open : styles.closed}>
-            {context.organization.accepting_bookings ? "Aceitando reservas" : "Reservas pausadas"}
-          </strong>
+        <div className={styles.locationDetails}>
+          {logoUrl && <img className={styles.locationLogo} src={logoUrl} alt="" />}
+          <span className={styles.locationText}>
+            <strong>{context?.organization.name ?? "Selecione um estabelecimento"}</strong>
+            <small><MapPin size={14} aria-hidden="true" />{locationAddressLine(context?.location?.address)}</small>
+          </span>
+        </div>
+        {user && (
+          <button type="button" className={styles.tenantMenuButton} onClick={() => setSwitcherOpen((open) => !open)} aria-label="Estabelecimentos" title="Estabelecimentos" aria-expanded={switcherOpen} aria-controls="client-tenant-menu">
+            {switcherOpen ? <X size={19} aria-hidden="true" /> : <Menu size={19} aria-hidden="true" />}
+          </button>
         )}
       </div>
       <main className={styles.main}>{children}</main>
@@ -108,6 +98,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
               <span>{item.organization_name} · {productLabel(item.product_key)}</span><ChevronRight size={16} aria-hidden="true" />
             </button>
           ))}
+          {organizations.length <= 1 && <p>Você não tem outros estabelecimentos disponíveis.</p>}
         </section>
       )}
       {target && (
@@ -128,7 +119,9 @@ function ShellContent({ children }: { children: React.ReactNode }) {
       <nav className={styles.bottomNav} aria-label="Navegação do cliente">
         {visibleNavigation.map((item) => {
           const Icon = item.icon;
-          const active = pathname.startsWith(item.href);
+          const active = item.href === "/cliente/agendar"
+            ? pathname === "/cliente" || pathname.startsWith(item.href)
+            : pathname.startsWith(item.href);
           return (
             <Link key={item.href} href={`${item.href}${suffix}`} aria-current={active ? "page" : undefined} className={`${active ? styles.active : ""} ${item.href === "/cliente/assinaturas" && commercialOfferUnread ? styles.offerPulse : ""}`}>
               <Icon size={21} aria-hidden="true" />

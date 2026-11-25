@@ -24,7 +24,6 @@ import {
   bookingSelection,
   catalogChoices,
   dateOptions,
-  filterByChoiceKind,
   formatLocalDate,
   formatMoney,
   formatSlotTime,
@@ -52,7 +51,6 @@ type Draft = {
   audience?: CatalogAudience;
 };
 
-type CatalogChoiceKindFilter = "ALL" | "SERVICE" | "PACKAGE";
 type BarberMode = "ANY" | "SPECIFIC" | "";
 type SubscriptionBookingContext = {
   plan_id: string;
@@ -118,11 +116,10 @@ function BookingContent() {
   const router = useRouter();
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const [selectedAudience, setSelectedAudience] = useState<CatalogAudience | null>(null);
-  const [selectedChoiceKind, setSelectedChoiceKind] = useState<CatalogChoiceKindFilter>("ALL");
   const choices = useMemo(() => {
     if (!context || !selectedAudience) return [];
-    return filterByChoiceKind(filterByAudience(catalogChoices(context), selectedAudience), selectedChoiceKind);
-  }, [context, selectedAudience, selectedChoiceKind]);
+    return filterByAudience(catalogChoices(context), selectedAudience);
+  }, [context, selectedAudience]);
   const dates = useMemo(() => context ? dateOptions(context.organization.timezone) : [], [context]);
   const [step, setStep] = useState(1);
   const [choiceId, setChoiceId] = useState("");
@@ -716,14 +713,16 @@ function BookingContent() {
   }
 
   const stepTitle = step === 1
-    ? `Qual ${vocabulary.service} você quer?`
+    ? entry?.product_key === "le-gras"
+      ? "Escolha o Serviço"
+      : `Escolha ${vocabulary.serviceArticle === "a" ? "a" : "o"} ${vocabulary.service}`
     : step === 2
       ? "Quem vai cuidar de você?"
       : step === 3
         ? "Quando fica melhor?"
         : "Revise e agende";
   const stepDescription = step === 1
-    ? `Escolha ${vocabulary.serviceArticle === "a" ? "uma" : "um"} ${vocabulary.service} ou pacote do catálogo ${vocabulary.organizationPhrase}.`
+    ? ""
     : step === 2
       ? `Escolha um ${vocabulary.professional} ou deixe o sistema encontrar o primeiro horário livre.`
       : step === 3
@@ -738,7 +737,7 @@ function BookingContent() {
       className={styles.bookingDialog}
       aria-modal="true"
       aria-labelledby="booking-step-title"
-      aria-describedby="booking-step-description"
+      aria-describedby={stepDescription ? "booking-step-description" : undefined}
       onCancel={(event) => {
         event.preventDefault();
         void exitBooking();
@@ -753,7 +752,7 @@ function BookingContent() {
           </button>
         </div>
         <h1 ref={stepHeadingRef} tabIndex={-1} id="booking-step-title">{stepTitle}</h1>
-        <p id="booking-step-description">{stepDescription}</p>
+        {stepDescription && <p id="booking-step-description">{stepDescription}</p>}
         <ol className={styles.steps} aria-label={`Etapa ${step} de 4`}>
           {bookingSteps.map((label, index) => {
             const itemStep = index + 1;
@@ -772,10 +771,10 @@ function BookingContent() {
       </header>
 
       <div ref={dialogBodyRef} className={styles.bookingDialogBody}>
-        {step > 1 && choice && (
+        {step > 1 && step < 4 && choice && (
           <div className={styles.selectionStrip}>
             {entry?.product_key === "le-gras" ? <Camera size={18} aria-hidden="true" /> : <Scissors size={18} aria-hidden="true" />}
-            <span><small>{isSubscriptionBooking ? "Sessão assinatura" : `${vocabulary.serviceArticle === "a" ? "Sua" : "Seu"} ${vocabulary.service}`}</small><strong>{isSubscriptionBooking ? `${vocabulary.servicesLabel} do plano completo` : choice.name}</strong></span>
+            <span><strong>{isSubscriptionBooking ? `${vocabulary.servicesLabel} do plano completo` : choice.name}</strong></span>
             <b>{isSubscriptionBooking ? "Incluída no plano" : formatMoney(choice.priceCents, organization.currency)}</b>
           </div>
         )}
@@ -808,26 +807,6 @@ function BookingContent() {
               <p className={styles.empty}>Nenhum item disponível para este público.</p>
             ) : (
               <>
-                <div className={styles.audienceFilter} role="tablist" aria-label="Tipo de item">
-                  <span>O que você procura?</span>
-                  {([['ALL', 'Todos'], ['SERVICE', vocabulary.servicesLabel], ['PACKAGE', 'Pacotes']] as const).map(([kind, label]) => (
-                    <button
-                      type="button"
-                      key={kind}
-                      role="tab"
-                      aria-selected={selectedChoiceKind === kind}
-                      className={selectedChoiceKind === kind ? styles.selected : undefined}
-                      onClick={() => {
-                        setSelectedChoiceKind(kind);
-                        setChoiceId("");
-                        setSelectedOfferId("");
-                        resetBookingAfterChoice();
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
                 <div className={styles.cards}>
                   {choices.map((item) => {
                     const selected = item.id === choiceId;
@@ -848,7 +827,7 @@ function BookingContent() {
                           } else setOfferDialogChoiceId("");
                         }}
                       >
-                        <span className={styles.choiceKind}>{item.kind === "PACKAGE" ? "Pacote" : vocabulary.serviceLabel}</span>
+                        {item.kind === "PACKAGE" && <span className={styles.choiceKind}>Pacote</span>}
                         <strong>{item.name}</strong>
                         <small>{itemHasOffers ? `${item.offers?.length} ofertas disponíveis. Escolha uma para continuar.` : item.description || `Detalhes informados ${vocabulary.byOrganization}.`}</small>
                         <span className={styles.choiceMeta}><Clock3 size={14} aria-hidden="true" /> {item.durationMinutes} min <b>{formatMoney(item.priceCents, organization.currency)}</b></span>
@@ -881,10 +860,10 @@ function BookingContent() {
                   }}
                 >
                   <span><Clock3 size={22} aria-hidden="true" /></span>
-                  <span><strong>Primeiro horário livre</strong><small>Escolha o horário e informamos qual {vocabulary.professional} está disponível.</small></span>
+                  <span><strong>Escolher Horário Primeiro</strong></span>
                   {barberMode === "ANY" && <Check size={20} aria-hidden="true" />}
                 </button>}
-                <div className={styles.choiceDivider}><span>ou escolha um {vocabulary.professional}</span></div>
+                <div className={styles.choiceDivider}><span>ou escolher por {vocabulary.professional} primeiro</span></div>
                 <div className={styles.barbers}>
                   {compatibleBarbers.map((item) => {
                     const selected = barberMode === "SPECIFIC" && barberId === item.id;
@@ -920,7 +899,6 @@ function BookingContent() {
               <CalendarDays size={20} aria-hidden="true" />
               <span>
                 <strong>{barberMode === "ANY" ? "Primeiro horário livre" : barber?.name}</strong>
-                <small>Horário sujeito à disponibilidade até a confirmação final.</small>
               </span>
             </div>
             <div className={styles.scheduleGroup}>
@@ -1000,16 +978,13 @@ function BookingContent() {
               {!user ? <AuthPrompt description="Entre com e-mail para identificar seu cadastro antes de confirmar." /> : (
                 <>
                   <section className={styles.panel}>
-                    <div className={styles.sectionTitle}><UserRound aria-hidden="true" /><div><h2>Seus dados</h2><p>Nome e contato vêm do seu perfil global.</p></div></div>
+                    <div className={styles.sectionTitle}><UserRound aria-hidden="true" /><div><h2>Confirme seus dados</h2></div></div>
                     <p className={styles.customerDetails}>{customer?.full_name ?? "Cliente"}<span>{customer?.phone_e164 ?? "Contato não informado"}</span></p>
                     {dependents.length > 0 && <label className={styles.attendeePicker}>Quem será atendido?<select value={attendeeDependentId} onChange={(event) => setAttendeeDependentId(event.target.value)}><option value="">Cliente titular</option>{dependents.map((dependent) => <option key={dependent.id} value={dependent.id}>{dependent.full_name}</option>)}</select></label>}
                   </section>
-                  <p className={styles.holdNotice} role="timer" aria-live="polite"><Clock3 size={18} aria-hidden="true" /> Horário protegido por <strong>{countdownLabel(holdSeconds)}</strong>. Conclua antes do contador terminar.</p>
-                  <section className={styles.panel}>
-                    <div className={styles.sectionTitle}><CalendarDays aria-hidden="true" /><div><h2>Pagamento no atendimento</h2><p>O valor integral será pago diretamente {vocabulary.toOrganization}.</p></div></div>
-                  </section>
                   <label className={styles.policy}><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /><span><ShieldCheck size={17} aria-hidden="true" /> Aceito a política desta reserva. Cancelamentos e alterações seguem o prazo informado {vocabulary.byOrganization}.</span></label>
                   <p className={`${styles.whatsappPreference} ${whatsappAccepted ? "" : styles.whatsappPreferenceOff}`}><ShieldCheck size={17} aria-hidden="true" /> {whatsappAccepted ? "Mensagens de confirmação e lembrete pelo WhatsApp estão ativas. Você pode desativá-las no Perfil." : "Mensagens automáticas pelo WhatsApp estão desativadas no seu Perfil. A reserva continua disponível."}</p>
+                  <p className={styles.holdNotice} role="timer" aria-live="polite"><Clock3 size={18} aria-hidden="true" /> Horário protegido por <strong>{countdownLabel(holdSeconds)}</strong>. Conclua antes do contador terminar.</p>
                 </>
               )}
             </div>

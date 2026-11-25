@@ -695,7 +695,7 @@ describe("cliente conectado", () => {
       </ConnectedClientProvider>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Barbearia Real" })).toBeInTheDocument();
+    expect(await screen.findByText("Próximo atendimento")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Agendar/u })).toHaveAttribute(
       "href",
       "/cliente/agendar?barbearia=barbearia-real",
@@ -704,25 +704,28 @@ describe("cliente conectado", () => {
     expect(screen.queryByText("Minha barbearia")).not.toBeInTheDocument();
   });
 
-  it("usa logo do estabelecimento na home e vocabulário Le Gras no agendamento", async () => {
+  it("mantém logo do estabelecimento no cabeçalho e vocabulário Le Gras no agendamento", async () => {
     installProviderClient({ authenticated: true, initiallyLinked: true, productKey: "le-gras", logoPath: "studio/logo.png" });
     const view = render(
-      <ConnectedClientProvider initialSlug="barbearia-real"><ConnectedClientHome /></ConnectedClientProvider>,
+      <ConnectedClientProvider initialSlug="barbearia-real">
+        <ConnectedClientShell initialSlug="barbearia-real"><ConnectedClientHome /></ConnectedClientShell>
+      </ConnectedClientProvider>,
     );
-    expect(await screen.findByRole("img", { name: "Logo de Barbearia Real" })).toHaveAttribute(
+    await waitFor(() => expect(screen.getByRole("link", { name: "Display · Início" })).toHaveAttribute("href", "/cliente/inicio?barbearia=barbearia-real"));
+    expect(view.container.querySelector("img")).toHaveAttribute(
       "src", "https://assets.example.test/organization-logos/studio/logo.png",
     );
     view.rerender(<ConnectedClientProvider initialSlug="barbearia-real"><ConnectedBooking /></ConnectedClientProvider>);
-    expect(await screen.findByRole("heading", { name: "Qual serviço você quer?" })).toBeInTheDocument();
-    expect(screen.getByText("Escolha um serviço ou pacote do catálogo do estúdio.")).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Etapa 1 de 4" })).toHaveTextContent("Fotógrafo");
+    expect(await screen.findByRole("heading", { name: "Escolha o Serviço" })).toBeInTheDocument();
+    expect(screen.queryByText("Escolha uma sessão fotográfica ou pacote do catálogo do estúdio.")).not.toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Etapa 1 de 4" })).toHaveTextContent("Profissional de fotografia");
   });
 
   it("usa vocabulário MusicPro no agendamento", async () => {
     installProviderClient({ authenticated: true, initiallyLinked: true, productKey: "music-pro" });
     render(<ConnectedClientProvider initialSlug="barbearia-real"><ConnectedBooking /></ConnectedClientProvider>);
-    expect(await screen.findByRole("heading", { name: "Qual aula você quer?" })).toBeInTheDocument();
-    expect(screen.getByText("Escolha uma aula ou pacote do catálogo da escola.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Escolha a aula" })).toBeInTheDocument();
+    expect(screen.queryByText("Escolha uma aula ou pacote do catálogo da escola.")).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Etapa 1 de 4" })).toHaveTextContent("Professor");
   });
 
@@ -783,7 +786,7 @@ describe("cliente conectado", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
 
     expect(await screen.findByRole("heading", { name: "Quem vai cuidar de você?" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Primeiro horário livre/u }));
+    fireEvent.click(screen.getByRole("button", { name: /Escolher Horário Primeiro/u }));
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
 
     expect(await screen.findByRole("heading", { name: "Quando fica melhor?" })).toBeInTheDocument();
@@ -883,7 +886,7 @@ describe("cliente conectado", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Corte/u })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     expect(await screen.findByRole("heading", { name: "Quem vai cuidar de você?" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Primeiro horário livre/u }));
+    fireEvent.click(screen.getByRole("button", { name: /Escolher Horário Primeiro/u }));
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     expect(await screen.findByRole("heading", { name: "Quando fica melhor?" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /09:00.*Diego/u }));
@@ -914,7 +917,7 @@ describe("cliente conectado", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "Masculino" }));
     fireEvent.click(screen.getAllByRole("button", { name: /Corte/u })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Primeiro horário livre/u }));
+    fireEvent.click(await screen.findByRole("button", { name: /Escolher Horário Primeiro/u }));
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     fireEvent.click(await screen.findByRole("button", { name: /09:00.*Diego/u }));
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
@@ -938,6 +941,7 @@ describe("cliente conectado", () => {
       </ConnectedClientProvider>,
     );
 
+    fireEvent.click(await screen.findByRole("button", { name: "Dados pessoais" }));
     expect(await screen.findByDisplayValue("ana@example.com")).toBeDisabled();
     expect(screen.getByLabelText(/Data de nascimento/u)).toHaveValue("10/02/1990");
     fireEvent.change(screen.getByLabelText("Nome completo"), { target: { value: "Ana Atualizada" } });
@@ -959,13 +963,16 @@ describe("cliente conectado", () => {
     installProviderClient({ authenticated: true, initiallyLinked: true, productKey: "le-gras" });
     render(<ConnectedClientProvider initialSlug="barbearia-real"><ConnectedProfile /></ConnectedClientProvider>);
     const personal = await screen.findByRole("button", { name: "Dados pessoais" });
-    expect(personal).toHaveAttribute("aria-expanded", "true");
+    expect(personal).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("Aplicados em todas as barbearias vinculadas à sua conta.")).not.toBeInTheDocument();
+    fireEvent.click(personal);
+    expect(personal).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Nome completo")).toBeInTheDocument();
     fireEvent.click(personal);
     expect(personal).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByLabelText("Nome completo")).not.toBeInTheDocument();
     fireEvent.click(personal);
-    expect(screen.getByLabelText("Nome completo")).toBeInTheDocument();
+    expect(personal).toHaveAttribute("aria-expanded", "true");
 
     for (const label of ["Dependentes", "Meus estabelecimentos", "Comunicação", "Direitos LGPD"]) {
       const toggle = screen.getByRole("button", { name: label });
@@ -977,7 +984,9 @@ describe("cliente conectado", () => {
     }
     expect(screen.queryByText("Até 8 pessoas cadastradas para atendimento.")).not.toBeInTheDocument();
     expect(screen.queryByText("0/8")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Meus estabelecimentos" }));
     expect(screen.getByRole("button", { name: "Pesquisar Estabelecimento" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Comunicação" }));
     expect(screen.getByText("Gerencie seus dados e preferências de comunicação neste estúdio.")).toBeInTheDocument();
   });
 
@@ -1063,7 +1072,7 @@ describe("cliente conectado", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Entrar" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Resposta de vínculo não corresponde à barbearia selecionada.",
+      "Resposta de vínculo não corresponde ao estabelecimento selecionado.",
     );
     expect(screen.queryByText("conteúdo tenant")).not.toBeInTheDocument();
     expect(from).not.toHaveBeenCalledWith("customers");

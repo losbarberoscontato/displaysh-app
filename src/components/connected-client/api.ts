@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isMercadoPagoCheckoutUrl, localToday } from "@/components/connected-client/format";
+import { isMercadoPagoCheckoutUrl, localToday, parsePostgresRange } from "@/components/connected-client/format";
 import type {
   AppointmentItem,
   Availability,
@@ -13,6 +13,7 @@ import type {
   Customer,
   CustomerDependent,
   CustomerAppointment,
+  NextCustomerAppointment,
   FinancialStatus,
   PrivacyRequest,
   PublicBookingContext,
@@ -572,6 +573,46 @@ export async function getMyAppointments(
       financial_status: "UNPAID" as FinancialStatus,
     },
   }));
+}
+
+export async function getNextMyAppointment(
+  supabase: SupabaseClient,
+  organizationId: string,
+  customerId: string,
+): Promise<NextCustomerAppointment | null> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id,barber_id,status,service_period,payment_mode,currency,total_cents_snapshot")
+    .eq("organization_id", organizationId)
+    .eq("customer_id", customerId)
+    .in("status", ["HELD", "PENDING_PAYMENT", "CONFIRMED"])
+    .overlaps("service_period", `[${now},)`)
+    .order("service_period", { ascending: true })
+    .limit(25);
+  if (error) throw new Error(error.message);
+
+  const rows = (data as Array<Omit<NextCustomerAppointment, "items"> & { id: string }> | null) ?? [];
+  const appointment = rows.find((row) => new Date(parsePostgresRange(row.service_period).startsAt).getTime() >= Date.now());
+  if (!appointment) return null;
+
+  const { data: items, error: itemsError } = await supabase
+    .from("appointment_items")
+    .select("service_name_snapshot,position")
+    .eq("organization_id", organizationId)
+    .eq("appointment_id", appointment.id)
+    .order("position", { ascending: true });
+  if (itemsError) throw new Error(itemsError.message);
+
+  return {
+    barber_id: appointment.barber_id,
+    status: appointment.status,
+    service_period: appointment.service_period,
+    payment_mode: appointment.payment_mode,
+    currency: appointment.currency,
+    total_cents_snapshot: appointment.total_cents_snapshot,
+    items: (items as Array<Pick<NextCustomerAppointment["items"][number], "service_name_snapshot" | "position">> | null) ?? [],
+  };
 }
 
 export async function cancelAppointment(

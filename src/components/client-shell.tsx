@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, CalendarPlus2, LogOut, MapPin, UserRound } from "lucide-react";
+import { CalendarDays, CalendarPlus2, CreditCard, House, MapPin, UserRound } from "lucide-react";
 import { Brand } from "@/components/brand";
 
 const clientNavigation = [
+  { href: "/cliente/inicio", label: "Home", icon: House },
   { href: "/cliente/agendar", label: "Agendar", icon: CalendarPlus2 },
   { href: "/cliente/reservas", label: "Reservas", icon: CalendarDays },
+  { href: "/cliente/assinaturas", label: "Assinaturas", icon: CreditCard },
   { href: "/cliente/perfil", label: "Perfil", icon: UserRound },
 ];
 
@@ -18,11 +20,13 @@ export function ClientShell({ children, demoMode = false }: { children: React.Re
     <div className="client-shell">
       <header className="client-topbar">
         <div className="client-topbar__inner">
-          <Brand href="/cliente/agendar" />
+          <Brand href="/cliente/inicio" name="Display" tagline="App" mark="D" />
           <nav aria-label="Navegação do cliente">
             {clientNavigation.map((item) => {
               const Icon = item.icon;
-              const active = pathname.startsWith(item.href);
+              const active = item.href === "/cliente/agendar"
+                ? pathname === "/cliente" || pathname.startsWith(item.href)
+                : pathname.startsWith(item.href);
               return (
                 <Link key={item.href} href={item.href} className={active ? "is-active" : ""}>
                   <Icon size={17} />
@@ -31,10 +35,6 @@ export function ClientShell({ children, demoMode = false }: { children: React.Re
               );
             })}
           </nav>
-          <Link href="/" className="client-exit" aria-label="Sair">
-            <span className="client-avatar">{demoMode ? "RM" : "C"}</span>
-            <LogOut size={18} />
-          </Link>
         </div>
       </header>
       <div className="client-location-strip">
@@ -46,7 +46,9 @@ export function ClientShell({ children, demoMode = false }: { children: React.Re
       <nav className="client-bottom-nav" aria-label="Navegação do cliente">
         {clientNavigation.map((item) => {
           const Icon = item.icon;
-          const active = pathname.startsWith(item.href);
+          const active = item.href === "/cliente/agendar"
+            ? pathname === "/cliente" || pathname.startsWith(item.href)
+            : pathname.startsWith(item.href);
           return (
             <Link key={item.href} href={item.href} className={active ? "is-active" : ""}>
               <Icon size={21} />

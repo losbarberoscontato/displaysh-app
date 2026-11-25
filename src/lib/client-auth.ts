@@ -6,6 +6,7 @@ const defaultClientDestination = "/cliente/agendar";
 const clientDestinations = new Set([
   defaultClientDestination,
   "/cliente",
+  "/cliente/inicio",
   "/cliente/agendar",
   "/cliente/reservas",
   "/cliente/perfil",

@@ -260,6 +260,16 @@ export type CustomerAppointment = {
   };
 };
 
+export type NextCustomerAppointment = {
+  barber_id: string;
+  status: AppointmentStatus;
+  service_period: string;
+  payment_mode: CustomerAppointment["payment_mode"];
+  currency: string;
+  total_cents_snapshot: number;
+  items: Array<Pick<AppointmentItem, "service_name_snapshot" | "position">>;
+};
+
 export type PrivacyRequest = {
   id: string;
   kind: "ACCESS" | "EXPORT" | "CORRECTION" | "ANONYMIZATION" | "DELETION";

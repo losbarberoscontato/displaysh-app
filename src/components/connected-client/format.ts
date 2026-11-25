@@ -181,6 +181,16 @@ export function locationLabel(address: Record<string, unknown> | undefined): str
   return values.length ? values.join(" · ") : "Endereço informado na confirmação";
 }
 
+export function locationAddressLine(address: Record<string, unknown> | undefined): string {
+  if (!address) return "Endereço a confirmar";
+  const values = [address.street, address.number, address.complement]
+    .filter((value): value is string | number => typeof value === "string" || typeof value === "number")
+    .map(String)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length ? values.join(", ") : "Endereço a confirmar";
+}
+
 export function canCustomerReschedule(
   status: string,
   startsAt: string,
