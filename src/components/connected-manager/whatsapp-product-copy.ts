@@ -6,6 +6,7 @@ export type WhatsAppFixedMessageKey =
   | "CONFIRMATION_ACK_CLIENT" | "CANCELLATION_ACK_CLIENT"
   | "APPOINTMENT_CONFIRMED_STAFF" | "APPOINTMENT_CANCELED_STAFF"
   | "APPOINTMENT_CONFIRMED_AUXILIARY" | "APPOINTMENT_CANCELED_AUXILIARY"
+  | "APPOINTMENT_RESCHEDULED_CLIENT" | "APPOINTMENT_RESCHEDULED_STAFF" | "APPOINTMENT_RESCHEDULED_AUXILIARY"
   | "INVALID_REPLY_PROMPT" | "ATTENDANT_REQUEST_MANAGER"
   | "MANUAL_CONFIRMATION_CLIENT" | "MANUAL_CONFIRMATION_STAFF" | "MANUAL_CONFIRMATION_AUXILIARY" | "RESERVATION_CHOICE"
   | "PROJECT_CONTRACT_CREATED_CLIENT" | "SUBSCRIPTION_CREATED_CLIENT";
@@ -55,6 +56,9 @@ const legacySharedDefaults: Record<WhatsAppFixedMessageKey, string> = {
   APPOINTMENT_CANCELED_STAFF: "{cliente} cancelou pelo WhatsApp.",
   APPOINTMENT_CONFIRMED_AUXILIARY: "{cliente} confirmou presença no atendimento em {horario}. Você está escalado como auxiliar.",
   APPOINTMENT_CANCELED_AUXILIARY: "{cliente} cancelou o atendimento.",
+  APPOINTMENT_RESCHEDULED_CLIENT: "Prezado(a) {cliente}, sua sessão do dia {horario_original}, foi reagendada para o dia {horario_novo} com o profissional {profissional}.",
+  APPOINTMENT_RESCHEDULED_STAFF: "Sessão reagendada. Cliente: {cliente}, De: {horario_original}, para: {horario_novo}",
+  APPOINTMENT_RESCHEDULED_AUXILIARY: "Sessão reagendada. Cliente: {cliente}, De: {horario_original}, para: {horario_novo}",
   INVALID_REPLY_PROMPT: `Não entendi sua resposta.\n\n${CONFIRMATION_REPLY}`,
   ATTENDANT_REQUEST_MANAGER: `Cliente deseja falar com atendente.\n\nCliente: {cliente}\nWhatsApp: {telefone}\nData e hora: {horario}\nProfissional: {barbeiro}\nServiço: {servico}`,
   MANUAL_CONFIRMATION_CLIENT: "{cliente}, seu agendamento foi confirmado pelo estabelecimento para {horario}.",
@@ -162,6 +166,9 @@ export function getWhatsAppProductDefaultTemplates(productKey: ProductKey): Reco
     APPOINTMENT_CANCELED_STAFF: "{cliente} cancelou pelo WhatsApp.",
     APPOINTMENT_CONFIRMED_AUXILIARY: "{cliente} confirmou presença no atendimento em {horario}. Você está escalado como auxiliar.",
     APPOINTMENT_CANCELED_AUXILIARY: "{cliente} cancelou o atendimento.",
+    APPOINTMENT_RESCHEDULED_CLIENT: "Prezado(a) {cliente}, sua sessão do dia {horario_original}, foi reagendada para o dia {horario_novo} com o profissional {profissional}.",
+    APPOINTMENT_RESCHEDULED_STAFF: "Sessão reagendada. Cliente: {cliente}, De: {horario_original}, para: {horario_novo}",
+    APPOINTMENT_RESCHEDULED_AUXILIARY: "Sessão reagendada. Cliente: {cliente}, De: {horario_original}, para: {horario_novo}",
     INVALID_REPLY_PROMPT: `Não entendi sua resposta.\n\n${CONFIRMATION_REPLY}`,
     ATTENDANT_REQUEST_MANAGER: `${terms.customer[0].toUpperCase()}${terms.customer.slice(1)} deseja falar com atendente.\n\n${terms.customer[0].toUpperCase()}${terms.customer.slice(1)}: {cliente}\nWhatsApp: {telefone}\nData e hora: {horario}\n${terms.professional[0].toUpperCase()}${terms.professional.slice(1)}: {profissional}\n${terms.service[0].toUpperCase()}${terms.service.slice(1)}: {servico}`,
     MANUAL_CONFIRMATION_CLIENT: "{cliente}, seu agendamento foi confirmado pelo estabelecimento para {horario}.",

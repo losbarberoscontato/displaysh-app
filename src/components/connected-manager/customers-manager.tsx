@@ -603,7 +603,7 @@ export function CustomersManager({
         .select("id,subscription_id,installment_number,kind,due_on,amount_cents,payment_method,status,paid_at,financial_entry_id")
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).order("installment_number"),
       connectedClient().from("subscription_bundle_sessions")
-        .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id,barber_id,substitute_barber_id,environment_id,rescheduled_from,canceled_from,cancellation_observation,deleted_at")
+        .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id,barber_id,substitute_barber_id,environment_id,rescheduled_from,canceled_from,cancellation_observation,reschedule_observation,deleted_at")
         .is("deleted_at", null)
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).order("session_number"),
       connectedClient().from("subscription_bundle_fixed_slots")
@@ -1917,7 +1917,9 @@ export function CustomersManager({
       localDate: action === "RESCHEDULE" && localStart ? localStart.date : defaultDate,
       slotStartsAt: "",
       barberId: currentBarberId,
-      observation: String(session?.cancellation_observation ?? ""),
+      observation: action === "RESCHEDULE"
+        ? String(session?.reschedule_observation ?? "")
+        : String(session?.cancellation_observation ?? ""),
       lateCancellation: action === "RESCHEDULE" && String(session?.status) === "CONSUMED",
       originalDate,
     });
@@ -1956,6 +1958,7 @@ export function CustomersManager({
             p_action: "RESCHEDULE",
             p_barber_id: bundleSessionEditor.barberId,
             p_starts_at: startsAt,
+            p_observation: bundleSessionEditor.observation.trim() || null,
             p_confirm_late_cancel: bundleSessionEditor.lateCancellation,
           }));
           return;
@@ -3105,7 +3108,7 @@ export function CustomersManager({
                         <td><div className={styles.subscriptionSessionDateCell}>{previousDate && <small>{formatSessionDate(previousDate)}</small>}<span>{formatSessionDate(currentDate || (!previousDate ? canceledDate : ""))}</span></div></td>
                         <td>{primary ? <span className={substitute ? styles.subscriptionSessionOriginalBarber : undefined}>{primary.display_name}</span> : "—"}</td>
                         <td><span className={`${styles.subscriptionFinanceStatus} ${statusTone}`}>{statusLabel}</span></td>
-                        <td className={styles.subscriptionSessionObservation}>{String(session.cancellation_observation ?? "").trim() || "—"}</td>
+                        <td className={styles.subscriptionSessionObservation}>{String(session.cancellation_observation ?? "").trim() || String(session.reschedule_observation ?? "").trim() || "—"}</td>
                         <td>{substitute?.display_name ?? "—"}</td>
                         <td><div className={styles.subscriptionSessionAuxiliaries}>{auxiliaryNames.length ? auxiliaryNames.map((name, index) => <span key={`${sessionId}-aux-${index}`}>{name}</span>) : "—"}</div></td>
                         <td><div className={styles.subscriptionFinanceActions}>
@@ -3273,6 +3276,7 @@ export function CustomersManager({
               <div className="form-modal__body">
                 {bundleSessionEditor.action === "ADD" && <p className={styles.subscriptionBookingHint}>Sessão cortesia. O preço do contrato, a quantidade de parcelas e os valores cobrados permanecem iguais.</p>}
                 {bundleSessionEditor.action === "RESCHEDULE" && bundleSessionEditor.lateCancellation && <div className={styles.subscriptionSessionLateWarning} role="alert"><strong>Esta sessão foi cancelada fora do prazo limite.</strong><span>Você pode agendar uma sessão de reposição ou manter o cancelamento atual.</span></div>}
+                {bundleSessionEditor.action === "RESCHEDULE" && <label>Motivo do reagendamento<span className="input-shell"><textarea value={bundleSessionEditor.observation} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, observation: event.target.value } : current)} maxLength={500} placeholder="Informe o motivo do reagendamento (opcional)" /></span></label>}
                 {bundleSessionEditor.action === "EDIT" && <>
                   <label>Profissional<span className="select-input"><select value={bundleSessionEditor.barberId} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, barberId: event.target.value } : current)} required><option value="">Selecione</option>{eligible.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
                   <label>Observação do cancelamento<span className="input-shell"><textarea value={bundleSessionEditor.observation} onChange={(event) => setBundleSessionEditor((current) => current ? { ...current, observation: event.target.value } : current)} maxLength={500} placeholder="Motivo informado no cancelamento" /></span></label>

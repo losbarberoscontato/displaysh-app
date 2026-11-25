@@ -98,6 +98,9 @@ const responseMessages: FixedMessageDefinition[] = [
   { key: "APPOINTMENT_CANCELED_STAFF", title: "Aviso ao profissional: cancelamento", description: "Enviado ao profissional após o cliente cancelar." },
   { key: "APPOINTMENT_CONFIRMED_AUXILIARY", title: "Aviso ao auxiliar: presença confirmada", description: "Enviado aos auxiliares quando o cliente confirma presença." },
   { key: "APPOINTMENT_CANCELED_AUXILIARY", title: "Aviso ao auxiliar: cancelamento", description: "Enviado aos auxiliares quando o cliente cancela pelo WhatsApp." },
+  { key: "APPOINTMENT_RESCHEDULED_CLIENT", title: "Mensagem de reagendamento para o cliente", description: "Enviada ao cliente quando o gestor reagenda uma sessão." },
+  { key: "APPOINTMENT_RESCHEDULED_STAFF", title: "Mensagem de reagendamento para o profissional", description: "Enviada ao profissional quando uma sessão é reagendada." },
+  { key: "APPOINTMENT_RESCHEDULED_AUXILIARY", title: "Mensagem de reagendamento para o auxiliar", description: "Enviada aos auxiliares quando uma sessão é reagendada." },
   { key: "ATTENDANT_REQUEST_MANAGER", title: "Pedido para falar com atendente", description: "Enviado ao número de avisos do gestor após a resposta 3." },
   { key: "INVALID_REPLY_PROMPT", title: "Resposta inválida", description: "Enviada quando o cliente responde com uma opção diferente de 1, 2 ou 3." },
   { key: "MANUAL_CONFIRMATION_CLIENT", title: "Confirmação manual para o cliente", description: "Enviada quando o gestor confirma presença manualmente." },
@@ -111,6 +114,7 @@ const contractMessages: FixedMessageDefinition[] = [
 ];
 
 const appointmentMessageVariables = ["{cliente}", "{profissional}", "{profissional_principal}", "{horario}", "{servico}", "{telefone}"] as const;
+const rescheduleMessageVariables = [...appointmentMessageVariables, "{horario_original}", "{horario_novo}"] as const;
 const reservationMessageVariables = ["{reservas}"] as const;
 const contractMessageVariables = ["{cliente}", "{link_app_cliente}", "{email_cliente}"] as const;
 const appointmentMessageKeys = new Set<WhatsAppFixedMessageKey>([
@@ -127,6 +131,9 @@ const appointmentMessageKeys = new Set<WhatsAppFixedMessageKey>([
   "APPOINTMENT_CANCELED_STAFF",
   "APPOINTMENT_CONFIRMED_AUXILIARY",
   "APPOINTMENT_CANCELED_AUXILIARY",
+  "APPOINTMENT_RESCHEDULED_CLIENT",
+  "APPOINTMENT_RESCHEDULED_STAFF",
+  "APPOINTMENT_RESCHEDULED_AUXILIARY",
   "INVALID_REPLY_PROMPT",
   "ATTENDANT_REQUEST_MANAGER",
   "MANUAL_CONFIRMATION_CLIENT",
@@ -135,6 +142,9 @@ const appointmentMessageKeys = new Set<WhatsAppFixedMessageKey>([
 ]);
 
 function messageVariablesFor(key: WhatsAppFixedMessageKey): readonly string[] {
+  if (key === "APPOINTMENT_RESCHEDULED_CLIENT" || key === "APPOINTMENT_RESCHEDULED_STAFF" || key === "APPOINTMENT_RESCHEDULED_AUXILIARY") {
+    return rescheduleMessageVariables;
+  }
   if (key === "PROJECT_CONTRACT_CREATED_CLIENT" || key === "SUBSCRIPTION_CREATED_CLIENT") {
     return contractMessageVariables;
   }

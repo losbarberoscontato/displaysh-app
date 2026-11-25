@@ -113,6 +113,21 @@ describe("WhatsApp settings", () => {
     expect(screen.getByRole("button", { name: "Expandir mensagem: Confirmação manual para o auxiliar" })).toBeInTheDocument();
   });
 
+  it("expõe modelos editáveis próprios para reagendamento por destinatário", () => {
+    render(<WhatsAppSettings organizationId="org-1" organizationName="Barbearia Central" status={status} />);
+    fireEvent.click(screen.getByText("Respostas e retornos"));
+
+    const clientTitle = localizeWhatsAppCopy("Mensagem de reagendamento para o cliente", "los-barberos");
+    const professionalTitle = localizeWhatsAppCopy("Mensagem de reagendamento para o profissional", "los-barberos");
+    const auxiliaryTitle = localizeWhatsAppCopy("Mensagem de reagendamento para o auxiliar", "los-barberos");
+    expect(screen.getByRole("button", { name: `Expandir mensagem: ${clientTitle}` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Expandir mensagem: ${professionalTitle}` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Expandir mensagem: ${auxiliaryTitle}` })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: `Expandir mensagem: ${clientTitle}` }));
+    expect(screen.getByRole("button", { name: `Inserir {horario_original} em ${clientTitle}` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Inserir {horario_novo} em ${clientTitle}` })).toBeInTheDocument();
+  });
+
   it("oferece somente variáveis disponíveis no contexto de cada mensagem", () => {
     render(<WhatsAppSettings organizationId="org-1" organizationName="Estúdio Le Gras" productKey="le-gras" status={{ ...status, runtime: { ready: true, pending: 0, failed: 0 } }} />);
 
@@ -137,7 +152,7 @@ describe("WhatsApp settings", () => {
     expect(screen.queryByRole("button", { name: `Inserir {horario} em ${reservationTitle}` })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Mensagens de contratos"));
-    const contractTitle = "Aviso de criação de contratos de projetos";
+    const contractTitle = localizeWhatsAppCopy("Aviso de criação de contrato ou assinatura", "le-gras");
     fireEvent.click(screen.getByRole("button", { name: `Expandir mensagem: ${contractTitle}` }));
     for (const variable of ["{cliente}", "{link_app_cliente}", "{email_cliente}"]) {
       expect(screen.getByRole("button", { name: `Inserir ${variable} em ${contractTitle}` })).toBeInTheDocument();
