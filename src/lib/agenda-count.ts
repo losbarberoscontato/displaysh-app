@@ -19,7 +19,7 @@ export async function getTodayAgendaCount(
     const { data, error, count } = await supabase.from("appointments")
       .select("service_period", { count: "exact" })
       .eq("organization_id", organizationId)
-      .not("status", "in", "(CANCELED,NO_SHOW,EXPIRED)")
+      .not("status", "in", "(CANCELED,NO_SHOW,EXPIRED,HELD)")
       .overlaps("service_period", window)
       .order("id")
       .range(offset, offset + pageSize - 1);

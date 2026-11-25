@@ -660,6 +660,7 @@ export async function loadAgendaData() {
       .from("appointments")
       .select("*")
       .eq("organization_id", organizationId)
+      .not("status", "in", "(HELD,EXPIRED)")
       .overlaps("service_period", `[${from.toISOString()},${to.toISOString()})`)
       .order("service_period")
       .limit(MANAGER_ROW_LIMIT),

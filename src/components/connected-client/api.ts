@@ -48,7 +48,7 @@ export function toClientError(error: unknown, fallback: string): string {
   if (!(error instanceof Error)) return fallback;
   const message = error.message.toLowerCase();
   if (bookingErrorKind(error) === "CONFLICT") {
-    return "Este horário está sendo finalizado por outro cliente. Atualizamos os horários disponíveis.";
+    return "Este cliente ou dependente já tem um agendamento nesse período, ou o horário acabou de ficar indisponível. Escolha outro horário.";
   }
   if (bookingErrorKind(error) === "EXPIRED") {
     return "O tempo para concluir terminou. Escolha o horário novamente.";
@@ -348,6 +348,7 @@ export async function acquireBookingHold(
     selections: BookingSelection[];
     idempotencyKey: string;
     walkinQueueHoldId?: string | null;
+    attendeeDependentId?: string | null;
   },
 ): Promise<BookingHold> {
   const { data, error } = await supabase.rpc("create_customer_booking_hold", {
@@ -358,6 +359,7 @@ export async function acquireBookingHold(
     p_selections: input.selections,
     p_idempotency_key: input.idempotencyKey,
     p_walkin_queue_hold_id: input.walkinQueueHoldId ?? null,
+    p_attendee_dependent_id: input.attendeeDependentId ?? null,
   });
   return assertData<BookingHold>(data as BookingHold | null, error, "Não foi possível proteger horário.");
 }

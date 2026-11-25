@@ -893,7 +893,7 @@ describe("cliente conectado", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Este horário está sendo finalizado por outro cliente. Atualizamos os horários disponíveis.",
+      "Este cliente ou dependente já tem um agendamento nesse período, ou o horário acabou de ficar indisponível. Escolha outro horário.",
     );
     expect(screen.getByRole("heading", { name: "Escolha o horário" })).toBeInTheDocument();
     await waitFor(() => expect(

@@ -16,7 +16,6 @@ import {
   toClientError,
   type BookingHold,
   listCustomerDependents,
-  setAppointmentAttendee,
 } from "@/components/connected-client/api";
 import { useConnectedClient } from "@/components/connected-client/context";
 import { holdStorageKey } from "@/components/walkin-queue";
@@ -562,6 +561,7 @@ function BookingContent() {
           p_session_id: subscriptionBundleSessionId,
           p_barber_id: barber.id,
           p_starts_at: startsAt,
+          p_attendee_dependent_id: attendeeDependentId || null,
         });
         if (bookingError) throw bookingError;
         resetBookingHold();
@@ -570,7 +570,14 @@ function BookingContent() {
         return;
       }
       if (subscriptionSessionId) {
-        const { data, error: bookingError } = await supabase.rpc("book_customer_subscription_session", { p_organization_id: organization.id, p_customer_id: customer.id, p_subscription_session_id: subscriptionSessionId, p_barber_id: barber.id, p_starts_at: startsAt });
+        const { data, error: bookingError } = await supabase.rpc("book_customer_subscription_session", {
+          p_organization_id: organization.id,
+          p_customer_id: customer.id,
+          p_subscription_session_id: subscriptionSessionId,
+          p_barber_id: barber.id,
+          p_starts_at: startsAt,
+          p_attendee_dependent_id: attendeeDependentId || null,
+        });
         if (bookingError) throw bookingError;
         resetBookingHold();
         window.sessionStorage.removeItem(draftKey(tenantSlug));
@@ -585,9 +592,9 @@ function BookingContent() {
         selections: currentSelections(),
         idempotencyKey: requestKey,
         walkinQueueHoldId,
+        attendeeDependentId: attendeeDependentId || null,
       });
       if (hold.status === "CONFIRMED") {
-        await setAppointmentAttendee(supabase, hold.appointment_id, attendeeDependentId || null);
         window.sessionStorage.removeItem(holdStorageKey);
         setWalkinQueueHoldId(null);
         window.sessionStorage.removeItem(draftKey(tenantSlug));
@@ -641,7 +648,6 @@ function BookingContent() {
     try {
       const confirmed = await confirmBookingHold(supabase, bookingHold.appointment_id);
       if (confirmed.status === "EXPIRED") throw new Error("appointment hold expired");
-      await setAppointmentAttendee(supabase, confirmed.appointment_id, attendeeDependentId || null);
       resetBookingHold();
       window.sessionStorage.removeItem(draftKey(tenantSlug));
       router.push(`/cliente/reservas?barbearia=${encodeURIComponent(tenantSlug)}&appointment_id=${confirmed.appointment_id}`);
@@ -895,6 +901,11 @@ function BookingContent() {
 
         {step === 3 && choice && barberMode && (
           <section className={styles.bookingStep} aria-label="Escolher data e horário">
+            {dependents.length > 0 && <label className={styles.attendeePicker}>Quem será atendido?<select value={attendeeDependentId} onChange={(event) => {
+              setAttendeeDependentId(event.target.value);
+              holdRequestKeyRef.current = "";
+              setError("");
+            }}><option value="">Cliente titular</option>{dependents.map((dependent) => <option key={dependent.id} value={dependent.id}>{dependent.full_name}</option>)}</select></label>}
             <div className={styles.scheduleIntro}>
               <CalendarDays size={20} aria-hidden="true" />
               <span>
@@ -979,8 +990,7 @@ function BookingContent() {
                 <>
                   <section className={styles.panel}>
                     <div className={styles.sectionTitle}><UserRound aria-hidden="true" /><div><h2>Confirme seus dados</h2></div></div>
-                    <p className={styles.customerDetails}>{customer?.full_name ?? "Cliente"}<span>{customer?.phone_e164 ?? "Contato não informado"}</span></p>
-                    {dependents.length > 0 && <label className={styles.attendeePicker}>Quem será atendido?<select value={attendeeDependentId} onChange={(event) => setAttendeeDependentId(event.target.value)}><option value="">Cliente titular</option>{dependents.map((dependent) => <option key={dependent.id} value={dependent.id}>{dependent.full_name}</option>)}</select></label>}
+                    <p className={styles.customerDetails}>{customer?.full_name ?? "Cliente"}<span>{customer?.phone_e164 ?? "Contato não informado"}</span><span>Atendimento para {dependents.find((dependent) => dependent.id === attendeeDependentId)?.full_name ?? "cliente titular"}.</span></p>
                   </section>
                   <label className={styles.policy}><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /><span><ShieldCheck size={17} aria-hidden="true" /> Aceito a política desta reserva. Cancelamentos e alterações seguem o prazo informado {vocabulary.byOrganization}.</span></label>
                   <p className={`${styles.whatsappPreference} ${whatsappAccepted ? "" : styles.whatsappPreferenceOff}`}><ShieldCheck size={17} aria-hidden="true" /> {whatsappAccepted ? "Mensagens de confirmação e lembrete pelo WhatsApp estão ativas. Você pode desativá-las no Perfil." : "Mensagens automáticas pelo WhatsApp estão desativadas no seu Perfil. A reserva continua disponível."}</p>

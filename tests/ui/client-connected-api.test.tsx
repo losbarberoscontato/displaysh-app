@@ -172,6 +172,7 @@ describe("contratos Supabase do cliente conectado", () => {
     expect(rpc).toHaveBeenCalledWith("create_customer_booking_hold", expect.objectContaining({
       p_idempotency_key: "00000000-0000-4000-8000-000000000009",
       p_walkin_queue_hold_id: null,
+      p_attendee_dependent_id: null,
     }));
   });
 
@@ -205,7 +206,7 @@ describe("contratos Supabase do cliente conectado", () => {
   it("traduz disputa e expiração com mensagens próprias do novo agendamento", async () => {
     const { toClientError } = await import("@/components/connected-client/api");
     expect(toClientError(new Error("requested slot is no longer available"), "fallback")).toBe(
-      "Este horário está sendo finalizado por outro cliente. Atualizamos os horários disponíveis.",
+      "Este cliente ou dependente já tem um agendamento nesse período, ou o horário acabou de ficar indisponível. Escolha outro horário.",
     );
     expect(toClientError(new Error("appointment hold expired"), "fallback")).toBe(
       "O tempo para concluir terminou. Escolha o horário novamente.",
