@@ -21,7 +21,7 @@ type DiscountType = "NONE" | "FIXED" | "PERCENT";
 type BundleDraft = {
   serviceId: string;
   schedulingMode: SchedulingMode;
-  sessionsPerWeek: string;
+  sessionsPerPeriod: string;
   contractDurationMonths: string;
   durationMinutes: string;
   pricePerSession: string;
@@ -35,7 +35,7 @@ type BundleDraft = {
 const emptyDraft: BundleDraft = {
   serviceId: "",
   schedulingMode: "FREE",
-  sessionsPerWeek: "1",
+  sessionsPerPeriod: "1",
   contractDurationMonths: "1",
   durationMinutes: "30",
   pricePerSession: "50,00",
@@ -65,11 +65,11 @@ export function SubscriptionPlansManager(props: Props) {
   const [contractBody, setContractBody] = useState("");
 
   const editingPlan = props.plans.find((plan) => plan.id === editingPlanId) ?? null;
-  const sessionsPerWeek = Number(draft.sessionsPerWeek) || 0;
+  const sessionsPerPeriod = Number(draft.sessionsPerPeriod) || 0;
   const contractDurationMonths = Number(draft.contractDurationMonths) || 0;
-  const totalSessions = sessionsPerWeek * 4 * contractDurationMonths;
-  const totalSessionsValid = Number.isInteger(sessionsPerWeek)
-    && sessionsPerWeek >= 1 && sessionsPerWeek <= 21
+  const totalSessions = sessionsPerPeriod * (draft.schedulingMode === "FREE" ? 1 : 4) * contractDurationMonths;
+  const totalSessionsValid = Number.isInteger(sessionsPerPeriod)
+    && sessionsPerPeriod >= 1 && sessionsPerPeriod <= (draft.schedulingMode === "FREE" ? 300 : 21)
     && Number.isInteger(contractDurationMonths)
     && contractDurationMonths >= 1 && contractDurationMonths <= 24
     && totalSessions >= 1 && totalSessions <= 300;
@@ -115,22 +115,27 @@ export function SubscriptionPlansManager(props: Props) {
         return;
       }
       const legacySessionCount = Math.max(1, Number(version.sessions_per_cycle) || 1);
+      const schedulingMode = version.bundle_scheduling_mode === "FIXED" ? "FIXED" : "FREE";
       const sessionsPerWeek = Number(version.bundle_sessions_per_week ?? Math.min(21, legacySessionCount));
+      const sessionsPerPeriod = schedulingMode === "FREE"
+        ? Number(version.bundle_sessions_per_month ?? sessionsPerWeek * 4)
+        : sessionsPerWeek;
+      const sessionsPerMonthFactor = schedulingMode === "FREE" ? 1 : 4;
       const savedTotalSessions = Number(version.bundle_total_sessions ?? legacySessionCount);
       const savedDurationMonths = Number(version.duration_months);
       const exactStoredDuration = Number.isInteger(savedDurationMonths)
         && savedDurationMonths >= 1 && savedDurationMonths <= 24
-        && sessionsPerWeek * 4 * savedDurationMonths === savedTotalSessions;
-      const inferredDurationMonths = sessionsPerWeek > 0 && savedTotalSessions % (sessionsPerWeek * 4) === 0
-        ? savedTotalSessions / (sessionsPerWeek * 4)
+        && sessionsPerPeriod * sessionsPerMonthFactor * savedDurationMonths === savedTotalSessions;
+      const inferredDurationMonths = sessionsPerPeriod > 0 && savedTotalSessions % (sessionsPerPeriod * sessionsPerMonthFactor) === 0
+        ? savedTotalSessions / (sessionsPerPeriod * sessionsPerMonthFactor)
         : 0;
       const durationMonths = exactStoredDuration
         ? savedDurationMonths
         : inferredDurationMonths >= 1 && inferredDurationMonths <= 24 ? inferredDurationMonths : "";
       setDraft({
         serviceId: service?.id ?? "",
-        schedulingMode: version.bundle_scheduling_mode === "FIXED" ? "FIXED" : "FREE",
-        sessionsPerWeek: String(sessionsPerWeek),
+        schedulingMode,
+        sessionsPerPeriod: String(sessionsPerPeriod),
         contractDurationMonths: String(durationMonths),
         durationMinutes: String(version.bundle_session_duration_minutes ?? service?.duration_minutes ?? 30),
         pricePerSession: moneyInput(version.bundle_price_per_session_cents ?? Math.ceil(Number(version.price_cents) / legacySessionCount)),
@@ -167,14 +172,14 @@ export function SubscriptionPlansManager(props: Props) {
     const saved = await runMutation(
       setMessage,
       async () => {
-        await assertResult(await connectedClient().rpc("save_subscription_bundle_plan", {
+        await assertResult(await connectedClient().rpc("save_subscription_bundle_plan_monthly", {
           p_organization_id: props.organizationId,
           p_plan_id: editingPlanId,
           p_name: String(data.get("name") ?? "").trim(),
           p_description: String(data.get("description") ?? "").trim(),
           p_service_id: serviceId,
           p_scheduling_mode: String(data.get("scheduling_mode")),
-          p_sessions_per_week: Number(data.get("sessions_per_week")),
+          p_sessions_per_period: Number(data.get("sessions_per_period")),
           p_session_duration_minutes: Number(data.get("session_duration_minutes")),
           p_total_sessions: totalSessions,
           p_price_per_session_cents: centsFromInput(data.get("price_per_session")),
@@ -226,7 +231,7 @@ export function SubscriptionPlansManager(props: Props) {
   };
 
   return <div className={styles.stack}>
-    <PageHeader title="Planos de Assinatura" description="Configure planos por serviço, com sessões livres ou agenda semanal fixa." />
+    <PageHeader title="Planos de Assinatura" description="Configure planos por serviço, com limite mensal para sessões livres ou agenda semanal fixa." />
     <ActionMessage message={message} />
     {!props.subscriptionModuleEnabled && <div className={styles.notice}>Planos de Assinatura está inativo em Configurações → Módulos. Contratos existentes permanecem disponíveis.</div>}
     <Panel title="Planos cadastrados" titleAdornment={<select className={styles.subscriptionPlanFilterSelect} aria-label="Filtrar planos" value={planFilter} onChange={(event) => setPlanFilter(event.target.value as typeof planFilter)}><option value="ALL">Todos</option><option value="ACTIVE">Ativos</option><option value="INACTIVE">Inativos</option><option value="ARCHIVED">Arquivados</option></select>} description={`${visiblePlans.length} de ${props.plans.length} planos`} action={<button className={styles.button} type="button" disabled={!props.subscriptionModuleEnabled} onClick={() => openPlanForm()}>Novo plano</button>}>
@@ -238,7 +243,10 @@ export function SubscriptionPlansManager(props: Props) {
         return <article className={`${styles.row} ${styles.subscriptionPlanRow}`} key={plan.id}>
           <span className={styles.rowTitle}><strong>{plan.name}</strong><small>{plan.description || "Sem descrição"}</small></span>
           <strong>{version ? formatCents(version.price_cents) : "—"}</strong>
-          <span>{isBundle ? `${version.bundle_sessions_per_week} sessão(ões)/semana` : "Legado · contratos preservados"}</span>
+          <span>{isBundle ? version.bundle_scheduling_mode === "FREE" && version.bundle_sessions_per_month != null
+            ? `${version.bundle_sessions_per_month} sessão(ões)/mês`
+            : `${version.bundle_sessions_per_week} sessão(ões)/semana`
+            : "Legado · contratos preservados"}</span>
           <span>{isBundle ? `${version.bundle_total_sessions} sessões · ${version.bundle_scheduling_mode === "FIXED" ? "Fixo" : "Livre"}` : "Somente contratos existentes"}</span>
           <div className={`${styles.rowActions} ${styles.subscriptionPlanActions}`}>
             <StatusChip active={!archived && plan.active} label={archived ? "ARQUIVADO" : plan.active ? "ATIVO" : "INATIVO"} />
@@ -262,7 +270,7 @@ export function SubscriptionPlansManager(props: Props) {
           <Field label="Descrição" wide><textarea name="description" defaultValue={editingPlan?.description ?? ""} maxLength={4000} /></Field>
           <div className={`${styles.formWide} ${styles.formCompactRow} ${styles.subscriptionPlanScheduleRow}`}>
             <Field label="Tipo de Agendamento"><select name="scheduling_mode" value={draft.schedulingMode} onChange={(event) => setDraftField("schedulingMode", event.target.value as SchedulingMode)}><option value="FREE">Livre - Cliente agenda pelo app</option><option value="FIXED">Fixo - Sessões definidas no contrato</option></select></Field>
-            <Field label="Sessões por semana"><input name="sessions_per_week" type="number" min={1} max={21} value={draft.sessionsPerWeek} onChange={(event) => setDraftField("sessionsPerWeek", event.target.value)} required /></Field>
+            <Field label={draft.schedulingMode === "FREE" ? "Sessões por mês" : "Sessões por semana"}><input name="sessions_per_period" type="number" min={1} max={draft.schedulingMode === "FREE" ? 300 : 21} value={draft.sessionsPerPeriod} onChange={(event) => setDraftField("sessionsPerPeriod", event.target.value)} required /></Field>
             <Field label="Duração do contrato (meses)"><input name="contract_duration_months" type="number" min={1} max={24} value={draft.contractDurationMonths} onChange={(event) => setDraftField("contractDurationMonths", event.target.value)} required /></Field>
             <Field label="Duração da sessão (minutos)"><input name="session_duration_minutes" type="number" min={5} max={180} value={draft.durationMinutes} onChange={(event) => setDraftField("durationMinutes", event.target.value)} required /></Field>
           </div>
@@ -272,7 +280,7 @@ export function SubscriptionPlansManager(props: Props) {
             <Field label="Total do plano"><input value={formatCents(totalPriceCents)} readOnly aria-label="Total do plano" /></Field>
           </div>
           {editingPlan && !draft.contractDurationMonths && <small className={`${styles.formWide} ${styles.subscriptionPlanValidation}`}>Este plano foi salvo antes do cálculo automático. Informe a duração do contrato para recalcular o total de sessões.</small>}
-          {!totalSessionsValid && draft.contractDurationMonths && <small className={`${styles.formWide} ${styles.subscriptionPlanValidation}`}>A combinação de sessões por semana e duração precisa gerar entre 1 e 300 sessões.</small>}
+          {!totalSessionsValid && draft.contractDurationMonths && <small className={`${styles.formWide} ${styles.subscriptionPlanValidation}`}>A combinação de sessões {draft.schedulingMode === "FREE" ? "por mês" : "por semana"} e duração precisa gerar entre 1 e 300 sessões.</small>}
           <div className={`${styles.formWide} ${styles.formCompactRow}`}>
             <Field label="Total de parcelas"><input name="installment_count" type="number" min={1} max={24} value={draft.installmentCount} onChange={(event) => setDraftField("installmentCount", event.target.value)} required /></Field>
             <Field label="Desconto por parcela"><select name="discount_type" value={draft.discountType} onChange={(event) => setDraftField("discountType", event.target.value as DiscountType)}><option value="NONE">Sem desconto</option><option value="FIXED">Valor em reais</option><option value="PERCENT">Percentual</option></select></Field>

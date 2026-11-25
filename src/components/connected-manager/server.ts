@@ -175,7 +175,7 @@ export async function loadCustomersData() {
     supabase
       .from("customer_subscriptions")
       .select(
-        "id,customer_id,plan_id,status,contract_number,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,payment_method,first_due_date,fixed_schedule_cadence_weeks,fixed_schedule_start_date,fixed_schedule_local_time,fixed_schedule_barber_id,fixed_schedule_environment_id,fixed_schedule_slots,fixed_schedule_created_at,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(id,model,price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
+        "id,customer_id,plan_id,status,contract_number,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,payment_method,first_due_date,fixed_schedule_cadence_weeks,fixed_schedule_start_date,fixed_schedule_local_time,fixed_schedule_barber_id,fixed_schedule_environment_id,fixed_schedule_slots,fixed_schedule_created_at,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(id,model,price_cents,billing_period,sessions_per_cycle,scheduling_mode,fixed_schedule_cadence_weeks,fixed_schedule_pattern,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_sessions_per_month,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
       )
       .eq("organization_id", organizationId)
       .in("status", ["REQUESTED", "PENDING_PAYMENT", "ACTIVE", "CANCELED", "EXPIRED", "DECLINED"])
@@ -278,7 +278,7 @@ export async function loadCustomersData() {
       .order("name"),
     supabase
       .from("subscription_plan_versions")
-      .select("id,plan_id,version,model,price_cents,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value")
+      .select("id,plan_id,version,model,price_cents,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_sessions_per_month,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value")
       .eq("organization_id", organizationId)
       .eq("model", "SESSION_BUNDLE_V1")
       .order("version", { ascending: false }),
@@ -308,7 +308,7 @@ export async function loadCustomersData() {
     : requireData(subscriptionBundleVersions, "Versões de planos de assinatura") as Array<{
         id: string; plan_id: string; version: number; model: string; price_cents: number; payment_method: string;
         bundle_scheduling_mode: "FREE" | "FIXED" | null; bundle_service_id: string | null;
-        bundle_sessions_per_week: number | null; bundle_session_duration_minutes: number | null;
+        bundle_sessions_per_week: number | null; bundle_sessions_per_month: number | null; bundle_session_duration_minutes: number | null;
         bundle_total_sessions: number | null; bundle_price_per_session_cents: number | null;
         bundle_entry_cents: number | null; bundle_installment_count: number | null;
         bundle_discount_type: "NONE" | "FIXED" | "PERCENT" | null; bundle_discount_value: number | null;
@@ -1847,7 +1847,7 @@ export async function loadSubscriptionPlansData() {
     supabase
       .from("subscription_plan_versions")
       .select(
-        "id,plan_id,version,model,price_cents,billing_period,duration_months,sessions_per_cycle,payment_method,contract_version,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value",
+        "id,plan_id,version,model,price_cents,billing_period,duration_months,sessions_per_cycle,payment_method,contract_version,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_sessions_per_month,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value",
       )
       .eq("organization_id", organizationId)
       .order("version", { ascending: false }),
@@ -1896,6 +1896,7 @@ export async function loadSubscriptionPlansData() {
     bundle_scheduling_mode: "FREE" | "FIXED" | null;
     bundle_service_id: string | null;
     bundle_sessions_per_week: number | null;
+    bundle_sessions_per_month: number | null;
     bundle_session_duration_minutes: number | null;
     bundle_total_sessions: number | null;
     bundle_price_per_session_cents: number | null;

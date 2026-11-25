@@ -597,7 +597,7 @@ export function CustomersManager({
     let active = true;
     void Promise.all([
       connectedClient().from("subscription_bundle_contracts")
-        .select("id,subscription_id,scheduling_mode,sessions_per_week,session_duration_minutes,total_sessions,price_per_session_cents,total_price_cents,entry_cents,installment_count,discount_type,discount_value,entry_due_on,first_installment_due_on,first_session_date")
+        .select("id,subscription_id,scheduling_mode,sessions_per_week,sessions_per_month,session_duration_minutes,total_sessions,price_per_session_cents,total_price_cents,entry_cents,installment_count,discount_type,discount_value,entry_due_on,first_installment_due_on,first_session_date")
         .eq("organization_id", organizationId).eq("subscription_id", subscriptionControlId).maybeSingle(),
       connectedClient().from("subscription_bundle_installments")
         .select("id,subscription_id,installment_number,kind,due_on,amount_cents,payment_method,status,paid_at,financial_entry_id")
@@ -2946,7 +2946,7 @@ export function CustomersManager({
           const subscription = subscriptions.find((item) => String(item.id) === subscriptionControlId);
           if (!subscription) return null;
           const plan = subscription.plan as { name?: string; description?: string | null } | null;
-          const version = subscription.plan_version as { id?: string; model?: string; price_cents?: number; sessions_per_cycle?: number; scheduling_mode?: string; bundle_scheduling_mode?: string; bundle_sessions_per_week?: number; bundle_session_duration_minutes?: number; bundle_total_sessions?: number } | null;
+          const version = subscription.plan_version as { id?: string; model?: string; price_cents?: number; sessions_per_cycle?: number; scheduling_mode?: string; bundle_scheduling_mode?: string; bundle_sessions_per_week?: number; bundle_sessions_per_month?: number; bundle_session_duration_minutes?: number; bundle_total_sessions?: number } | null;
           const isBundlePlan = version?.model === "SESSION_BUNDLE_V1";
           const cycles = subscriptionCycles.filter((cycle) => String(cycle.subscription_id) === subscriptionControlId);
           const sessions = subscriptionSessions.filter((session) => String(session.subscription_id) === subscriptionControlId);
@@ -2990,7 +2990,7 @@ export function CustomersManager({
                   <h3>Resumo da assinatura</h3>
                   {bundleContract ? <>
                     <p><strong>Plano:</strong> {plan?.name ?? "Plano"} · <strong>Serviço:</strong> {String(bundleService?.service_name_snapshot ?? "Não informado")}</p>
-                    <p><strong>Agendamento:</strong> {String(bundleContract.scheduling_mode) === "FIXED" ? `Fixo · ${String(bundleContract.sessions_per_week)} sessões por semana` : `Livre · ${String(bundleContract.total_sessions)} sessões`}</p>
+                    <p><strong>Agendamento:</strong> {String(bundleContract.scheduling_mode) === "FIXED" ? `Fixo · ${String(bundleContract.sessions_per_week)} sessões por semana` : `Livre · ${bundleContract.sessions_per_month == null ? "" : `${String(bundleContract.sessions_per_month)} sessões/mês · `}${String(bundleContract.total_sessions)} sessões no plano`}</p>
                     <p><strong>Primeira sessão:</strong> {formatBundleDate(String(bundleContract.first_session_date ?? ""))} · <strong>Duração:</strong> {String(bundleContract.session_duration_minutes)} min</p>
                     {String(bundleContract.scheduling_mode) === "FIXED" && <ul>{bundleFixedSlots.map((slot) => <li key={String(slot.id)}>Sessão {String(slot.slot_number)}: {String(slot.barber_name_snapshot ?? "Profissional não definido")} · {String(slot.environment_name_snapshot ?? "Sala não definida")} · {(["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"][Number(slot.weekday)] ?? "Dia não definido")} · {String(slot.local_time ?? "Horário não definido").slice(0, 5)}</li>)}</ul>}
                     <div className={styles.subscriptionBundleReviewFinance}>

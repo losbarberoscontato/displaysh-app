@@ -30,6 +30,7 @@ type Row = {
     bundle_scheduling_mode: "FREE" | "FIXED" | null;
     bundle_service_id: string | null;
     bundle_sessions_per_week: number | null;
+    bundle_sessions_per_month: number | null;
     bundle_session_duration_minutes: number | null;
     bundle_total_sessions: number | null;
     bundle_price_per_session_cents: number | null;
@@ -70,6 +71,7 @@ type BundleContract = {
   scheduling_mode: "FREE" | "FIXED";
   service_id: string;
   sessions_per_week: number;
+  sessions_per_month: number | null;
   session_duration_minutes: number;
   total_sessions: number;
   price_per_session_cents: number;
@@ -190,7 +192,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       client
         .from("customer_subscriptions")
         .select(
-          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(model,price_cents,billing_period,sessions_per_cycle,duration_months,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
+          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(model,price_cents,billing_period,sessions_per_cycle,duration_months,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_sessions_per_month,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
         )
         .eq("organization_id", context.organization.id)
         .eq("customer_id", customer.id)
@@ -233,7 +235,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
       if (bundleSubscriptionIds.length) {
         const [contractResult, installmentResult, bundleSessionResult, fixedSlotResult] = await Promise.all([
           client.from("subscription_bundle_contracts")
-            .select("id,subscription_id,scheduling_mode,service_id,sessions_per_week,session_duration_minutes,total_sessions,price_per_session_cents,total_price_cents,entry_cents,installment_count,discount_type,discount_value,entry_due_on,first_installment_due_on,first_session_date")
+            .select("id,subscription_id,scheduling_mode,service_id,sessions_per_week,sessions_per_month,session_duration_minutes,total_sessions,price_per_session_cents,total_price_cents,entry_cents,installment_count,discount_type,discount_value,entry_due_on,first_installment_due_on,first_session_date")
             .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds),
           client.from("subscription_bundle_installments")
             .select("id,subscription_id,installment_number,kind,due_on,amount_cents,status,paid_at")
@@ -646,6 +648,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
         const contract = selectedBundleOfferContract;
         const totalSessions = Number(contract?.total_sessions ?? version.bundle_total_sessions ?? 0);
         const sessionsPerWeek = Number(contract?.sessions_per_week ?? version.bundle_sessions_per_week ?? 1);
+        const sessionsPerMonth = Number(contract?.sessions_per_month ?? (contract ? 0 : version.bundle_sessions_per_month ?? 0));
         const sessionDuration = Number(contract?.session_duration_minutes ?? version.bundle_session_duration_minutes ?? 0);
         const schedulingMode = contract?.scheduling_mode ?? version.bundle_scheduling_mode;
         const pricePerSession = Number(contract?.price_per_session_cents ?? version.bundle_price_per_session_cents ?? 0);
@@ -668,7 +671,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           <div className={styles.subscriptionOfferSummary}>
             <h2>Resumo da assinatura</h2>
             <p><strong>Plano:</strong> {selectedSubscriptionOffer.plan?.name ?? "Plano"} · <strong>Serviço:</strong> {serviceName}</p>
-            <p><strong>Agendamento:</strong> {schedulingMode === "FIXED" ? `Fixo · ${sessionsPerWeek} sessões por semana` : `Livre · ${totalSessions} sessões`}</p>
+            <p><strong>Agendamento:</strong> {schedulingMode === "FIXED" ? `Fixo · ${sessionsPerWeek} sessões por semana` : `Livre · ${totalSessions} sessões${sessionsPerMonth > 0 ? ` · ${sessionsPerMonth} por mês` : ` · ${sessionsPerWeek} por semana`}`}</p>
             <p><strong>Primeira sessão:</strong> {formatDate(contract?.first_session_date ?? null)} · <strong>Duração:</strong> {sessionDuration} min</p>
             {schedulingMode === "FIXED" && <ul>{selectedBundleOfferSlots.map((slot) => <li key={slot.id}>Sessão {slot.slot_number}: {slot.barber_name_snapshot} · {slot.environment_name_snapshot} · {weekdays[slot.weekday] ?? "Dia não definido"} · {slot.local_time.slice(0, 5)}</li>)}</ul>}
             <div className={styles.subscriptionOfferFinance}>
@@ -804,7 +807,12 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
           <h2>{row.plan?.name ?? "Plano"}</h2><p>{row.plan?.description ?? "Plano de sessões."}</p>
           <strong>{money(Number(contract?.total_price_cents ?? row.plan_version?.price_cents ?? 0))}</strong>
-          <small className={styles.subscriptionMeta}>{subscriptionStatusLabel[row.status] ?? row.status} · {contract?.total_sessions ?? row.plan_version.bundle_total_sessions} sessões · {contract?.sessions_per_week ?? row.plan_version.bundle_sessions_per_week}/semana · {contract?.session_duration_minutes ?? row.plan_version.bundle_session_duration_minutes} min · {paymentMethodLabel[row.payment_method] ?? row.payment_method}</small>
+          <small className={styles.subscriptionMeta}>{subscriptionStatusLabel[row.status] ?? row.status} · {contract?.total_sessions ?? row.plan_version.bundle_total_sessions} sessões · {contract?.scheduling_mode === "FIXED"
+            ? `${contract.sessions_per_week}/semana`
+            : contract?.sessions_per_month != null
+              ? `${contract.sessions_per_month}/mês`
+              : `${contract?.sessions_per_week ?? row.plan_version.bundle_sessions_per_week}/semana`
+          } · {contract?.session_duration_minutes ?? row.plan_version.bundle_session_duration_minutes} min · {paymentMethodLabel[row.payment_method] ?? row.payment_method}</small>
           {contract && <>
             <p>Serviço: {context?.services.find((service) => service.id === contract.service_id)?.name ?? "Serviço do plano"} · {contract.scheduling_mode === "FIXED" ? "Agendamento fixo" : "Agendamento livre"}</p>
             <p>{money(contract.price_per_session_cents)} por sessão · entrada {money(contract.entry_cents)} · {contract.installment_count} parcela(s) com desconto configurado</p>
@@ -837,7 +845,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
               })}
             </div>
           </div>
-          {contract && contract.scheduling_mode === "FREE" && <small className={styles.subscriptionHint}>Sessões liberadas por mês; as não utilizadas acumulam. Limite de {contract.sessions_per_week} agendamento(s) por semana.</small>}
+          {contract && contract.scheduling_mode === "FREE" && <small className={styles.subscriptionHint}>Sessões liberadas por mês; as não utilizadas acumulam. Limite de {contract.sessions_per_month ?? contract.sessions_per_week} agendamento(s) por {contract.sessions_per_month == null ? "semana" : "mês"}.</small>}
           {row.contract_body_snapshot && <details><summary>Contrato</summary><p>{row.contract_body_snapshot}</p></details>}
         </article>;
       })() : view === "my-plan" ? (
