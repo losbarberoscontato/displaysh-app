@@ -575,12 +575,12 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
     && !row.contract_accepted_at
     && (row.status === "REQUESTED" || (row.status === "ACTIVE" && Boolean(row.manager_activated_provisionally_at)));
   const statusToday = context ? localToday(context.organization.timezone) : new Date().toISOString().slice(0, 10);
-  const subscriptionStatusLabelFor = (row: Row) => subscriptionDisplayStatusLabels[subscriptionDisplayStatus(
+  const subscriptionDisplayStatusFor = (row: Row) => subscriptionDisplayStatus(
     row,
     cycles.filter((cycle) => cycle.subscription_id === row.id),
     statusToday,
     subscriptionHasPendingCancellation(row.id),
-  )];
+  );
   const requestedOffers = rows.filter(isPendingManagerOffer);
   const selectedPlan = plans.find((plan) => plan.id === itemId);
   const selectedProject = publicProjects.find((project) => project.id === itemId);
@@ -909,7 +909,11 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
       ) : (
         <Link className={`${styles.subscriptionCard} ${styles.subscriptionCardLink}`} href={route(`/cliente/assinaturas/meus-planos/${row.id}`)} key={row.id}>
           <h2>{row.plan?.name ?? "Plano"}</h2>
-          <span className={styles.planStatus}>{subscriptionStatusLabelFor(row)}</span>
+          {(() => {
+            const displayStatus = subscriptionDisplayStatusFor(row);
+            const statusClass = `subscriptionSummaryStatus${displayStatus[0].toUpperCase()}${displayStatus.slice(1)}`;
+            return <span className={`${styles.subscriptionSummaryStatus} ${styles[statusClass]}`}>{subscriptionDisplayStatusLabels[displayStatus]}</span>;
+          })()}
           <span className={styles.subscriptionAction}>Ver mais</span>
         </Link>
       ))}
