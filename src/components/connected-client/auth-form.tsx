@@ -117,6 +117,7 @@ export function ClientAuthForm({
   const { push } = useRouter();
   const clientContext = useOptionalConnectedClient();
   const clientProductKey = clientContext?.entry?.product_key;
+  const standaloneEntry = !initialSlug && !clientContext?.slug && !clientContext?.entry;
   const organizationPhrase = clientProductKey === "ateliepro"
     ? "seu ateliê"
     : clientProductKey === "music-pro"
@@ -127,7 +128,7 @@ export function ClientAuthForm({
           ? "sua barbearia"
           : clientProductKey
             ? "seu estabelecimento"
-            : "sua conta no Display App";
+            : "sua conta Display";
   const [mode, setMode] = useState<AuthMode>(oauthCompletion ? "complete" : initialMode);
   const [oauthChecking, setOauthChecking] = useState(oauthCompletion || resumeCompletion);
   const [email, setEmail] = useState("");
@@ -449,11 +450,11 @@ export function ClientAuthForm({
   }
 
   return (
-    <section className={styles.authForm} aria-labelledby="client-auth-title">
-      <ClientOrganizationMark />
+    <section className={`${styles.authForm} ${standaloneEntry ? styles.standaloneAuthForm : ""}`} aria-labelledby="client-auth-title">
+      {!standaloneEntry && <ClientOrganizationMark />}
       <h1 id="client-auth-title">{isComplete ? "Complete seu cadastro" : `Acesse ${organizationPhrase}`}</h1>
       {clientContext?.entry && <p className={styles.authDescription}>{clientContext.entry.organization_name}</p>}
-      {!isComplete && <p className={styles.authDescription}>
+      {!isComplete && (!standaloneEntry || isRecovery) && <p className={styles.authDescription}>
         {isRecovery
           ? "Enviaremos instruções apenas se houver uma conta elegível."
           : "Continue com Google ou use seu e-mail e senha."}

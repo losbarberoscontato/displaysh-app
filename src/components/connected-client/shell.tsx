@@ -47,6 +47,8 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     "los-barberos": "Los Barberos", "le-gras": "Le Gras", "pro-stetic": "ProStetic", "music-pro": "MusicPro", "ateliepro": "AteliePro",
   })[key ?? ""] ?? "Produto indisponível";
   const isAccessPage = pathname === "/cliente/entrar" || pathname === "/cliente/redefinir-senha";
+  const hasEstablishmentContext = Boolean(context || entry);
+  const standaloneAccessPage = pathname === "/cliente/entrar" && !hasEstablishmentContext;
   const identityStyle = productIdentityStyle(identity);
   const themed = Boolean(identityStyle && entry?.product_key !== "los-barberos");
 
@@ -71,7 +73,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
-      <div className={styles.locationStrip}>
+      {hasEstablishmentContext && <div className={styles.locationStrip}>
         <div className={styles.locationDetails}>
           {logoUrl && <img className={styles.locationLogo} src={logoUrl} alt="" />}
           <span className={styles.locationText}>
@@ -84,8 +86,8 @@ function ShellContent({ children }: { children: React.ReactNode }) {
             {switcherOpen ? <X size={19} aria-hidden="true" /> : <Menu size={19} aria-hidden="true" />}
           </button>
         )}
-      </div>
-      <main className={styles.main}>{children}</main>
+      </div>}
+      <main className={`${styles.main} ${standaloneAccessPage ? styles.standaloneAccessMain : ""}`}>{children}</main>
       {switcherOpen && (
         <section id="client-tenant-menu" className={styles.tenantMenu} aria-label="Trocar de estabelecimento">
           <div className={styles.tenantMenuHeader}>

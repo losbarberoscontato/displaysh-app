@@ -715,6 +715,7 @@ describe("cliente conectado", () => {
 
     expect(await screen.findByText("Carregando estabelecimento…")).toBeInTheDocument();
     expect(document.querySelector('[data-ad-slot="client-header"]')).toBeInTheDocument();
+    expect(screen.queryByText("Selecione um estabelecimento")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Display · Início" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sair da conta/iu })).not.toBeInTheDocument();
     expect(screen.queryByText("JH")).not.toBeInTheDocument();
@@ -1134,7 +1135,7 @@ describe("cliente conectado", () => {
   it("separa entrar de criar conta e oferece Google nos dois modos", () => {
     render(<ClientAuthForm initialSlug="barbearia-real" initialNext="/cliente/agendar" />);
 
-    expect(screen.getByRole("heading", { name: "Acesse sua conta no Display App" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Acesse sua conta Display" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Entrar" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: "Continuar com Google" })).toBeEnabled();
 
@@ -1148,6 +1149,16 @@ describe("cliente conectado", () => {
     expect(screen.getByLabelText("Aceito os termos de uso e a política de privacidade")).toBeRequired();
     expect(screen.queryByText("Avisos no WhatsApp e marketing começam ativos, separadamente.")).not.toBeInTheDocument();
     expect(screen.queryByText("Acesso do cliente")).not.toBeInTheDocument();
+  });
+
+  it("mostra acesso standalone sem faixa, logo de produto ou texto secundário", () => {
+    render(<ClientAuthForm initialSlug={null} initialNext="/cliente/inicio" />);
+
+    expect(screen.getByRole("heading", { name: "Acesse sua conta Display" })).toBeInTheDocument();
+    expect(screen.queryByText("Selecione um estabelecimento")).not.toBeInTheDocument();
+    expect(screen.queryByText("Continue com Google ou use seu e-mail e senha.")).not.toBeInTheDocument();
+    expect(document.querySelector(".lucide-scissors")).not.toBeInTheDocument();
+    expect(document.querySelector(".lucide-camera")).not.toBeInTheDocument();
   });
 
   it.each(["los-barberos", "le-gras", "pro-stetic", "music-pro"] as const)(
