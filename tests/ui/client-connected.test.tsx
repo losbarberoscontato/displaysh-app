@@ -427,7 +427,9 @@ describe("cliente conectado", () => {
   it("não renderiza conteúdo privado sem tenant resolvido", async () => {
     authMocks.client = null;
     render(<ConnectedClientProvider><ConnectedClientGate><div>conteúdo privado</div></ConnectedClientGate></ConnectedClientProvider>);
-    expect(await screen.findByRole("heading", { name: "Qual estabelecimento?" })).toBeInTheDocument();
+    const heading = await screen.findByRole("heading", { name: "Qual estabelecimento?" });
+    expect(heading).toBeInTheDocument();
+    expect(heading.closest("section")?.querySelector(".lucide-scissors")).not.toBeInTheDocument();
     expect(screen.queryByText("conteúdo privado")).not.toBeInTheDocument();
   });
   beforeEach(() => {
@@ -716,7 +718,7 @@ describe("cliente conectado", () => {
     expect(await screen.findByText("Carregando estabelecimento…")).toBeInTheDocument();
     expect(document.querySelector('[data-ad-slot="client-header"]')).toBeInTheDocument();
     expect(screen.queryByText("Selecione um estabelecimento")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Display · Início" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Display · Início" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sair da conta/iu })).not.toBeInTheDocument();
     expect(screen.queryByText("JH")).not.toBeInTheDocument();
 
@@ -750,10 +752,10 @@ describe("cliente conectado", () => {
       </ConnectedClientProvider>,
     );
     expect(document.querySelector('[data-ad-slot="client-header"]')).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Display · Início" })).not.toBeInTheDocument();
     await waitFor(() => expect(view.container.querySelector("img")).toHaveAttribute(
       "src", "https://assets.example.test/organization-logos/studio/logo.png",
     ));
+    expect(screen.queryByRole("link", { name: "Display · Início" })).not.toBeInTheDocument();
     view.rerender(<ConnectedClientProvider initialSlug="barbearia-real"><ConnectedBooking /></ConnectedClientProvider>);
     expect(await screen.findByRole("heading", { name: "Escolha o Serviço" })).toBeInTheDocument();
     expect(screen.queryByText("Escolha uma sessão fotográfica ou pacote do catálogo do estúdio.")).not.toBeInTheDocument();

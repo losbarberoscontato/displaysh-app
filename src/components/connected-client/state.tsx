@@ -28,7 +28,6 @@ export function ConnectedClientGate({ children }: { children: React.ReactNode })
   if (!slug) {
     return (
       <section className={styles.resolver}>
-        <Scissors size={28} aria-hidden="true" />
         <span>Agendamento online</span>
         <h1>Qual estabelecimento?</h1>
         <p>Digite o endereço recebido do estabelecimento.</p>

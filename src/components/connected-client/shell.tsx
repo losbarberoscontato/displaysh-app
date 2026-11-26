@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { CalendarDays, CalendarPlus2, ChevronRight, CreditCard, House, MapPin, Menu, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectedClientProvider, useConnectedClient } from "@/components/connected-client/context";
+import { Brand } from "@/components/brand";
 import { locationAddressLine } from "@/components/connected-client/format";
 import styles from "@/components/connected-client/connected-client.module.css";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -22,7 +23,7 @@ const navigation = [
 function ShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
   const router = useRouter();
-  const { context, customer, organizations, user, slug, entry, identity, switchTenant } = useConnectedClient();
+  const { context, customer, organizations, user, authLoading, slug, entry, identity, switchTenant } = useConnectedClient();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [targetSlug, setTargetSlug] = useState<string | null>(null);
   const suffix = slug ? `?barbearia=${encodeURIComponent(slug)}` : "";
@@ -56,7 +57,9 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     <div className={`${styles.shell} ${themed ? styles.productTheme : ""} ${isAccessPage && themed ? styles.productAccess : ""}`} style={identityStyle}>
       <header className={styles.topbar}>
         <div className={styles.topbarInner}>
-          <div className="client-header-ad-slot" data-ad-slot="client-header" />
+          <div className="client-header-ad-slot" data-ad-slot="client-header">
+            {!authLoading && !user && <Brand href="/cliente/inicio" name="Display" tagline="App" mark="D" />}
+          </div>
           <nav className={styles.desktopNav} aria-label="Navegação do cliente">
             {visibleNavigation.map((item) => {
               const Icon = item.icon;
