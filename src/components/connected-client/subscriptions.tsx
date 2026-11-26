@@ -2,8 +2,11 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { CalendarClock, CalendarDays, CalendarPlus, CircleDollarSign, FileText, ReceiptText, XCircle } from "lucide-react";
 import { useConnectedClient } from "./context";
 import { localToday } from "./format";
+import { getAvailableSlots } from "./api";
+import type { AvailableSlot, BookingSelection } from "./types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { subscriptionDisplayStatus, subscriptionDisplayStatusLabels } from "@/lib/subscription-display-status";
 import styles from "./connected-client.module.css";
@@ -22,7 +25,9 @@ type Row = {
   contract_body_snapshot: string | null;
   plan: { name: string; description: string | null } | null;
   plan_version: {
+    id: string;
     model: string;
+    scheduling_mode: "FREE" | "FIXED" | null;
     price_cents: number;
     billing_period: string;
     sessions_per_cycle: number;
@@ -50,11 +55,14 @@ type Cycle = {
   due_on: string;
   amount_cents: number;
   status: string;
+  paid_at?: string | null;
   sessions: {
     id: string;
     session_number: number;
     status: string;
-    appointment?: { status: string; service_period?: string; cancellation_outcome?: string | null; cancelled_at?: string | null } | null;
+    appointment_id?: string | null;
+    rescheduled_from?: string | null;
+    appointment?: { status: string; service_period?: string; cancellation_outcome?: string | null; cancelled_at?: string | null; barber_id?: string | null; whatsapp_response_status?: string | null } | null;
   }[];
 };
 type CancellationRequest = {
@@ -86,8 +94,12 @@ type BundleContract = {
   first_session_date: string;
 };
 type BundleInstallment = { id: string; subscription_id: string; installment_number: number; kind: "ENTRY" | "INSTALLMENT"; due_on: string; amount_cents: number; status: "OPEN" | "PAID" | "OVERDUE" | "CANCELED"; paid_at: string | null };
-type BundleSession = { id: string; subscription_id: string; session_number: number; release_on: string; scheduled_for: string | null; installment_number: number; status: "AVAILABLE" | "SCHEDULED" | "COMPLETED" | "CONSUMED" | "CANCELED"; appointment_id: string | null; appointment?: { status: string; service_period: string | null; cancellation_outcome?: string | null; cancelled_at?: string | null } | null };
+type BundleSession = { id: string; subscription_id: string; session_number: number; release_on: string; scheduled_for: string | null; rescheduled_from?: string | null; installment_number: number; status: "AVAILABLE" | "SCHEDULED" | "COMPLETED" | "CONSUMED" | "CANCELED"; appointment_id: string | null; barber_id?: string | null; appointment?: { status: string; service_period: string | null; cancellation_outcome?: string | null; cancelled_at?: string | null; barber_id?: string | null; whatsapp_response_status?: string | null } | null };
 type BundleFixedSlot = { id: string; subscription_id: string; slot_number: number; weekday: number; local_time: string; barber_name_snapshot: string; environment_name_snapshot: string };
+type ActivePlanTab = "financeiro" | "agenda" | "contrato";
+type SessionCancellationDraft = { sessionId: string; model: "bundle" | "legacy"; reason: string };
+type BundleRescheduleDraft = { sessionId: string; barberId: string; localDate: string; startsAt: string; observation: string; slots: Array<{ starts_at: string; ends_at: string }>; loading: boolean };
+type LegacyRescheduleDraft = { sessionId: string; barberId: string; localDate: string; startsAt: string; selections: BookingSelection[]; slots: AvailableSlot[]; loading: boolean };
 
 function formatDate(value: string | null) {
   if (!value) return "—";
@@ -95,6 +107,37 @@ function formatDate(value: string | null) {
   return year && month && day
     ? new Intl.DateTimeFormat("pt-BR").format(new Date(year, month - 1, day))
     : value;
+}
+
+function formatDateTime(value: string | null, timezone: string) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: timezone,
+  }).format(new Date(value));
+}
+
+function appointmentStart(value: string | null | undefined) {
+  const start = value?.match(/\[(.*?),/)?.[1];
+  return start ? new Date(start) : null;
+}
+
+function localDateKey(value: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function shiftDateKey(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function installmentStatus(status: string, dueOn: string, today: string) {
+  if (status === "PAID") return { label: "Pago", tone: "success" };
+  if (status === "CANCELED") return { label: "Cancelada", tone: "neutral" };
+  if (status === "OVERDUE" || (status === "OPEN" && dueOn < today)) return { label: "Em atraso", tone: "danger" };
+  return { label: "Em aberto", tone: "warning" };
 }
 
 function sessionStatusLabel(status: string) {
@@ -154,7 +197,7 @@ const bundlePaymentMethodLabel: Record<string, string> = {
   UPFRONT: "À vista",
 };
 
-export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: SubscriptionView; itemId?: string }) {
+export function ConnectedSubscriptions({ view = "my-plans", itemId, initialTab = "financeiro" }: { view?: SubscriptionView; itemId?: string; initialTab?: ActivePlanTab }) {
   const { context, customer, user } = useConnectedClient();
   const [rows, setRows] = useState<Row[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
@@ -162,6 +205,18 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
   const [bundleInstallments, setBundleInstallments] = useState<BundleInstallment[]>([]);
   const [bundleSessions, setBundleSessions] = useState<BundleSession[]>([]);
   const [bundleFixedSlots, setBundleFixedSlots] = useState<BundleFixedSlot[]>([]);
+  const [activePlanTab, setActivePlanTab] = useState<ActivePlanTab>(initialTab);
+  const [sessionCancellationDraft, setSessionCancellationDraft] = useState<SessionCancellationDraft | null>(null);
+  const [sessionActionBusy, setSessionActionBusy] = useState(false);
+  const [bundleRescheduleDraft, setBundleRescheduleDraft] = useState<BundleRescheduleDraft | null>(null);
+  const [legacyRescheduleDraft, setLegacyRescheduleDraft] = useState<LegacyRescheduleDraft | null>(null);
+  const bundleRescheduleSessionId = bundleRescheduleDraft?.sessionId;
+  const bundleRescheduleBarberId = bundleRescheduleDraft?.barberId;
+  const bundleRescheduleLocalDate = bundleRescheduleDraft?.localDate;
+  const legacyRescheduleSessionId = legacyRescheduleDraft?.sessionId;
+  const legacyRescheduleBarberId = legacyRescheduleDraft?.barberId;
+  const legacyRescheduleLocalDate = legacyRescheduleDraft?.localDate;
+  const legacyRescheduleSelections = legacyRescheduleDraft?.selections;
   const [subscriptionDetailsLoadedFor, setSubscriptionDetailsLoadedFor] = useState("");
   const [projectDetailsLoadedFor, setProjectDetailsLoadedFor] = useState("");
   const [cancellationRequests, setCancellationRequests] = useState<CancellationRequest[]>([]);
@@ -193,7 +248,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
       client
         .from("customer_subscriptions")
         .select(
-          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(model,price_cents,billing_period,sessions_per_cycle,duration_months,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_sessions_per_month,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
+          "id,plan_id,status,contract_accepted_at,manager_activated_provisionally_at,start_date,end_date,first_due_date,payment_method,contract_body_snapshot,created_by,plan:subscription_plans(name,description),plan_version:subscription_plan_versions(id,model,scheduling_mode,price_cents,billing_period,sessions_per_cycle,duration_months,payment_method,bundle_scheduling_mode,bundle_service_id,bundle_sessions_per_week,bundle_sessions_per_month,bundle_session_duration_minutes,bundle_total_sessions,bundle_price_per_session_cents,bundle_entry_cents,bundle_installment_count,bundle_discount_type,bundle_discount_value)",
         )
         .eq("organization_id", context.organization.id)
         .eq("customer_id", customer.id)
@@ -242,7 +297,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
             .select("id,subscription_id,installment_number,kind,due_on,amount_cents,status,paid_at")
             .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).neq("status", "CANCELED").order("installment_number"),
           client.from("subscription_bundle_sessions")
-            .select("id,subscription_id,session_number,release_on,scheduled_for,installment_number,status,appointment_id")
+            .select("id,subscription_id,session_number,release_on,scheduled_for,rescheduled_from,installment_number,status,appointment_id,barber_id")
             .eq("organization_id", context.organization.id).in("subscription_id", bundleSubscriptionIds).is("deleted_at", null).order("session_number"),
           client.from("subscription_bundle_fixed_slots")
             .select("id,subscription_id,slot_number,weekday,local_time,barber_name_snapshot,environment_name_snapshot")
@@ -253,8 +308,8 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
         const rawBundleSessions = (bundleSessionResult.data ?? []) as BundleSession[];
         const bundleAppointmentIds = rawBundleSessions.map((session) => session.appointment_id).filter((id): id is string => Boolean(id));
         const bundleAppointmentResult = bundleAppointmentIds.length
-          ? await client.from("appointments").select("id,status,service_period,cancellation_outcome,cancelled_at").in("id", bundleAppointmentIds)
-          : { data: [] as Array<{ id: string; status: string; service_period: string | null; cancellation_outcome?: string | null; cancelled_at?: string | null }>, error: null };
+          ? await client.from("appointments").select("id,status,service_period,cancellation_outcome,cancelled_at,barber_id,whatsapp_response_status").in("id", bundleAppointmentIds)
+          : { data: [] as Array<{ id: string; status: string; service_period: string | null; cancellation_outcome?: string | null; cancelled_at?: string | null; barber_id?: string | null; whatsapp_response_status?: string | null }>, error: null };
         if (bundleAppointmentResult.error) { setMessage(bundleAppointmentResult.error.message); return; }
         const bundleAppointmentMap = new Map((bundleAppointmentResult.data ?? []).map((appointment) => [appointment.id, appointment]));
         setBundleContracts((contractResult.data ?? []) as BundleContract[]);
@@ -339,7 +394,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
       }
       const { data: cycleRows, error: cycleError } = await client
         .from("customer_subscription_cycles")
-        .select("id,subscription_id,cycle_number,starts_on,ends_on,due_on,amount_cents,status")
+        .select("id,subscription_id,cycle_number,starts_on,ends_on,due_on,amount_cents,status,paid_at")
         .eq("organization_id", context.organization.id)
         .in(
           "subscription_id",
@@ -353,7 +408,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
       const normalizedCycles = (cycleRows ?? []) as unknown as Omit<Cycle, "sessions">[];
       const { data: sessionRows, error: sessionError } = await client
         .from("customer_subscription_sessions")
-        .select("id,subscription_id,cycle_id,session_number,status,appointment_id")
+        .select("id,subscription_id,cycle_id,session_number,status,appointment_id,rescheduled_from")
         .eq("organization_id", context.organization.id)
         .in("subscription_id", subscriptions.filter((item) => item.status !== "DECLINED").map((item) => item.id))
         .order("session_number");
@@ -363,8 +418,8 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
       }
       const appointmentIds = (sessionRows ?? []).map((session) => session.appointment_id).filter(Boolean) as string[];
       const appointmentResult = appointmentIds.length
-        ? await client.from("appointments").select("id,status,service_period,cancellation_outcome,cancelled_at").in("id", appointmentIds)
-        : { data: [] as Array<{ id: string; status: string; service_period?: string; cancellation_outcome?: string | null; cancelled_at?: string | null }>, error: null };
+        ? await client.from("appointments").select("id,status,service_period,cancellation_outcome,cancelled_at,barber_id,whatsapp_response_status").in("id", appointmentIds)
+        : { data: [] as Array<{ id: string; status: string; service_period?: string; cancellation_outcome?: string | null; cancelled_at?: string | null; barber_id?: string | null; whatsapp_response_status?: string | null }>, error: null };
       if (appointmentResult.error) {
         setMessage(appointmentResult.error.message);
         return;
@@ -376,12 +431,71 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
           id: session.id,
           session_number: session.session_number,
           status: session.status,
+          appointment_id: session.appointment_id,
+          rescheduled_from: session.rescheduled_from,
           appointment: session.appointment_id ? (appointmentResult.data ?? []).find((appointment) => appointment.id === session.appointment_id) ?? null : null,
         })),
       })));
       setSubscriptionDetailsLoadedFor(customerDetailsKey);
     });
   }, [context, customer, customerDetailsKey, user]);
+
+  useEffect(() => {
+    if (!context || !customer || !bundleRescheduleSessionId || !bundleRescheduleBarberId || !bundleRescheduleLocalDate) return;
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    let active = true;
+    const sessionId = bundleRescheduleSessionId;
+    const barberId = bundleRescheduleBarberId;
+    const localDate = bundleRescheduleLocalDate;
+    queueMicrotask(() => setBundleRescheduleDraft((current) => current?.sessionId === sessionId ? { ...current, loading: true, slots: [], startsAt: "" } : current));
+    void Promise.resolve(client.rpc("get_customer_subscription_bundle_reschedule_slots", {
+      p_organization_id: context.organization.id,
+      p_customer_id: customer.id,
+      p_session_id: sessionId,
+      p_barber_id: barberId,
+      p_local_date: localDate,
+    })).then(({ data, error }) => {
+      if (error) throw error;
+      const slots = ((data as { slots?: BundleRescheduleDraft["slots"] } | null)?.slots ?? []);
+      if (active) setBundleRescheduleDraft((current) => current?.sessionId === sessionId && current.barberId === barberId && current.localDate === localDate
+        ? { ...current, loading: false, slots }
+        : current);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setMessage(error instanceof Error ? error.message : "Não foi possível consultar os horários.");
+      setBundleRescheduleDraft((current) => current?.sessionId === sessionId ? { ...current, loading: false, slots: [] } : current);
+    });
+    return () => { active = false; };
+  }, [bundleRescheduleSessionId, bundleRescheduleBarberId, bundleRescheduleLocalDate, context, customer]);
+
+  useEffect(() => {
+    if (!context || !legacyRescheduleSessionId || !legacyRescheduleBarberId || !legacyRescheduleLocalDate || !legacyRescheduleSelections) return;
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    let active = true;
+    const sessionId = legacyRescheduleSessionId;
+    const barberId = legacyRescheduleBarberId;
+    const localDate = legacyRescheduleLocalDate;
+    const selections = legacyRescheduleSelections;
+    queueMicrotask(() => setLegacyRescheduleDraft((current) => current?.sessionId === sessionId ? { ...current, loading: true, slots: [], startsAt: "" } : current));
+    void getAvailableSlots(client, {
+      organizationSlug: context.organization.slug,
+      barberId,
+      localDate,
+      selections,
+    }).then((availability) => {
+      if (active) setLegacyRescheduleDraft((current) => current?.sessionId === sessionId && current.barberId === barberId && current.localDate === localDate
+        ? { ...current, loading: false, slots: availability?.slots ?? [] }
+        : current);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setMessage(error instanceof Error ? error.message : "Não foi possível consultar os horários.");
+      setLegacyRescheduleDraft((current) => current?.sessionId === sessionId ? { ...current, loading: false, slots: [] } : current);
+    });
+    return () => { active = false; };
+  }, [context, legacyRescheduleSessionId, legacyRescheduleBarberId, legacyRescheduleLocalDate, legacyRescheduleSelections]);
+
   async function acceptSubscriptionOffer(id: string) {
     if (!context || acceptingSubscriptionOffer) return;
     const client = getSupabaseBrowserClient();
@@ -511,42 +625,122 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
     setMessage(error ? error.message : "Sessão do plano agendada.");
     if (!error) window.location.reload();
   }
-  async function cancelSession(sessionId: string) {
-    if (
-      !context ||
-      !customer ||
-      !window.confirm(
-        "Cancelar esta sessão? Você receberá um aviso com o resultado.",
-      )
-    )
-      return;
+  async function submitSessionCancellation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!context || !customer || !sessionCancellationDraft || sessionActionBusy) return;
     const client = getSupabaseBrowserClient();
     if (!client) return;
-    const { error } = await client.rpc("cancel_customer_subscription_session", {
-      p_organization_id: context.organization.id,
-      p_customer_id: customer.id,
-      p_subscription_session_id: sessionId,
-      p_reason: "Cancelada pelo cliente",
-    });
-    setMessage(
-      error
-        ? error.message
-        : "Cancelamento de sessão registrado.",
-    );
-    if (!error) window.location.reload();
+    const draft = sessionCancellationDraft;
+    setSessionActionBusy(true);
+    try {
+      const { error } = draft.model === "bundle"
+        ? await client.rpc("cancel_customer_subscription_bundle_session", {
+            p_organization_id: context.organization.id,
+            p_customer_id: customer.id,
+            p_session_id: draft.sessionId,
+            p_reason: draft.reason.trim(),
+          })
+        : await client.rpc("cancel_customer_subscription_session", {
+            p_organization_id: context.organization.id,
+            p_customer_id: customer.id,
+            p_subscription_session_id: draft.sessionId,
+            p_reason: draft.reason.trim(),
+          });
+      setMessage(error ? error.message : "Cancelamento de sessão registrado.");
+      if (!error) window.location.reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível cancelar a sessão.");
+    } finally {
+      setSessionActionBusy(false);
+    }
   }
-  async function cancelBundleSession(sessionId: string) {
-    if (!context || !customer || !window.confirm("Cancelar esta sessão do plano? A regra de prazo definirá se ela volta a ficar disponível ou é consumida.")) return;
+
+  async function openBundleReschedule(session: BundleSession, row: Row) {
+    if (!context) return;
+    const contract = bundleContracts.find((item) => item.subscription_id === row.id);
+    const eligible = context.barbers.filter((barber) => barber.subscription_plan_ids?.includes(row.plan_id)
+      && barber.service_ids?.includes(contract?.service_id ?? ""));
+    const currentBarberId = session.appointment?.barber_id ?? session.barber_id ?? "";
+    const barberId = eligible.find((barber) => barber.id === currentBarberId)?.id ?? eligible[0]?.id ?? currentBarberId;
+    const today = localToday(context.organization.timezone);
+    const originalDate = session.rescheduled_from || session.scheduled_for
+      ? localDateKey(new Date(session.rescheduled_from ?? session.scheduled_for!), context.organization.timezone)
+      : today;
+    const earliest = shiftDateKey(originalDate, -14);
+    const localDate = today > earliest ? today : earliest;
+    setBundleRescheduleDraft({ sessionId: session.id, barberId, localDate, startsAt: "", observation: "", slots: [], loading: false });
+  }
+
+  async function openLegacyReschedule(session: Cycle["sessions"][number], row: Row) {
+    if (!context || !row.plan_version?.id) return;
     const client = getSupabaseBrowserClient();
     if (!client) return;
-    const { error } = await client.rpc("cancel_customer_subscription_bundle_session", {
-      p_organization_id: context.organization.id,
-      p_customer_id: customer.id,
-      p_session_id: sessionId,
-      p_reason: "Cancelada pelo cliente",
-    });
-    setMessage(error ? error.message : "Cancelamento de sessão registrado.");
-    if (!error) window.location.reload();
+    const { data, error } = await client.from("subscription_plan_services").select("service_id")
+      .eq("organization_id", context.organization.id).eq("plan_version_id", row.plan_version.id);
+    if (error) { setMessage(error.message); return; }
+    const serviceIds = [...new Set((data ?? []).map((item) => item.service_id).filter(Boolean))];
+    const selections: BookingSelection[] = serviceIds.map((serviceId) => ({ type: "SERVICE", service_id: serviceId, quantity: 1 }));
+    const eligible = context.barbers.filter((barber) => barber.subscription_plan_ids?.includes(row.plan_id)
+      && serviceIds.length > 0 && serviceIds.every((serviceId) => barber.service_ids?.includes(serviceId)));
+    if (!selections.length || !eligible.length) {
+      setMessage("Não há serviços e profissionais habilitados para reagendar esta sessão.");
+      return;
+    }
+    const currentBarberId = session.appointment?.barber_id ?? "";
+    const barberId = eligible.find((barber) => barber.id === currentBarberId)?.id ?? eligible[0]?.id ?? "";
+    const today = localToday(context.organization.timezone);
+    const source = session.rescheduled_from ?? appointmentStart(session.appointment?.service_period)?.toISOString() ?? today;
+    const sourceDate = source === today ? today : localDateKey(new Date(source), context.organization.timezone);
+    const earliest = shiftDateKey(sourceDate, -14);
+    setLegacyRescheduleDraft({ sessionId: session.id, barberId, localDate: today > earliest ? today : earliest, startsAt: "", selections, slots: [], loading: false });
+  }
+
+  async function submitBundleReschedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!context || !customer || !bundleRescheduleDraft || !bundleRescheduleDraft.barberId || !bundleRescheduleDraft.startsAt || sessionActionBusy) return;
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    const draft = bundleRescheduleDraft;
+    setSessionActionBusy(true);
+    try {
+      const { error } = await client.rpc("reschedule_customer_subscription_bundle_session", {
+        p_organization_id: context.organization.id,
+        p_customer_id: customer.id,
+        p_session_id: draft.sessionId,
+        p_barber_id: draft.barberId,
+        p_starts_at: draft.startsAt,
+        p_reason: draft.observation.trim() || null,
+      });
+      setMessage(error ? error.message : "Sessão reagendada. O estabelecimento e os participantes serão avisados.");
+      if (!error) window.location.reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível reagendar a sessão.");
+    } finally {
+      setSessionActionBusy(false);
+    }
+  }
+
+  async function submitLegacyReschedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!context || !legacyRescheduleDraft?.barberId || !legacyRescheduleDraft.startsAt || sessionActionBusy) return;
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    const draft = legacyRescheduleDraft;
+    setSessionActionBusy(true);
+    try {
+      const { error } = await client.rpc("reschedule_fixed_customer_subscription_session", {
+        p_organization_id: context.organization.id,
+        p_subscription_session_id: draft.sessionId,
+        p_new_starts_at: draft.startsAt,
+        p_new_barber_id: draft.barberId,
+      });
+      setMessage(error ? error.message : "Sessão reagendada. O estabelecimento e os participantes serão avisados.");
+      if (!error) window.location.reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível reagendar a sessão.");
+    } finally {
+      setSessionActionBusy(false);
+    }
   }
   const route = (path: string) => `${path}${context?.organization.slug ? `?barbearia=${encodeURIComponent(context.organization.slug)}` : ""}`;
   const money = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
@@ -701,7 +895,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
     <article className={styles.subscriptionCard}><p>{selectedProjectOffer.package?.description ?? "Pacote selecionado pelo gestor."}</p><small>{selectedProjectOffer.package?.sessions_count ?? 0} sessão(ões)</small><strong>{money(selectedProjectOffer.contracted_cents)}</strong><div className={styles.planActions}><button className={styles.subscriptionAction} type="button" onClick={() => void acceptProjectOffer(selectedProjectOffer)}>Confirmar assinatura</button><button className={styles.subscriptionSecondary} type="button" onClick={() => void declineProjectOffer(selectedProjectOffer)}>Recusar contrato</button></div></article>
   </section>;
 
-  if (view === "my-plan" && !selectedCustomerSubscription) return <section className={styles.subscriptionStack}><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Minhas Assinaturas</Link><h1>{message ? "Carregando plano…" : "Plano indisponível"}</h1>{message && <p>{message}</p>}</section>;
+  if (view === "my-plan" && !selectedCustomerSubscription && !selectedCustomerProject) return <section className={styles.subscriptionStack}><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Voltar</Link><h1>{message ? "Carregando plano…" : "Plano indisponível"}</h1>{message && <p>{message}</p>}</section>;
 
   if (view === "my-plan" && selectedCustomerProject) {
     const engagement = selectedCustomerProject;
@@ -712,7 +906,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
       ? request?.status !== "PENDING" || Boolean(request.last_session_id && session.session_number <= (sessions.find((item) => item.id === request.last_session_id)?.session_number ?? 0))
       : request?.status === "CONFIRMED" && request.last_session_id === session.id);
     return <section className={styles.subscriptionStack}>
-      <header><Link href={route("/cliente/assinaturas/meus-planos")} className={styles.subscriptionBack}>← Meus Planos</Link><span className={styles.planKind}>Plano de projeto</span><h1>{engagement.project?.name ?? "Projeto"} · {engagement.package?.name ?? "Pacote"}</h1><p>{engagement.project?.description ?? engagement.package?.description ?? "Detalhes do plano contratado."}</p></header>
+      <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Voltar</Link><span className={styles.planKind}>Plano de projeto</span><h1>{engagement.project?.name ?? "Projeto"} · {engagement.package?.name ?? "Pacote"}</h1><p>{engagement.project?.description ?? engagement.package?.description ?? "Detalhes do plano contratado."}</p></header>
       <article className={styles.subscriptionCard}>
         {request?.status === "PENDING" && <span className={styles.planStatus}>Cancelamento pendente · aguarde confirmação</span>}
         {(engagement.status === "CANCELED" || engagement.status === "CANCELED_BY_ORGANIZATION") && <span className={styles.planStatus}>Aguardando regular pendências</span>}
@@ -742,6 +936,195 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
         <label>Ambiente<select required value={projectBookingDraft.environmentId} onChange={(event) => setProjectBookingDraft((current) => current ? { ...current, environmentId: event.target.value } : current)}><option value="">{projectBookingDraft.environments.length ? "Selecione" : "Consulte os horários"}</option>{projectBookingDraft.environments.map((environment) => <option key={environment.id} value={environment.id}>{environment.name}</option>)}</select></label>
         <footer><button className={styles.subscriptionSecondary} type="button" onClick={() => setProjectBookingDraft(null)}>Cancelar</button><button className={styles.subscriptionAction} type="submit" disabled={!projectBookingDraft.environmentId || projectBookingDraft.loading}>Agendar sessão</button></footer>
       </form></div>}
+    </section>;
+  }
+
+  if (view === "my-plan" && selectedCustomerSubscription) {
+    const row = selectedCustomerSubscription;
+    const isBundle = row.plan_version?.model === "SESSION_BUNDLE_V1";
+    const contract = bundleContracts.find((item) => item.subscription_id === row.id);
+    const today = context ? localToday(context.organization.timezone) : new Date().toISOString().slice(0, 10);
+    const timezone = context?.organization.timezone ?? "UTC";
+    const bundleRows = bundleSessions.filter((item) => item.subscription_id === row.id).sort((a, b) => a.session_number - b.session_number);
+    const installmentRows = bundleInstallments.filter((item) => item.subscription_id === row.id).sort((a, b) => a.installment_number - b.installment_number);
+    const cycleRows = cycles.filter((item) => item.subscription_id === row.id).sort((a, b) => a.cycle_number - b.cycle_number);
+    const fixedSlots = bundleFixedSlots.filter((item) => item.subscription_id === row.id).sort((a, b) => a.slot_number - b.slot_number);
+    const acceptedActivePlan = row.status === "ACTIVE" && Boolean(row.contract_accepted_at);
+    const bundleOverdue = installmentRows.some((item) => item.status === "OVERDUE" || (item.status === "OPEN" && item.due_on < today));
+    const legacyOverdue = cycleRows.some((item) => item.status === "OVERDUE" || (item.status === "OPEN" && item.due_on < today));
+    const weekdays = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+    const activeSession = bundleRescheduleDraft ? bundleRows.find((item) => item.id === bundleRescheduleDraft.sessionId) : null;
+    const activeLegacySession = legacyRescheduleDraft ? cycleRows.flatMap((cycle) => cycle.sessions).find((item) => item.id === legacyRescheduleDraft.sessionId) : null;
+    const eligibleBarbers = context?.barbers.filter((barber) => barber.subscription_plan_ids?.includes(row.plan_id)
+      && barber.service_ids?.includes(contract?.service_id ?? "")) ?? [];
+    const sourceSchedule = activeSession?.rescheduled_from ?? activeSession?.scheduled_for ?? null;
+    const sourceDate = sourceSchedule ? localDateKey(new Date(sourceSchedule), timezone) : today;
+    const rescheduleMin = today > shiftDateKey(sourceDate, -14) ? today : shiftDateKey(sourceDate, -14);
+    const rescheduleMax = shiftDateKey(sourceDate, 14);
+    const legacySource = activeLegacySession?.rescheduled_from ?? appointmentStart(activeLegacySession?.appointment?.service_period)?.toISOString() ?? today;
+    const legacySourceDate = legacySource === today ? today : localDateKey(new Date(legacySource), timezone);
+    const legacyRescheduleMin = today > shiftDateKey(legacySourceDate, -14) ? today : shiftDateKey(legacySourceDate, -14);
+    const legacyRescheduleMax = shiftDateKey(legacySourceDate, 14);
+    const legacyServiceIds = legacyRescheduleDraft?.selections.filter((selection) => selection.type === "SERVICE").map((selection) => selection.type === "SERVICE" ? selection.service_id : "") ?? [];
+    const legacyEligibleBarbers = context?.barbers.filter((barber) => barber.subscription_plan_ids?.includes(row.plan_id)
+      && legacyServiceIds.length > 0 && legacyServiceIds.every((serviceId) => barber.service_ids?.includes(serviceId))) ?? [];
+    const financeRows = isBundle
+      ? installmentRows.map((item) => {
+          const status = installmentStatus(item.status, item.due_on, today);
+          return { id: item.id, number: item.kind === "ENTRY" ? "Entrada" : String(item.installment_number).padStart(2, "0"), value: item.amount_cents, due: item.due_on, paid: item.paid_at ? item.paid_at.slice(0, 10) : null, status };
+        })
+      : cycleRows.map((item) => ({
+          id: item.id,
+          number: String(item.cycle_number).padStart(2, "0"),
+          value: item.amount_cents,
+          due: item.due_on,
+          paid: item.paid_at ? item.paid_at.slice(0, 10) : null,
+          status: installmentStatus(item.status, item.due_on, today),
+        }));
+    const agendaRows = isBundle
+      ? bundleRows.map((session) => ({
+          id: session.id,
+          number: session.session_number,
+          date: session.scheduled_for ?? appointmentStart(session.appointment?.service_period)?.toISOString() ?? null,
+          professional: context?.barbers.find((barber) => barber.id === (session.appointment?.barber_id ?? session.barber_id))?.name
+            ?? "—",
+          status: sessionStatusLabel(session.status),
+          tone: sessionTone(session.status),
+          scheduled: session.status === "SCHEDULED",
+          bookable: acceptedActivePlan && session.status === "AVAILABLE"
+            && contract?.scheduling_mode === "FREE"
+            && session.release_on <= today
+            && Boolean(contract.first_session_date && contract.first_session_date <= today)
+            && !bundleOverdue,
+          model: "bundle" as const,
+        }))
+      : cycleRows.flatMap((cycle) => cycle.sessions.map((session) => ({
+          id: session.id,
+          number: session.session_number,
+          date: appointmentStart(session.appointment?.service_period)?.toISOString() ?? null,
+          professional: context?.barbers.find((barber) => barber.id === session.appointment?.barber_id)?.name
+            ?? "—",
+          status: session.appointment?.status === "CONFIRMED"
+            ? session.appointment.whatsapp_response_status === "CONFIRMED_BY_WHATSAPP" ? "Confirmada" : "Agendada"
+            : sessionStatusLabel(session.status),
+          tone: session.appointment?.status === "CONFIRMED" ? "#2872ad" : sessionTone(session.status),
+          scheduled: session.status === "SCHEDULED",
+          bookable: acceptedActivePlan && session.status === "AVAILABLE" && !legacyOverdue,
+          model: "legacy" as const,
+        })));
+
+    return <section className={styles.subscriptionStack}>
+      <header className={styles.activePlanHeader}>
+        <Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Voltar</Link>
+        <h1 className={styles.activePlanTitle}>{row.plan?.name ?? "Plano ativo"}</h1>
+      </header>
+      <article className={`${styles.subscriptionCard} ${styles.activePlanCard}`}>
+        {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
+        {row.status === "CANCELED" && <span className={styles.planStatus}>Aguardando regular pendências</span>}
+        <p className={styles.activePlanDescription}>{row.plan?.description ?? "Sem descrição cadastrada."}</p>
+        {isBundle && contract?.scheduling_mode === "FIXED" && <section className={styles.activePlanWeeklyAgenda}>
+          <h2>Agenda</h2>
+          {fixedSlots.length ? fixedSlots.map((slot) => <p key={slot.id}>Sessão {slot.slot_number}: {weekdays[slot.weekday]} às {slot.local_time.slice(0, 5)} · {slot.barber_name_snapshot} · {slot.environment_name_snapshot}</p>) : <p>Agenda semanal não informada.</p>}
+        </section>}
+        <div className={styles.activePlanTabs} role="tablist" aria-label="Detalhes do plano">
+          {(["financeiro", "agenda", "contrato"] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={activePlanTab === tab} className={activePlanTab === tab ? styles.activePlanTabSelected : ""} onClick={() => setActivePlanTab(tab)}>
+            {tab === "financeiro" ? <CircleDollarSign size={17} aria-hidden="true" /> : tab === "agenda" ? <CalendarDays size={17} aria-hidden="true" /> : <FileText size={17} aria-hidden="true" />}
+            {tab === "financeiro" ? "Financeiro" : tab === "agenda" ? "Agenda" : "Contrato"}
+          </button>)}
+        </div>
+        {!subscriptionDetailsLoaded && <p role="status" className={styles.subscriptionHint}>{message || "Carregando dados do plano…"}</p>}
+        <section className={styles.activePlanTabPanel} role="tabpanel">
+          {subscriptionDetailsLoaded && activePlanTab === "financeiro" && <div className={styles.activePlanTableWrap}>
+            <table className={styles.activePlanTable}>
+              <thead><tr><th>N. Parcela</th><th>Valor</th><th>Vencimento</th><th>Data Pgto</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody>{financeRows.map((item) => <tr key={item.id}>
+                <td>{item.number}</td><td>{money(item.value)}</td><td>{formatDate(item.due)}</td><td>{formatDate(item.paid)}</td>
+                <td><span className={`${styles.activePlanStatus} ${styles[`activePlanStatus${item.status.tone[0].toUpperCase()}${item.status.tone.slice(1)}`]}`}>{item.status.label}</span></td>
+                <td><div className={styles.activePlanActions}>
+                  <button type="button" disabled aria-label={`Pagar parcela ${item.number}`} title="Pagamento online será disponibilizado futuramente"><CircleDollarSign size={17} aria-hidden="true" /></button>
+                  <button type="button" disabled aria-label={`Imprimir recibo da parcela ${item.number}`} title="Emissão de recibo será disponibilizada futuramente"><ReceiptText size={17} aria-hidden="true" /></button>
+                </div></td>
+              </tr>)}</tbody>
+            </table>
+            {!financeRows.length && <p className={styles.subscriptionHint}>Nenhuma parcela cadastrada.</p>}
+          </div>}
+          {subscriptionDetailsLoaded && activePlanTab === "agenda" && <div className={styles.activePlanTableWrap}>
+            <table className={styles.activePlanTable}>
+              <thead><tr><th>Sessão</th><th>Data/hora</th><th>Profissional</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody>{agendaRows.map((item) => <tr key={item.id}>
+                <td>{String(item.number).padStart(2, "0")}</td><td>{formatDateTime(item.date, timezone)}</td><td>{item.professional}</td>
+                <td><span className={styles.activePlanStatus} style={{ color: item.tone, background: `${item.tone}18` }}>{item.status}</span></td>
+                <td><div className={styles.activePlanActions}>
+                  {item.bookable && <Link className={styles.activePlanIconLink} href={(() => {
+                    const query = new URLSearchParams(item.model === "bundle"
+                      ? { subscriptionBundleSession: item.id }
+                      : { subscriptionSession: item.id });
+                    if (context?.organization.slug) query.set("barbearia", context.organization.slug);
+                    return `/cliente/agendar?${query.toString()}`;
+                  })()} aria-label={`Agendar sessão ${item.number}`} title="Agendar sessão"><CalendarPlus size={17} aria-hidden="true" /></Link>}
+                  {item.scheduled && acceptedActivePlan && <>
+                    <button type="button" aria-label={`Cancelar sessão ${item.number}`} title="Cancelar sessão" onClick={() => { setMessage(""); setSessionCancellationDraft({ sessionId: item.id, model: item.model, reason: "" }); }}><XCircle size={17} aria-hidden="true" /></button>
+                    {item.model === "bundle" ? <button type="button" aria-label={`Reagendar sessão ${item.number}`} title="Reagendar sessão" onClick={() => {
+                      const session = bundleRows.find((candidate) => candidate.id === item.id);
+                      if (session) { setMessage(""); void openBundleReschedule(session, row); }
+                    }}><CalendarClock size={17} aria-hidden="true" /></button> : row.plan_version?.scheduling_mode === "FIXED" ? <button type="button" aria-label={`Reagendar sessão ${item.number}`} title="Reagendar sessão" onClick={() => {
+                      const session = cycleRows.flatMap((cycle) => cycle.sessions).find((candidate) => candidate.id === item.id);
+                      if (session) { setMessage(""); void openLegacyReschedule(session, row); }
+                    }}><CalendarClock size={17} aria-hidden="true" /></button> : <button type="button" disabled aria-label={`Reagendar sessão ${item.number}`} title="Este plano não permite reagendamento pelo cliente"><CalendarClock size={17} aria-hidden="true" /></button>}
+                  </>}
+                </div></td>
+              </tr>)}</tbody>
+            </table>
+            {!agendaRows.length && <p className={styles.subscriptionHint}>Nenhuma sessão cadastrada.</p>}
+          </div>}
+          {subscriptionDetailsLoaded && activePlanTab === "contrato" && <div className={styles.activePlanContract}><pre>{row.contract_body_snapshot ?? contractBody ?? "Contrato não disponível."}</pre></div>}
+        </section>
+      </article>
+      {sessionCancellationDraft && <div className={styles.modalLayer} role="presentation">
+        <button className={styles.backdrop} type="button" aria-label="Fechar cancelamento" onClick={() => setSessionCancellationDraft(null)} />
+        <form className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="session-cancellation-title" onSubmit={(event) => void submitSessionCancellation(event)}>
+          <h2 id="session-cancellation-title">Cancelar sessão</h2>
+          <p>Informe o motivo. O sistema atualizará a agenda e enviará os avisos de cancelamento.</p>
+          {message && <p role="alert">{message}</p>}
+          <label>Motivo do cancelamento<textarea required maxLength={500} value={sessionCancellationDraft.reason} onChange={(event) => setSessionCancellationDraft((current) => current ? { ...current, reason: event.target.value } : current)} /></label>
+          <footer><button className={styles.subscriptionSecondary} type="button" onClick={() => setSessionCancellationDraft(null)}>Voltar</button><button className={styles.subscriptionAction} type="submit" disabled={sessionActionBusy}>{sessionActionBusy ? "Cancelando…" : "Confirmar cancelamento"}</button></footer>
+        </form>
+      </div>}
+      {bundleRescheduleDraft && <div className={styles.modalLayer} role="presentation">
+        <button className={styles.backdrop} type="button" aria-label="Fechar reagendamento" onClick={() => setBundleRescheduleDraft(null)} />
+        <form className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="bundle-reschedule-title" onSubmit={(event) => void submitBundleReschedule(event)}>
+          <h2 id="bundle-reschedule-title">Reagendar sessão {String(activeSession?.session_number ?? "")}</h2>
+          {message && <p role="alert">{message}</p>}
+          <label>Motivo do reagendamento<textarea maxLength={500} value={bundleRescheduleDraft.observation} onChange={(event) => setBundleRescheduleDraft((current) => current ? { ...current, observation: event.target.value } : current)} placeholder="Opcional" /></label>
+          <label>Profissional<select required value={bundleRescheduleDraft.barberId} onChange={(event) => setBundleRescheduleDraft((current) => current ? { ...current, barberId: event.target.value, startsAt: "" } : current)}>
+            <option value="">Selecione</option>{eligibleBarbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.name}</option>)}
+          </select></label>
+          {!eligibleBarbers.length && <p role="alert">Nenhum profissional habilitado para este plano está disponível.</p>}
+          <label>Data<input type="date" required min={rescheduleMin} max={rescheduleMax} value={bundleRescheduleDraft.localDate} onChange={(event) => setBundleRescheduleDraft((current) => current ? { ...current, localDate: event.target.value, startsAt: "" } : current)} /></label>
+          <label>Horário disponível<select required value={bundleRescheduleDraft.startsAt} disabled={bundleRescheduleDraft.loading || !bundleRescheduleDraft.slots.length} onChange={(event) => setBundleRescheduleDraft((current) => current ? { ...current, startsAt: event.target.value } : current)}>
+            <option value="">{bundleRescheduleDraft.loading ? "Consultando horários…" : bundleRescheduleDraft.slots.length ? "Selecione um horário" : "Nenhum horário disponível"}</option>
+            {bundleRescheduleDraft.slots.map((slot) => <option key={slot.starts_at} value={slot.starts_at}>{new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date(slot.starts_at))}</option>)}
+          </select></label>
+          <footer><button className={styles.subscriptionSecondary} type="button" onClick={() => setBundleRescheduleDraft(null)}>Cancelar</button><button className={styles.subscriptionAction} type="submit" disabled={!bundleRescheduleDraft.startsAt || bundleRescheduleDraft.loading || sessionActionBusy}>{sessionActionBusy ? "Reagendando…" : "Confirmar reagendamento"}</button></footer>
+        </form>
+      </div>}
+      {legacyRescheduleDraft && <div className={styles.modalLayer} role="presentation">
+        <button className={styles.backdrop} type="button" aria-label="Fechar reagendamento" onClick={() => setLegacyRescheduleDraft(null)} />
+        <form className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="legacy-reschedule-title" onSubmit={(event) => void submitLegacyReschedule(event)}>
+          <h2 id="legacy-reschedule-title">Reagendar sessão {String(activeLegacySession?.session_number ?? "")}</h2>
+          {message && <p role="alert">{message}</p>}
+          <label>Profissional<select required value={legacyRescheduleDraft.barberId} onChange={(event) => setLegacyRescheduleDraft((current) => current ? { ...current, barberId: event.target.value, startsAt: "" } : current)}>
+            <option value="">Selecione</option>{legacyEligibleBarbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.name}</option>)}
+          </select></label>
+          {!legacyEligibleBarbers.length && <p role="alert">Nenhum profissional habilitado para este plano está disponível.</p>}
+          <label>Data<input type="date" required min={legacyRescheduleMin} max={legacyRescheduleMax} value={legacyRescheduleDraft.localDate} onChange={(event) => setLegacyRescheduleDraft((current) => current ? { ...current, localDate: event.target.value, startsAt: "" } : current)} /></label>
+          <label>Horário disponível<select required value={legacyRescheduleDraft.startsAt} disabled={legacyRescheduleDraft.loading || !legacyRescheduleDraft.slots.length} onChange={(event) => setLegacyRescheduleDraft((current) => current ? { ...current, startsAt: event.target.value } : current)}>
+            <option value="">{legacyRescheduleDraft.loading ? "Consultando horários…" : legacyRescheduleDraft.slots.length ? "Selecione um horário" : "Nenhum horário disponível"}</option>
+            {legacyRescheduleDraft.slots.map((slot) => <option key={slot.starts_at} value={slot.starts_at}>{new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date(slot.starts_at))}</option>)}
+          </select></label>
+          <footer><button className={styles.subscriptionSecondary} type="button" onClick={() => setLegacyRescheduleDraft(null)}>Cancelar</button><button className={styles.subscriptionAction} type="submit" disabled={!legacyRescheduleDraft.startsAt || legacyRescheduleDraft.loading || sessionActionBusy}>{sessionActionBusy ? "Reagendando…" : "Confirmar reagendamento"}</button></footer>
+        </form>
+      </div>}
     </section>;
   }
 
@@ -813,7 +1196,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
                   if (context?.organization.slug) query.set("barbearia", context.organization.slug);
                   return <Link className={styles.subscriptionAction} key={session.id} href={`/cliente/agendar?${query.toString()}`} aria-label={`Agendar ${title}`}>{title} · Agendar</Link>;
                 }
-                if (session.status === "SCHEDULED") return <button className={styles.subscriptionSecondary} type="button" key={session.id} onClick={() => void cancelBundleSession(session.id)}>{title} · {session.scheduled_for ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: context?.organization.timezone }).format(new Date(session.scheduled_for)) : "Agendada"} · Cancelar</button>;
+                if (session.status === "SCHEDULED") return <button className={styles.subscriptionSecondary} type="button" key={session.id} onClick={() => setSessionCancellationDraft({ sessionId: session.id, model: "bundle", reason: "" })}>{title} · {session.scheduled_for ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: context?.organization.timezone }).format(new Date(session.scheduled_for)) : "Agendada"} · Cancelar</button>;
                 const label = session.status === "COMPLETED" ? "Concluída" : session.status === "CONSUMED" ? "Consumida" : session.status === "CANCELED" ? "Cancelada" : released ? (overdue ? "Bloqueada por atraso" : "Disponível") : `Libera em ${formatDate(session.release_on)}`;
                 return <span key={session.id} className={styles.subscriptionSecondary}>{title} · {label}</span>;
               })}
@@ -877,7 +1260,7 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
                             key={session.id}
                             type="button"
                             className={styles.subscriptionSecondary}
-                            onClick={() => void cancelSession(session.id)}
+                            onClick={() => setSessionCancellationDraft({ sessionId: session.id, model: "legacy", reason: "" })}
                             style={{ color: tone, borderColor: `${tone}66`, background: `${tone}14` }}
                             aria-label={sessionStatusLabel(session.status)}
                           >

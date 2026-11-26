@@ -49,6 +49,7 @@ type Draft = {
   step: number;
   audience?: CatalogAudience;
 };
+type BookingPlanChoice = { id: string; label: string; kind: "subscription" | "project" };
 
 type BarberMode = "ANY" | "SPECIFIC" | "";
 type SubscriptionBookingContext = {
@@ -156,9 +157,63 @@ function BookingContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [restored, setRestored] = useState(false);
+  const [bookingPlanChoices, setBookingPlanChoices] = useState<BookingPlanChoice[]>([]);
+  const [bookingPlanChoiceMode, setBookingPlanChoiceMode] = useState<"checking" | "choose" | "single" | "error">("checking");
+  const [bookingPlanChoiceError, setBookingPlanChoiceError] = useState("");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dialogBodyRef = useRef<HTMLDivElement>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!context || !slug) return;
+    const query = new URLSearchParams(window.location.search);
+    if (query.has("subscriptionBundleSession") || query.has("subscriptionSession") || !supabase || !customer || !user) {
+      queueMicrotask(() => setBookingPlanChoiceMode("single"));
+      return;
+    }
+    let active = true;
+    queueMicrotask(() => setBookingPlanChoiceMode("checking"));
+    void Promise.all([
+      supabase.from("customer_subscriptions")
+        .select("id,contract_accepted_at,plan:subscription_plans(name)")
+        .eq("organization_id", context.organization.id)
+        .eq("customer_id", customer.id)
+        .eq("status", "ACTIVE"),
+      supabase.from("project_engagements")
+        .select("id,accepted_at,project:projects(name),package:project_packages(name)")
+        .eq("organization_id", context.organization.id)
+        .eq("customer_id", customer.id)
+        .eq("status", "ACTIVE"),
+    ]).then(([subscriptionResult, projectResult]) => {
+      if (!active) return;
+      if (subscriptionResult.error || projectResult.error) {
+        setBookingPlanChoiceError("Não foi possível verificar seus planos ativos. Tente novamente ou escolha um agendamento avulso.");
+        setBookingPlanChoiceMode("error");
+        return;
+      }
+      const subscriptionChoices = (subscriptionResult.data ?? []).filter((item) => item.contract_accepted_at).map((item) => {
+        const plan = item.plan as { name: string } | { name: string }[] | null;
+        const planName = Array.isArray(plan) ? plan[0]?.name : plan?.name;
+        return { id: item.id, label: planName ?? "Plano de assinatura", kind: "subscription" as const };
+      });
+      const projectChoices = (projectResult.data ?? []).filter((item) => item.accepted_at).map((item) => {
+        const project = item.project as { name: string } | { name: string }[] | null;
+        const pkg = item.package as { name: string } | { name: string }[] | null;
+        const projectName = Array.isArray(project) ? project[0]?.name : project?.name;
+        const packageName = Array.isArray(pkg) ? pkg[0]?.name : pkg?.name;
+        return { id: item.id, label: [projectName, packageName].filter(Boolean).join(" · ") || "Plano de projeto", kind: "project" as const };
+      });
+      const choices = [...subscriptionChoices, ...projectChoices];
+      setBookingPlanChoices(choices);
+      setBookingPlanChoiceMode(choices.length ? "choose" : "single");
+    }).catch(() => {
+      if (active) {
+        setBookingPlanChoiceError("Não foi possível verificar seus planos ativos. Tente novamente ou escolha um agendamento avulso.");
+        setBookingPlanChoiceMode("error");
+      }
+    });
+    return () => { active = false; };
+  }, [context, customer, slug, supabase, user]);
 
   const isBundleSubscriptionBooking = Boolean(subscriptionBundleSessionId && subscriptionSelections.length);
   const isSubscriptionBooking = Boolean((subscriptionSessionId || subscriptionBundleSessionId) && subscriptionSelections.length);
@@ -507,6 +562,32 @@ function BookingContent() {
   }, [restored, step]);
 
   if (!context || !slug) return null;
+  if (bookingPlanChoiceMode === "checking") return <div className={styles.planChoiceState} role="status">Verificando planos ativos…</div>;
+  if (bookingPlanChoiceMode === "error") return <div className={styles.planChoiceLayer} role="presentation">
+    <section className={styles.planChoice} role="alertdialog" aria-modal="true" aria-labelledby="booking-plan-error-title">
+      <span className={styles.choiceKind}>Agendamento</span>
+      <h1 id="booking-plan-error-title">Verificação pendente</h1>
+      <p>{bookingPlanChoiceError}</p>
+      <button className={styles.primaryButton} type="button" onClick={() => window.location.reload()}>Tentar novamente</button>
+      <button className={styles.secondaryButton} type="button" onClick={() => setBookingPlanChoiceMode("single")}>Continuar com sessão avulsa</button>
+    </section>
+  </div>;
+  if (bookingPlanChoiceMode === "choose") return <div className={styles.planChoiceLayer} role="presentation">
+    <section className={styles.planChoice} role="dialog" aria-modal="true" aria-labelledby="booking-plan-choice-title">
+      <span className={styles.choiceKind}>Agendamento</span>
+      <h1 id="booking-plan-choice-title">Como deseja agendar?</h1>
+      <p>Escolha uma sessão de um plano ativo ou faça um agendamento avulso.</p>
+      <div className={styles.planChoiceOptions}>
+        {bookingPlanChoices.map((choice) => <button key={`${choice.kind}-${choice.id}`} type="button" onClick={() => {
+          const destination = new URLSearchParams({ barbearia: slug, aba: "agenda" });
+          router.push(`/cliente/assinaturas/meus-planos/${encodeURIComponent(choice.id)}?${destination.toString()}`);
+        }}>
+          <strong>{choice.kind === "project" ? "Sessão do plano" : "Sessão da assinatura"}</strong><span>{choice.label}</span>
+        </button>)}
+      </div>
+      <button className={styles.primaryButton} type="button" onClick={() => setBookingPlanChoiceMode("single")}>Agendar sessão avulsa</button>
+    </section>
+  </div>;
   const organization = context.organization;
   const tenantSlug = slug;
   const visibleDates = isBundleSubscriptionBooking
