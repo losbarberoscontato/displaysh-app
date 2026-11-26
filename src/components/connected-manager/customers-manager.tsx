@@ -15,6 +15,7 @@ import { centsFromInput, formatCents, formatRange, localDateTimeToIso, parsePost
 import { cpfCnpjDigits, formatCpfCnpj, isCpfCnpjValid } from "@/lib/cpf-cnpj";
 import { showManagerError } from "@/components/manager-error-dialog";
 import { AppointmentAuxiliaryFields, auxiliaryDraftToServicePayload, type AuxiliaryDraft } from "./appointment-auxiliary-fields";
+import { activeSubscriptionStatuses, subscriptionDisplayStatus, subscriptionDisplayStatusLabels, subscriptionDisplayStatuses, type SubscriptionDisplayStatus } from "@/lib/subscription-display-status";
 
 type LoadedProps = AwaitedReturn<typeof loadCustomersData>;
 type Props = Omit<
@@ -64,7 +65,6 @@ type Props = Omit<
     >
   > & { subscriptionPlans?: unknown[] };
 type CustomerFilter = "ACTIVE" | "INACTIVE";
-type SubscriptionDisplayStatus = "pending" | "cancellationPending" | "due" | "finished" | "overdue" | "active" | "declined" | "canceled";
 type SubscriptionFilter = "ALL" | SubscriptionDisplayStatus;
 type BundleSessionEditor = {
   action: "EDIT" | "RESCHEDULE" | "ADD";
@@ -157,84 +157,6 @@ function localDateTimeInputs(value: Date, timezone: string) {
     time: `${fields.hour}:${fields.minute}`,
   };
 }
-
-function subscriptionDisplayStatuses(
-  subscription: { status?: unknown; contract_accepted_at?: unknown; manager_activated_provisionally_at?: unknown },
-  cycles: Array<Record<string, unknown>>,
-  today: string,
-  cancellationPending = false,
-): Set<SubscriptionDisplayStatus> {
-  const statuses = new Set<SubscriptionDisplayStatus>();
-  const status = String(subscription.status);
-  if (subscription.manager_activated_provisionally_at && !subscription.contract_accepted_at) {
-    statuses.add("pending");
-  } else if (status === "REQUESTED") {
-    statuses.add("pending");
-  } else if (status === "DECLINED") {
-    statuses.add("declined");
-  } else if (status === "CANCELED") {
-    statuses.add("canceled");
-  } else {
-    const billableCycles = cycles.filter((cycle) => String(cycle.status) !== "CANCELED");
-    if (billableCycles.some((cycle) => {
-      const cycleStatus = String(cycle.status);
-      return cycleStatus === "OVERDUE" ||
-        (cycleStatus === "OPEN" && typeof cycle.due_on === "string" && cycle.due_on < today);
-    })) {
-      statuses.add("overdue");
-    } else if (billableCycles.length > 0 && billableCycles.every((cycle) => String(cycle.status) === "PAID")) {
-      statuses.add("finished");
-    } else {
-      const unpaidCycles = billableCycles.filter((cycle) =>
-        String(cycle.status) === "OPEN" || String(cycle.status) === "OVERDUE",
-      );
-      statuses.add(unpaidCycles.length === 1 ? "due" : "active");
-    }
-  }
-
-  if (cancellationPending && status !== "REQUESTED" && status !== "DECLINED" && status !== "CANCELED") {
-    statuses.add("cancellationPending");
-  }
-  return statuses;
-}
-
-function subscriptionDisplayStatus(
-  subscription: { status?: unknown; contract_accepted_at?: unknown },
-  cycles: Array<Record<string, unknown>>,
-  today: string,
-  cancellationPending = false,
-): SubscriptionDisplayStatus {
-  const statuses = subscriptionDisplayStatuses(subscription, cycles, today, cancellationPending);
-  const priority: SubscriptionDisplayStatus[] = [
-    "cancellationPending",
-    "pending",
-    "declined",
-    "canceled",
-    "overdue",
-    "finished",
-    "due",
-    "active",
-  ];
-  return priority.find((status) => statuses.has(status)) ?? "active";
-}
-
-const activeSubscriptionStatuses = new Set<SubscriptionDisplayStatus>([
-  "cancellationPending",
-  "active",
-  "due",
-  "overdue",
-]);
-
-const subscriptionDisplayStatusLabels: Record<SubscriptionDisplayStatus, string> = {
-  pending: "Pendente",
-  cancellationPending: "Cancelamento pendente",
-  due: "À Vencer",
-  finished: "Finalizado",
-  overdue: "Em Atraso",
-  active: "Ativo",
-  declined: "Recusada",
-  canceled: "Cancelada",
-};
 
 const subscriptionFilterLabels: Record<SubscriptionFilter, string> = {
   ALL: "Todas as assinaturas",

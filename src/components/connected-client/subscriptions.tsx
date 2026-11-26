@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useConnectedClient } from "./context";
 import { localToday } from "./format";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { subscriptionDisplayStatus, subscriptionDisplayStatusLabels } from "@/lib/subscription-display-status";
 import styles from "./connected-client.module.css";
 
 type Row = {
@@ -573,6 +574,13 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
   const isPendingManagerOffer = (row: Row) => row.created_by !== user?.id
     && !row.contract_accepted_at
     && (row.status === "REQUESTED" || (row.status === "ACTIVE" && Boolean(row.manager_activated_provisionally_at)));
+  const statusToday = context ? localToday(context.organization.timezone) : new Date().toISOString().slice(0, 10);
+  const subscriptionStatusLabelFor = (row: Row) => subscriptionDisplayStatusLabels[subscriptionDisplayStatus(
+    row,
+    cycles.filter((cycle) => cycle.subscription_id === row.id),
+    statusToday,
+    subscriptionHasPendingCancellation(row.id),
+  )];
   const requestedOffers = rows.filter(isPendingManagerOffer);
   const selectedPlan = plans.find((plan) => plan.id === itemId);
   const selectedProject = publicProjects.find((project) => project.id === itemId);
@@ -901,16 +909,12 @@ export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: S
       ) : (
         <Link className={`${styles.subscriptionCard} ${styles.subscriptionCardLink}`} href={route(`/cliente/assinaturas/meus-planos/${row.id}`)} key={row.id}>
           <h2>{row.plan?.name ?? "Plano"}</h2>
-          {subscriptionHasPendingCancellation(row.id) && <span className={styles.planStatus}>Cancelamento pendente</span>}
-          {row.status === "CANCELED" && <span className={styles.planStatus}>Cancelada · finalizando pendências</span>}
-          <p>{row.plan?.description ?? "Sem descrição"}</p>
-          <strong>{row.plan_version ? money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents) : "—"}</strong>
-          <small className={styles.subscriptionMeta}>{row.plan_version?.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · venc. {formatDate(row.first_due_date)} · pagamento: {paymentMethodLabel[row.payment_method] ?? row.payment_method} · {subscriptionStatusLabel[row.status] ?? row.status}</small>
-          <span>Ver detalhes do plano</span>
+          <span className={styles.planStatus}>{subscriptionStatusLabelFor(row)}</span>
+          <span className={styles.subscriptionAction}>Ver mais</span>
         </Link>
       ))}
       {view === "my-plans" && !rows.some((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row)) && requestedOffers.length === 0 && <p>Você ainda não possui planos neste estabelecimento.</p>}
-      {view === "my-plans" && <Link className={styles.subscriptionCard} href={route("/cliente/assinaturas/meus-planos/encerrados")}><h2>Planos Encerrados</h2><p>Consulte planos cancelados e contratos finalizados.</p><span>Acessar planos encerrados</span></Link>}
+      {view === "my-plans" && <Link className={`${styles.subscriptionCard} ${styles.subscriptionCardLink}`} href={route("/cliente/assinaturas/meus-planos/encerrados")}><h2>Planos Encerrados</h2><span className={styles.subscriptionAction}>Ver planos encerrados</span></Link>}
       {cancellationDraft && (() => {
         const rowCycles = cycles.filter((cycle) => cycle.subscription_id === cancellationDraft.subscriptionId);
         const finalSessions = rowCycles.flatMap((cycle) => cycle.sessions
