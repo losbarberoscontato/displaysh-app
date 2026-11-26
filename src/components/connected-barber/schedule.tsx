@@ -79,7 +79,7 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
     const { data, error } = await supabase.rpc("mutate_barber_schedule", { p_organization_id: context.organization_id, p_barber_id: context.barber_id, p_action: action, ...input });
     if (error) {
       if (/future appointments|cannot be changed|cannot be blocked/i.test(error.message)) throw new Error("Há um atendimento agendado nesse horário. Reagende ou cancele antes de alterar a escala.");
-      if (/no active agenda environment|select an active agenda environment/i.test(error.message)) throw new Error("Escolha um ambiente disponível para esse horário.");
+      if (/no active agenda environment|select an active agenda environment/i.test(error.message)) throw new Error("Escolha um ambiente ativo para esta escala.");
       throw new Error(error.message);
     }
     const responseMessage = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : "Alteração salva e registrada.";

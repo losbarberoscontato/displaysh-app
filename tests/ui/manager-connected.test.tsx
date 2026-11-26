@@ -6,6 +6,7 @@ import { ManagerDashboard } from "@/components/connected-manager/manager-dashboa
 import { SettingsManager } from "@/components/connected-manager/settings-manager";
 import { TeamManager } from "@/components/connected-manager/team-manager";
 import type { WhatsAppSettingsStatus } from "@/components/connected-manager/whatsapp-settings";
+import type { AgendaEnvironmentRecord, WorkIntervalRecord } from "@/components/connected-manager/types";
 
 const refresh = vi.fn();
 const push = vi.fn();
@@ -68,23 +69,24 @@ const connectedWhatsapp: WhatsAppSettingsStatus = {
   },
 };
 
-function renderTeam(options: { professionalFunctions?: Array<{ id: string; organization_id: string; name: string; created_at: string }>; barberServices?: Array<{ organization_id: string; barber_id: string; service_id: string; active: boolean }>; commissionRules?: Array<{ id: string; organization_id: string; barber_id: string | null; service_id: string | null; mode: "PERCENT" | "FIXED"; percentage_bps: number | null; fixed_cents: number | null; effective_period: string; active: boolean }> } = {}) {
+function renderTeam(options: { professionalFunctions?: Array<{ id: string; organization_id: string; name: string; created_at: string }>; barberServices?: Array<{ organization_id: string; barber_id: string; service_id: string; active: boolean }>; commissionRules?: Array<{ id: string; organization_id: string; barber_id: string | null; service_id: string | null; mode: "PERCENT" | "FIXED"; percentage_bps: number | null; fixed_cents: number | null; effective_period: string; active: boolean }>; barbers?: typeof barber[]; workIntervals?: WorkIntervalRecord[]; environments?: AgendaEnvironmentRecord[] } = {}) {
   return render(<TeamManager
     organizationId="org-1"
     billingStatus="ACTIVE"
     timezone="America/Sao_Paulo"
     locations={[{ id: "location-1", organization_id: "org-1", name: "Unidade principal", address: {}, active: true }]}
-    barbers={[barber]}
+    barbers={options.barbers ?? [barber]}
     professionalFunctions={options.professionalFunctions ?? []}
     services={[service]}
     barberServices={options.barberServices ?? []}
-    workIntervals={[]}
+    workIntervals={options.workIntervals ?? []}
     exceptions={[]}
     commissionRules={options.commissionRules ?? []}
     packages={[]}
     barberPackages={[]}
     subscriptionPlans={[]}
     barberSubscriptionPlans={[]}
+    environments={options.environments ?? [{ id: "room-1", organization_id: "org-1", location_id: "location-1", name: "Sala Principal", sort_order: 1, max_simultaneous_appointments: 1, active: true }]}
   />);
 }
 
@@ -165,6 +167,56 @@ describe("connected manager UI", () => {
     fireEvent.change(screen.getByLabelText("Forma de pagamento"), { target: { value: "WEEKLY" } });
     expect(screen.getByLabelText("Dia do pagamento")).toBeInTheDocument();
     expect(screen.queryByLabelText("1º pagamento")).not.toBeInTheDocument();
+  });
+
+  it("allows another professional to use the same room during an overlapping shift", () => {
+    const adriana = { ...barber, display_name: "Adriana" };
+    const ana = { ...barber, id: "barber-ana", display_name: "Ana" };
+    renderTeam({
+      barbers: [adriana, ana],
+      workIntervals: [{
+        id: "ana-friday",
+        organization_id: "org-1",
+        barber_id: ana.id,
+        weekday: 5,
+        starts_at: "12:00",
+        ends_at: "22:00",
+        environment_id: "room-1",
+        active: true,
+      }],
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Escala" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar horário" }));
+    fireEvent.change(screen.getByLabelText("Dia"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Início"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("Fim"), { target: { value: "14:00" } });
+
+    expect(screen.getByRole("option", { name: /Sala Principal/ })).toBeInTheDocument();
+  });
+
+  it("keeps same-professional overlapping shifts blocked", () => {
+    renderTeam({
+      workIntervals: [{
+        id: "barber-friday",
+        organization_id: "org-1",
+        barber_id: barber.id,
+        weekday: 5,
+        starts_at: "12:00",
+        ends_at: "22:00",
+        environment_id: "room-1",
+        active: true,
+      }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Escala" }));
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar horário" }));
+    fireEvent.change(screen.getByLabelText("Dia"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Início"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("Fim"), { target: { value: "14:00" } });
+
+    expect(screen.queryByRole("option", { name: /Sala Principal/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Adicionar" })).toBeDisabled();
   });
 
   it("seleciona a função cadastrada e persiste o vínculo ao salvar o profissional", async () => {
@@ -554,7 +606,7 @@ describe("connected manager UI", () => {
       appointments={[{ id: "appointment-1", organization_id: "org-1", customer_id: customer.id, barber_id: barber.id, status: "CONFIRMED", source: "MANAGER", service_period: `[${futureStart.toISOString()},${futureEnd.toISOString()})`, payment_mode: "COUNTER", currency: "BRL", total_cents_snapshot: 5000, notes: null, schedule_override_reason: null, created_at: new Date().toISOString() }]}
     />);
     expect(screen.getByRole("button", { name: "Novo agendamento" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Abrir Cliente Real" }));
+    fireEvent.click(screen.getByRole("button", { name: /Abrir agendamento de Cliente Real/ }));
     expect(screen.getByRole("button", { name: "Reagendar" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Iniciar" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Não compareceu" })).toBeEnabled();
@@ -562,6 +614,55 @@ describe("connected manager UI", () => {
     expect(screen.getByRole("link", { name: "WhatsApp" })).toHaveAttribute("target", "_blank");
     expect(screen.getByText("Pagamento pendente")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
+  });
+
+  it("uses available slots and subscription-style fields when rescheduling from the agenda", async () => {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const tomorrow = new Date(`${today}T12:00:00.000Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+    const currentStart = new Date(`${tomorrowKey}T14:00:00-03:00`);
+    const newStart = `${tomorrowKey}T16:00:00.000Z`;
+    mutationMocks.rpc.mockResolvedValueOnce({
+      data: { slots: [{ starts_at: newStart, ends_at: `${tomorrowKey}T16:30:00.000Z`, environment_id: "room-1", environment_name: "Sala Principal" }] },
+      error: null,
+    } as never);
+    render(<AgendaManager
+      organizationId="org-1"
+      billingStatus="ACTIVE"
+      organization={organization}
+      customers={[customer]}
+      barbers={[barber]}
+      services={[service]}
+      packages={[]}
+      barberServices={[{ organization_id: "org-1", barber_id: barber.id, service_id: service.id, active: true }]}
+      financial={[]}
+      appointments={[{ id: "appointment-1", organization_id: "org-1", customer_id: customer.id, barber_id: barber.id, status: "CONFIRMED", source: "MANAGER", service_period: `[${currentStart.toISOString()},${new Date(currentStart.getTime() + 30 * 60_000).toISOString()})`, payment_mode: "COUNTER", currency: "BRL", total_cents_snapshot: 5000, notes: null, schedule_override_reason: null, created_at: new Date().toISOString() }]}
+      appointmentItems={[{ id: "item-1", organization_id: "org-1", appointment_id: "appointment-1", service_id: service.id, service_name_snapshot: service.name, quantity: 1, list_price_cents_snapshot: 5000, position: 0 }]}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Próximo período" }));
+    fireEvent.click(screen.getByRole("button", { name: /Abrir agendamento de Cliente Real/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Reagendar" }));
+    const confirmation = screen.getByRole("alertdialog", { name: "Confirmar envio de mensagens" });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Confirmar" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Reagendar atendimento" });
+    expect(within(dialog).getByLabelText("Motivo do reagendamento")).toHaveAttribute("placeholder", "Informe o motivo do reagendamento (opcional)");
+    expect(within(dialog).getByLabelText("Profissional")).toHaveValue(barber.id);
+    expect(within(dialog).getByLabelText("Data")).toHaveValue(tomorrowKey);
+    expect(within(dialog).getByLabelText("Horário disponível")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Horário")).not.toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByRole("option", { name: "13:00–13:30" })).toBeInTheDocument());
+
+    fireEvent.change(within(dialog).getByLabelText("Horário disponível"), { target: { value: newStart } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar reagendamento" }));
+    await waitFor(() => expect(mutationMocks.rpc).toHaveBeenCalledWith("reschedule_appointment", expect.objectContaining({
+      p_appointment_id: "appointment-1",
+      p_new_barber_id: barber.id,
+      p_new_starts_at: newStart,
+      p_selections: null,
+    })));
   });
 
   it("keeps date-block notice visible while blocked date is selected", async () => {
@@ -622,7 +723,7 @@ describe("connected manager UI", () => {
       appointments={[{ id: "appointment-paid", organization_id: "org-1", customer_id: customer.id, barber_id: barber.id, status: "COMPLETED", source: "MANAGER", service_period: `[${start.toISOString()},${end.toISOString()})`, payment_mode: "COUNTER", currency: "BRL", total_cents_snapshot: 5000, notes: null, schedule_override_reason: null, created_at: start.toISOString() }]}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Abrir Cliente Real" }));
+    fireEvent.click(screen.getByRole("button", { name: /Abrir agendamento de Cliente Real/ }));
     expect(screen.getByText("Gestor")).toBeInTheDocument();
     expect(screen.getByText("Pago")).toBeInTheDocument();
     expect(screen.getByText("Conta: Banco Principal")).toBeInTheDocument();
@@ -652,7 +753,7 @@ describe("connected manager UI", () => {
       }}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Abrir Cliente Real" }));
+    fireEvent.click(screen.getByRole("button", { name: /Abrir agendamento de Cliente Real/ }));
     fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Receber atendimento" });
@@ -680,7 +781,7 @@ describe("connected manager UI", () => {
       receiptCatalogs={{ accounts: [], chartAccounts: [], costCenters: [], tags: [], mappings: [] }}
     />);
 
-    const appointmentButton = screen.getByRole("button", { name: "Abrir Cliente Real" });
+    const appointmentButton = screen.getByRole("button", { name: /Abrir agendamento de Cliente Real/ });
     fireEvent.click(appointmentButton);
     expect(await screen.findByRole("dialog", { name: "Receber atendimento" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Fechar Receber atendimento" }));

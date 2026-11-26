@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
-  Clock3,
   Filter,
   MapPin,
   MessageCircle,
@@ -49,7 +48,6 @@ import {
   formatRange,
   humanizeError,
   isAlignedToSlot,
-  localDateTimeToIso,
   parsePostgresRange,
 } from "./format";
 import { ActionMessage, StatusChip } from "./shared";
@@ -101,10 +99,6 @@ function financialStatusLabel(status: string | undefined) {
     case "REFUNDED": return "Reembolsado";
     default: return "Pagamento pendente";
   }
-}
-
-function paymentMethodLabel(method: string) {
-  return ({ CARD: "Cartão", PIX: "PIX", BOLETO: "Boleto", CASH: "Dinheiro", UPFRONT: "À vista", ONLINE: "Online" } as Record<string, string>)[method] ?? method;
 }
 
 function appointmentSourceLabel(source: string) {
@@ -173,6 +167,13 @@ export function AgendaManager(props: Props) {
   const [quickCustomerPhone, setQuickCustomerPhone] = useState("");
   const [createdCustomers, setCreatedCustomers] = useState<Props["customers"]>([]);
   const [rescheduling, setRescheduling] = useState<AppointmentRecord | null>(null);
+  const [rescheduleBarberId, setRescheduleBarberId] = useState("");
+  const [rescheduleDate, setRescheduleDate] = useState(todayKey);
+  const [rescheduleSlotStartsAt, setRescheduleSlotStartsAt] = useState("");
+  const [rescheduleObservation, setRescheduleObservation] = useState("");
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [rescheduleAvailabilityRefresh, setRescheduleAvailabilityRefresh] = useState(0);
+  const [rescheduleAvailability, setRescheduleAvailability] = useState<{ key: string; slots: ManagerAppointmentEnvironmentSlot[]; error: string | null } | null>(null);
   const [whatsAppActionPrompt, setWhatsAppActionPrompt] = useState<AgendaWhatsAppActionPrompt | null>(null);
   const [receiptTarget, setReceiptTarget] = useState<AppointmentReceiptDraft | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
@@ -254,6 +255,23 @@ export function AgendaManager(props: Props) {
   const managerAvailabilityLoading = Boolean(availabilityRequestKey && !currentManagerAvailability);
   const availableAppointmentEnvironments = [...new Map(managerAvailabilitySlots.map((slot) => [slot.environment_id, slot.environment_name])).entries()];
   const availableAppointmentTimes = managerAvailabilitySlots.filter((slot) => slot.environment_id === newAppointmentEnvironmentId);
+  const rescheduleAvailabilityRequestKey = rescheduling && rescheduleBarberId && rescheduleDate
+    ? JSON.stringify([props.organizationId, rescheduling.id, rescheduleBarberId, rescheduleDate, rescheduleAvailabilityRefresh])
+    : "";
+  const currentRescheduleAvailability = rescheduleAvailability?.key === rescheduleAvailabilityRequestKey ? rescheduleAvailability : null;
+  const rescheduleAvailabilitySlots = currentRescheduleAvailability?.slots ?? [];
+  const rescheduleAvailabilityLoading = Boolean(rescheduleAvailabilityRequestKey && !currentRescheduleAvailability);
+  const rescheduleAvailabilityFailed = Boolean(currentRescheduleAvailability?.error);
+  const rescheduleTimes = [...new Map(rescheduleAvailabilitySlots.map((slot) => [slot.starts_at, slot])).values()]
+    .sort((left, right) => left.starts_at.localeCompare(right.starts_at));
+  const rescheduleServiceIds = [...new Set((props.appointmentItems ?? [])
+    .filter((item) => item.appointment_id === rescheduling?.id && item.service_id)
+    .map((item) => String(item.service_id)))];
+  const rescheduleBarberOptions = rescheduleServiceIds.length
+    ? props.barbers.filter((barber) => barber.id === rescheduling?.barber_id || rescheduleServiceIds.every((serviceId) => (props.barberServices ?? []).some((assignment) =>
+        assignment.barber_id === barber.id && assignment.service_id === serviceId && assignment.active,
+      )))
+    : props.barbers;
   useEffect(() => {
     if (!availabilityRequestKey || !availabilitySelections) return;
     let current = true;
@@ -285,6 +303,32 @@ export function AgendaManager(props: Props) {
     void loadManagerAvailability();
     return () => { current = false; };
   }, [availabilityRequestKey, availabilitySelections, newAppointmentBarberId, newAppointmentDate, props.organizationId]);
+  useEffect(() => {
+    const appointmentId = rescheduling?.id;
+    if (!rescheduleAvailabilityRequestKey || !appointmentId) return;
+    let current = true;
+    async function loadRescheduleAvailability() {
+      try {
+        const { data, error } = await connectedClient().rpc("get_manager_appointment_reschedule_slots", {
+          p_organization_id: props.organizationId,
+          p_appointment_id: appointmentId,
+          p_barber_id: rescheduleBarberId,
+          p_local_date: rescheduleDate,
+        });
+        if (!current) return;
+        if (error) {
+          setRescheduleAvailability({ key: rescheduleAvailabilityRequestKey, slots: [], error: humanizeError(new Error(error.message)) });
+          return;
+        }
+        const result = data as { slots?: ManagerAppointmentEnvironmentSlot[] } | null;
+        setRescheduleAvailability({ key: rescheduleAvailabilityRequestKey, slots: result?.slots ?? [], error: null });
+      } catch (error) {
+        if (current) setRescheduleAvailability({ key: rescheduleAvailabilityRequestKey, slots: [], error: humanizeError(error) });
+      }
+    }
+    void loadRescheduleAvailability();
+    return () => { current = false; };
+  }, [props.organizationId, rescheduleAvailabilityRequestKey, rescheduleBarberId, rescheduleDate, rescheduling?.id]);
   const newAuxiliaryServices: AuxiliaryServiceDraft[] = newSelectionType === "SERVICE" && selectedAppointmentService
     ? [{ service_id: selectedAppointmentService.id, name: selectedAppointmentService.name, quantity: 1 }]
     : newSelectionType === "PACKAGE"
@@ -645,33 +689,55 @@ export function AgendaManager(props: Props) {
     if (saved) { setSelected(null); router.refresh(); }
   }
 
+  function openReschedule(appointment: AppointmentRecord) {
+    const originalDate = appointmentDate(appointment);
+    const lastAllowedDate = shiftDateKey(todayKey, 180);
+    setRescheduleBarberId(appointment.barber_id);
+    setRescheduleDate(originalDate >= todayKey && originalDate <= lastAllowedDate ? originalDate : todayKey);
+    setRescheduleSlotStartsAt("");
+    setRescheduleObservation("");
+    setRescheduleAvailability(null);
+    setRescheduleAvailabilityRefresh((current) => current + 1);
+    setRescheduling(appointment);
+  }
+
   async function reschedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!rescheduling) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const startsAt = `${String(data.get("date") ?? "")}T${String(data.get("time") ?? "")}`;
-    const saved = await runMutation(setMessage, async () => {
-      if (blocked) throw new Error("A assinatura está bloqueada para reagendamentos.");
-      if (!isAlignedToSlot(startsAt, BUSINESS_SLOT_INTERVAL_MINUTES)) {
-        throw new Error(`Escolha um horário em intervalos de ${BUSINESS_SLOT_INTERVAL_MINUTES} minutos.`);
+    if (!rescheduling || rescheduleSaving) return;
+    const selectedSlot = rescheduleTimes.find((slot) => slot.starts_at === rescheduleSlotStartsAt);
+    if (!selectedSlot) {
+      setMessage("Escolha um horário disponível.");
+      return;
+    }
+    setRescheduleSaving(true);
+    try {
+      const saved = await runMutation(setMessage, async () => {
+        if (blocked) throw new Error("A assinatura está bloqueada para reagendamentos.");
+        await assertResult(await connectedClient().rpc("reschedule_appointment", {
+          p_appointment_id: rescheduling.id,
+          p_new_barber_id: rescheduleBarberId,
+          p_new_starts_at: selectedSlot.starts_at,
+          p_selections: null,
+          p_override_reason: rescheduleObservation.trim() || null,
+        }));
+      }, "Agendamento reagendado atomicamente.");
+      if (saved) {
+        setRescheduling(null);
+        setSelected(null);
+        setDate(rescheduleDate);
+        setView("day");
+        router.refresh();
       }
-      await assertResult(await connectedClient().rpc("reschedule_appointment", {
-        p_appointment_id: rescheduling.id,
-        p_new_barber_id: String(data.get("barber_id")),
-        p_new_starts_at: localDateTimeToIso(startsAt, timezone),
-        p_selections: null,
-        p_override_reason: String(data.get("override_reason") ?? "").trim() || null,
-      }));
-    }, "Agendamento reagendado atomicamente.");
-    if (saved) { setRescheduling(null); setSelected(null); setDate(String(data.get("date"))); setView("day"); router.refresh(); }
+    } finally {
+      setRescheduleSaving(false);
+    }
   }
 
   function runAgendaWhatsAppAction(action: AgendaWhatsAppAction, appointment: AppointmentRecord) {
     if (action === "CONFIRM") {
       void confirmManuallyByWhatsApp(appointment);
     } else if (action === "RESCHEDULE") {
-      setRescheduling(appointment);
+      openReschedule(appointment);
     } else {
       void cancel(appointment);
     }
@@ -897,10 +963,22 @@ export function AgendaManager(props: Props) {
       <div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={closeCreate}>Cancelar</button><button type="submit" className="button button--dark" disabled={managerAvailabilityLoading || !newAppointmentSlotStart || !newAppointmentEnvironmentId}><CalendarPlus2 size={17} /> Criar agendamento</button></div>
     </form></div>}
 
-    {rescheduling && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Fechar reagendamento" onClick={() => setRescheduling(null)} /><form className="form-modal" role="dialog" aria-modal="true" aria-label="Reagendar" onSubmit={reschedule}>
-      <div className="form-modal__head"><span><small>Reagendamento</small><strong>Escolha o novo horário</strong></span><button type="button" className="icon-button" onClick={() => setRescheduling(null)} aria-label="Fechar"><X size={19} /></button></div>
-      <div className="form-modal__body"><div className="form-grid"><label>Profissional<span className="select-input"><select name="barber_id" defaultValue={rescheduling.barber_id}>{props.barbers.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label><label>Data<span className="input-shell"><CalendarDays size={17} /><input name="date" type="date" defaultValue={appointmentDate(rescheduling)} required /></span></label></div><div className="form-grid"><label>Horário<span className="input-shell"><Clock3 size={17} /><input name="time" type="time" defaultValue={appointmentGeometry(rescheduling.service_period, timezone)?.startLabel} step={BUSINESS_SLOT_INTERVAL_MINUTES * 60} required /></span></label><label>Motivo do reagendamento<input name="override_reason" placeholder="Informe o motivo do reagendamento" /></label></div></div>
-      <div className="form-modal__footer"><button type="button" className="button button--ghost" onClick={() => setRescheduling(null)}>Cancelar</button><button type="submit" className="button button--dark">Reagendar</button></div>
+    {rescheduling && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Fechar reagendamento" disabled={rescheduleSaving} onClick={() => setRescheduling(null)} /><form className="form-modal" role="dialog" aria-modal="true" aria-labelledby="agenda-reschedule-title" onSubmit={reschedule}>
+      <div className="form-modal__head"><span><small>Controle da agenda</small><strong id="agenda-reschedule-title">Reagendar atendimento</strong></span><button type="button" className="icon-button" onClick={() => setRescheduling(null)} aria-label="Fechar" disabled={rescheduleSaving}><X size={19} /></button></div>
+      <div className="form-modal__body">
+        <label>Motivo do reagendamento<span className="input-shell"><textarea value={rescheduleObservation} onChange={(event) => setRescheduleObservation(event.target.value)} maxLength={500} placeholder="Informe o motivo do reagendamento (opcional)" disabled={rescheduleSaving} /></span></label>
+        <label>Profissional<span className="select-input"><select value={rescheduleBarberId} onChange={(event) => { setRescheduleBarberId(event.target.value); setRescheduleSlotStartsAt(""); }} disabled={rescheduleSaving} required><option value="">Selecione</option>{rescheduleBarberOptions.map((barber) => <option key={barber.id} value={barber.id}>{barber.display_name}</option>)}</select><ChevronDown size={15} /></span></label>
+        <div className="form-grid">
+          <label>Data<span className="input-shell"><CalendarDays size={17} /><input type="date" value={rescheduleDate} min={todayKey} max={shiftDateKey(todayKey, 180)} onChange={(event) => { setRescheduleDate(event.target.value); setRescheduleSlotStartsAt(""); }} disabled={!rescheduleBarberId || rescheduleSaving} required /></span></label>
+          <label>Horário disponível<span className="select-input"><select value={rescheduleSlotStartsAt} onChange={(event) => setRescheduleSlotStartsAt(event.target.value)} disabled={!rescheduleBarberId || rescheduleAvailabilityLoading || rescheduleAvailabilityFailed || rescheduleTimes.length === 0 || rescheduleSaving} required>
+            <option value="">{rescheduleAvailabilityLoading ? "Consultando horários…" : rescheduleAvailabilityFailed ? "Não foi possível consultar" : rescheduleTimes.length ? "Selecione um horário" : "Nenhum horário livre"}</option>
+            {rescheduleTimes.map((slot) => <option key={slot.starts_at} value={slot.starts_at}>{formatSlotTime(slot.starts_at, timezone)}–{formatSlotTime(slot.ends_at, timezone)}</option>)}
+          </select><ChevronDown size={15} /></span></label>
+        </div>
+        {rescheduleAvailabilityFailed && currentRescheduleAvailability?.error && <p className={styles.subscriptionBookingHint} role="alert">{currentRescheduleAvailability.error}</p>}
+        {!rescheduleAvailabilityLoading && !rescheduleAvailabilityFailed && currentRescheduleAvailability && rescheduleTimes.length === 0 && <p className={styles.subscriptionBookingHint}>Nenhum horário livre nesta data. Verifique escala, bloqueios e atendimentos já marcados.</p>}
+      </div>
+      <div className="form-modal__footer"><button type="button" className="button button--ghost" disabled={rescheduleSaving} onClick={() => setRescheduling(null)}>Cancelar</button><button type="submit" className="button button--dark" disabled={rescheduleSaving || rescheduleAvailabilityLoading || rescheduleAvailabilityFailed || !rescheduleTimes.some((slot) => slot.starts_at === rescheduleSlotStartsAt)}>{rescheduleSaving ? "Salvando…" : "Confirmar reagendamento"}</button></div>
     </form></div>}
     {agendaHelpOpen && <div className="modal-layer" role="presentation"><button className="modal-layer__backdrop" type="button" aria-label="Fechar explicação da agenda" onClick={() => setAgendaHelpOpen(false)} /><section className={`form-modal ${styles.agendaHelpModal}`} role="dialog" aria-modal="true" aria-label="Como funciona a agenda">
       <div className="form-modal__head"><span><strong>Como funciona a agenda</strong></span><button type="button" className="icon-button" onClick={() => setAgendaHelpOpen(false)} aria-label="Fechar"><X size={19} /></button></div>
