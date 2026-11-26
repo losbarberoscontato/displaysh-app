@@ -1,11 +1,12 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, Camera, Check, Clock3, LoaderCircle, RefreshCw, RotateCcw, Scissors, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, Camera, Check, CircleX, CreditCard, LoaderCircle, MessageCircle, RefreshCw, RotateCcw, Scissors, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   cancelAppointment,
   createMercadoPagoCheckout,
+  getClientManagerNotificationPhone,
   getAvailableSlots,
   getMyAppointments,
   rescheduleAppointment,
@@ -79,6 +80,15 @@ function appointmentStatusLabel(appointment: CustomerAppointment): string {
   return statusLabels[appointment.status];
 }
 
+function upcomingAppointments(appointments: CustomerAppointment[], now: number): CustomerAppointment[] {
+  return appointments.filter((appointment) => {
+    const { startsAt } = parsePostgresRange(appointment.service_period);
+    return new Date(startsAt).getTime() >= now
+      && ["HELD", "PENDING_PAYMENT", "CONFIRMED", "IN_SERVICE"].includes(appointment.status);
+  }).sort((a, b) => new Date(parsePostgresRange(a.service_period).startsAt).getTime()
+    - new Date(parsePostgresRange(b.service_period).startsAt).getTime());
+}
+
 export function ConnectedReservations() {
   return <ConnectedClientGate><ReservationsContent /></ConnectedClientGate>;
 }
@@ -88,6 +98,7 @@ function ReservationsContent() {
   const vocabulary = clientVocabulary(identity, entry?.product_key);
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const [appointments, setAppointments] = useState<CustomerAppointment[]>([]);
+  const [managerNotificationPhone, setManagerNotificationPhone] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -153,19 +164,25 @@ function ReservationsContent() {
   const load = useCallback(async () => {
     if (!supabase || !context || !customer) {
       setAppointments([]);
+      setManagerNotificationPhone(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError("");
     try {
-      setAppointments(await getMyAppointments(supabase, context.organization.id, customer.id, context.organization.timezone));
+      const [loadedAppointments, notificationPhone] = await Promise.all([
+        getMyAppointments(supabase, context.organization.id, customer.id, context.organization.timezone),
+        getClientManagerNotificationPhone(supabase, context.organization.id).catch(() => null),
+      ]);
+      setManagerNotificationPhone(notificationPhone);
+      setAppointments(loadedAppointments);
     } catch (cause: unknown) {
       setError(toClientError(cause, "Não foi possível carregar reservas."));
     } finally {
       setLoading(false);
     }
-  }, [context, customer, supabase]);
+  }, [context, customer, loadedAt, supabase]);
 
   useEffect(() => {
     let active = true;
@@ -222,10 +239,8 @@ function ReservationsContent() {
     return <section className={styles.emptyPage}><CalendarDays size={30} /><h1>Ainda sem perfil neste estabelecimento</h1><p>Seu perfil neste estabelecimento aparecerá após a primeira reserva confirmada.</p><Link className={styles.primaryButton} href={`/cliente/agendar?barbearia=${encodeURIComponent(slug)}`}>Agendar horário</Link></section>;
   }
 
-  const upcoming = appointments.filter((appointment) => {
-    const { startsAt: start } = parsePostgresRange(appointment.service_period);
-    return new Date(start).getTime() >= loadedAt && ["HELD", "PENDING_PAYMENT", "CONFIRMED", "IN_SERVICE"].includes(appointment.status);
-  }).sort((a, b) => new Date(parsePostgresRange(a.service_period).startsAt).getTime() - new Date(parsePostgresRange(b.service_period).startsAt).getTime());
+  const upcoming = upcomingAppointments(appointments, loadedAt);
+  const nextAppointments = upcoming.slice(0, 2);
   const history = appointments.filter((appointment) => !upcoming.some((item) => item.id === appointment.id));
   const timezone = context.organization.timezone;
   const acceptingBookings = context.organization.accepting_bookings;
@@ -329,21 +344,47 @@ function ReservationsContent() {
 
   return (
     <div className={styles.reservations}>
-      <header className={styles.pageHeading}><span>Sua agenda · {context.organization.name}</span><h1>Minhas reservas</h1><p>Acompanhe seus horários e pagamentos em {context.organization.name}.</p></header>
+      <header className={styles.pageHeading}><span>Sua agenda · {context.organization.name}</span><h1>Minhas reservas</h1></header>
       {notice && <div className={styles.notice} role="status"><Check size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={15} /></button></div>}
       {error && <div className={styles.errorBox} role="alert"><strong>Falha ao carregar</strong><span>{error}</span><button type="button" onClick={() => void load()}><RefreshCw size={15} /> Tentar novamente</button></div>}
       {loading ? <div className={styles.state} role="status"><LoaderCircle className={styles.spin} /> Carregando reservas…</div> : (
         <>
           <section className={styles.reservationSection}>
-            <div className={styles.sectionTitle}><CalendarDays /><div><h2>Próximas</h2><p>{upcoming.length} compromisso(s)</p></div></div>
-          {!upcoming.length ? <div className={styles.empty}><p>Nenhuma reserva futura.</p><Link href={`/cliente/agendar?barbearia=${encodeURIComponent(slug)}`} className={styles.primaryButton}>Agendar horário</Link></div> : <div className={styles.reservationList}>{upcoming.map((appointment) => {
-            const { startsAt: sessionStart } = parsePostgresRange(appointment.service_period);
-            const canRescheduleFixed = Boolean(appointment.subscription_session_id)
-              && appointment.subscription_scheduling_mode === "FIXED"
-              && !appointment.subscription_has_overdue_installment
-              && canCustomerReschedule(appointment.status, sessionStart, 0, context.organization.accepting_bookings);
-            return <ReservationCard key={appointment.id} appointment={appointment} timezone={timezone} barberName={context.barbers.find((item) => item.id === appointment.barber_id)?.name ?? vocabulary.professionalLabel} onCancel={() => { const { startsAt } = parsePostgresRange(appointment.service_period); const leadMinutes = appointment.cancellation_lead_minutes_snapshot ?? 0; setCancelTarget(appointment); setCancelBeforeDeadline(leadMinutes === 0 || Date.now() <= new Date(startsAt).getTime() - leadMinutes * 60_000); setCancelAcknowledged(false); setModalError(""); }} onResumePayment={() => void resumePayment(appointment)} onReschedule={() => openReschedule(appointment)} canReschedule={canRescheduleFixed} paymentBusy={paymentBusyId === appointment.id} acceptingBookings={context.organization.accepting_bookings} />;
-          })}</div>}
+            <div className={styles.sectionTitle}><CalendarDays /><div><h2>Próximas</h2><p>{nextAppointments.length} agendamento(s)</p></div></div>
+            {!nextAppointments.length ? <div className={styles.empty}><p>Nenhuma reserva futura.</p><Link href={`/cliente/agendar?barbearia=${encodeURIComponent(slug)}`} className={styles.primaryButton}>Agendar horário</Link></div> : (
+              <div className={styles.reservationTableWrap}>
+                <table className={styles.reservationTable}>
+                  <thead><tr><th scope="col">Data/hora</th><th scope="col">Serviço/tipo</th><th scope="col">Profissional/estabelecimento</th><th scope="col" aria-label="Ações" /></tr></thead>
+                  <tbody>{nextAppointments.map((appointment) => {
+                    const { startsAt: sessionStart } = parsePostgresRange(appointment.service_period);
+                    const serviceName = appointment.items.map((item) => item.service_name_snapshot).join(" + ") || "Reserva";
+                    const barberName = context.barbers.find((item) => item.id === appointment.barber_id)?.name ?? vocabulary.professionalLabel;
+                    const sessionDateTime = formatInstant(sessionStart, timezone, { dateStyle: "full", timeStyle: "short" });
+                    const managerPhone = managerNotificationPhone?.replace(/\D/gu, "");
+                    const whatsappHref = managerPhone
+                      ? `https://wa.me/${managerPhone}?text=${encodeURIComponent(`Sessão: ${sessionDateTime}, Cliente: ${customer?.full_name ?? "Cliente"}. Gostaria de algumas informações sobre este atendimento`)}`
+                      : null;
+                    const canCancel = ["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(appointment.status);
+                    const canResumePayment = appointment.status === "PENDING_PAYMENT" && Boolean(appointment.pending_payment_order_id);
+                    const canRescheduleFixed = Boolean(appointment.subscription_session_id)
+                      && appointment.subscription_scheduling_mode === "FIXED"
+                      && !appointment.subscription_has_overdue_installment
+                      && canCustomerReschedule(appointment.status, sessionStart, 0, context.organization.accepting_bookings);
+                    return <tr key={appointment.id}>
+                      <td><time dateTime={sessionStart}>{formatInstant(sessionStart, timezone, { dateStyle: "medium", timeStyle: "short" })}</time></td>
+                      <td><strong>{serviceName}</strong><small>{appointment.payment_mode === "SUBSCRIPTION" || appointment.subscription_session_id ? "Assinatura" : "Avulso"}</small></td>
+                      <td><strong>{barberName}</strong><small>{context.organization.name}</small></td>
+                      <td><div className={styles.reservationActions}>
+                        {canCancel && <button type="button" className={`${styles.reservationAction} ${styles.reservationCancelAction}`} onClick={() => { const { startsAt } = parsePostgresRange(appointment.service_period); const leadMinutes = appointment.cancellation_lead_minutes_snapshot ?? 0; setCancelTarget(appointment); setCancelBeforeDeadline(leadMinutes === 0 || Date.now() <= new Date(startsAt).getTime() - leadMinutes * 60_000); setCancelAcknowledged(false); setModalError(""); }} aria-label={`Cancelar ${serviceName}`} title="Cancelar"><CircleX size={18} aria-hidden="true" /></button>}
+                        {whatsappHref ? <a className={`${styles.reservationAction} ${styles.reservationWhatsAppAction}`} href={whatsappHref} target="_blank" rel="noopener noreferrer" aria-label={`Falar no WhatsApp sobre ${serviceName}`} title="WhatsApp"><MessageCircle size={18} aria-hidden="true" /></a> : <button type="button" className={`${styles.reservationAction} ${styles.reservationWhatsAppAction}`} disabled aria-label="WhatsApp de avisos do gestor não configurado" title="WhatsApp de avisos do gestor não configurado"><MessageCircle size={18} aria-hidden="true" /></button>}
+                      {canRescheduleFixed && <button type="button" className={styles.reservationAction} onClick={() => openReschedule(appointment)} aria-label={`Reagendar ${serviceName}`} title="Reagendar"><RotateCcw size={18} aria-hidden="true" /></button>}
+                        {canResumePayment && <button type="button" className={styles.reservationAction} disabled={paymentBusyId === appointment.id} onClick={() => void resumePayment(appointment)} aria-label="Retomar pagamento" title="Retomar pagamento"><CreditCard size={18} aria-hidden="true" /></button>}
+                      </div></td>
+                    </tr>;
+                  })}</tbody>
+                </table>
+              </div>
+            )}
           </section>
           <section className={styles.reservationSection}>
             <div className={styles.sectionTitle}>{entry?.product_key === "le-gras" ? <Camera /> : <Scissors />}<div><h2>Histórico</h2><p>{vocabulary.servicesLabel} e reservas encerradas</p></div></div>
@@ -387,21 +428,4 @@ function ReservationsContent() {
       </div>}
     </div>
   );
-}
-
-function ReservationCard({ appointment, timezone, barberName, onCancel, onResumePayment, onReschedule, canReschedule, paymentBusy, acceptingBookings }: { appointment: CustomerAppointment; timezone: string; barberName: string; onCancel: () => void; onResumePayment: () => void; onReschedule: () => void; canReschedule: boolean; paymentBusy: boolean; acceptingBookings: boolean }) {
-  const { startsAt, endsAt } = parsePostgresRange(appointment.service_period);
-  const canCancel = ["HELD", "PENDING_PAYMENT", "CONFIRMED"].includes(appointment.status);
-  const canResumePayment = appointment.status === "PENDING_PAYMENT" && Boolean(appointment.pending_payment_order_id);
-  return <article className={styles.reservationCard}>
-    <header><span data-status={appointment.status}><Check size={13} /> {appointmentStatusLabel(appointment)}</span><small>{appointment.payment_mode === "SUBSCRIPTION" ? "Plano de assinatura" : appointment.financial.financial_status.replaceAll("_", " ")}</small></header>
-    <div className={styles.reservationBody}>
-      <div className={styles.dateBox}><strong>{new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, day: "2-digit" }).format(new Date(startsAt))}</strong><span>{new Intl.DateTimeFormat("pt-BR", { timeZone: timezone, month: "short" }).format(new Date(startsAt))}</span></div>
-      <div><h2>{appointment.items.map((item) => item.service_name_snapshot).join(" + ") || "Reserva"}</h2><p><Clock3 size={15} /> {formatSlotTime(startsAt, timezone)}–{formatSlotTime(endsAt, timezone)} · {barberName}</p><small>{formatInstant(startsAt, timezone, { dateStyle: "full", timeStyle: undefined })}</small>
-        {appointment.subscription_has_overdue_installment && <small className={styles.error}>Reagendamento bloqueado: há parcela vencida neste plano.</small>}
-      </div>
-      <dl>{appointment.payment_mode === "SUBSCRIPTION" ? <div><dt>Pagamento</dt><dd>Incluída no plano</dd></div> : <><div><dt>Total</dt><dd>{formatMoney(appointment.total_cents_snapshot, appointment.currency)}</dd></div><div><dt>Pago líquido</dt><dd>{formatMoney(appointment.financial.net_paid_cents, appointment.currency)}</dd></div><div><dt>Saldo</dt><dd>{formatMoney(appointment.financial.outstanding_cents, appointment.currency)}</dd></div></>}</dl>
-    </div>
-    {(canCancel || canResumePayment || canReschedule) && <footer>{canCancel && <button type="button" className={styles.textButton} onClick={onCancel}>Cancelar</button>}{canReschedule && <button type="button" className={styles.textButton} onClick={onReschedule}>Reagendar sessão</button>}{canResumePayment && <button type="button" className={styles.primaryButton} disabled={paymentBusy} onClick={onResumePayment}>{paymentBusy ? "Abrindo…" : "Retomar pagamento"}</button>}</footer>}
-  </article>;
 }

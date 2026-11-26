@@ -577,6 +577,17 @@ export async function getMyAppointments(
   }));
 }
 
+export async function getClientManagerNotificationPhone(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("get_client_manager_notification_phone", {
+    p_organization_id: organizationId,
+  });
+  if (error) throw new Error(error.message);
+  return typeof data === "string" ? data : null;
+}
+
 export async function getNextMyAppointment(
   supabase: SupabaseClient,
   organizationId: string,
