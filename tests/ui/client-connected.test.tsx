@@ -706,7 +706,7 @@ describe("cliente conectado", () => {
     expect(screen.queryByText("Minha barbearia")).not.toBeInTheDocument();
   });
 
-  it("mantém o cabeçalho Display App e os cinco menus durante o carregamento", async () => {
+  it("mantém a marca Display App e os cinco menus durante o carregamento", async () => {
     installProviderClient({ authenticated: false });
 
     render(
@@ -716,7 +716,7 @@ describe("cliente conectado", () => {
     );
 
     expect(await screen.findByText("Carregando estabelecimento…")).toBeInTheDocument();
-    expect(document.querySelector('[data-ad-slot="client-header"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-ad-slot="client-footer"]')).toBeInTheDocument();
     expect(screen.queryByText("Selecione um estabelecimento")).not.toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Display · Início" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sair da conta/iu })).not.toBeInTheDocument();
@@ -773,7 +773,7 @@ describe("cliente conectado", () => {
         <ConnectedClientShell initialSlug="barbearia-real"><ConnectedClientHome /></ConnectedClientShell>
       </ConnectedClientProvider>,
     );
-    expect(document.querySelector('[data-ad-slot="client-header"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-ad-slot="client-footer"]')).toBeInTheDocument();
     await waitFor(() => expect(view.container.querySelector("img")).toHaveAttribute(
       "src", "https://assets.example.test/organization-logos/studio/logo.png",
     ));
