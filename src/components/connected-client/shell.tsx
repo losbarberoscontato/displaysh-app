@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { CalendarDays, CalendarPlus2, ChevronRight, CreditCard, House, MapPin, Menu, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Brand } from "@/components/brand";
 import { ConnectedClientProvider, useConnectedClient } from "@/components/connected-client/context";
 import { locationAddressLine } from "@/components/connected-client/format";
 import styles from "@/components/connected-client/connected-client.module.css";
@@ -55,7 +54,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     <div className={`${styles.shell} ${themed ? styles.productTheme : ""} ${isAccessPage && themed ? styles.productAccess : ""}`} style={identityStyle}>
       <header className={styles.topbar}>
         <div className={styles.topbarInner}>
-          <Brand href={`/cliente/inicio${suffix}`} name="Display" tagline="App" mark="D" />
+          <div className="client-header-ad-slot" data-ad-slot="client-header" />
           <nav className={styles.desktopNav} aria-label="Navegação do cliente">
             {visibleNavigation.map((item) => {
               const Icon = item.icon;
@@ -89,7 +88,10 @@ function ShellContent({ children }: { children: React.ReactNode }) {
       <main className={styles.main}>{children}</main>
       {switcherOpen && (
         <section id="client-tenant-menu" className={styles.tenantMenu} aria-label="Trocar de estabelecimento">
-          <strong>Meus estabelecimentos</strong>
+          <div className={styles.tenantMenuHeader}>
+            <strong>Meus estabelecimentos</strong>
+            <span className="brand__mark" aria-hidden="true"><span>D</span></span>
+          </div>
           {organizations.filter((item) => item.organization_slug !== slug).map((item) => (
             <button key={item.organization_id} type="button" onClick={() => setTargetSlug(item.organization_slug)}>
               <span>{item.organization_name} · {productLabel(item.product_key)}</span><ChevronRight size={16} aria-hidden="true" />

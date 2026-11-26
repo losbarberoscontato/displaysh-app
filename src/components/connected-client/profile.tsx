@@ -245,7 +245,7 @@ function ProfileContent() {
             </div>}
           </section>
           <section className={`${styles.panel} ${styles.collapsiblePanel}`}>
-            <button type="button" className={styles.sectionToggle} onClick={() => setEstablishmentsOpen((value) => !value)} aria-expanded={establishmentsOpen} aria-controls="client-establishments"><span className={styles.sectionIcon}><Search size={18} /></span><span><strong>Meus estabelecimentos</strong></span><ChevronRight size={17} className={establishmentsOpen ? styles.sectionToggleOpen : ""} /></button>
+            <button type="button" className={`${styles.sectionToggle} ${styles.establishmentsToggle}`} onClick={() => setEstablishmentsOpen((value) => !value)} aria-expanded={establishmentsOpen} aria-controls="client-establishments"><span className={styles.sectionIcon}><Search size={18} /></span><span><strong>Meus estabelecimentos</strong></span><ChevronRight size={17} className={establishmentsOpen ? styles.sectionToggleOpen : ""} /><span className="brand__mark" aria-hidden="true"><span>D</span></span></button>
             {establishmentsOpen && <div id="client-establishments" className={styles.collapsibleContent}>
             <form className={styles.formGrid} onSubmit={(event) => { event.preventDefault(); if (searchSlug.trim()) selectTenant(searchSlug); }}>
               <label>Conectar a outro estabelecimento<input value={searchSlug} onChange={(event) => setSearchSlug(event.target.value)} placeholder="slug-do-estabelecimento" autoComplete="off" /></label>

@@ -714,7 +714,8 @@ describe("cliente conectado", () => {
     );
 
     expect(await screen.findByText("Carregando estabelecimento…")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Display · Início" })).toHaveAttribute("href", "/cliente/inicio");
+    expect(document.querySelector('[data-ad-slot="client-header"]')).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Display · Início" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sair da conta/iu })).not.toBeInTheDocument();
     expect(screen.queryByText("JH")).not.toBeInTheDocument();
 
@@ -724,6 +725,22 @@ describe("cliente conectado", () => {
     ]);
   });
 
+  it("mostra só a marca Display App no seletor de estabelecimentos", async () => {
+    installProviderClient({ authenticated: true, initiallyLinked: true });
+
+    render(
+      <ConnectedClientShell initialSlug="barbearia-real">
+        <span>Conteúdo carregado</span>
+      </ConnectedClientShell>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Estabelecimentos" }));
+
+    const menu = screen.getByRole("region", { name: "Trocar de estabelecimento" });
+    expect(menu.querySelector(".brand__mark")).toBeInTheDocument();
+    expect(menu.textContent).not.toContain("Display App");
+  });
+
   it("mantém logo do estabelecimento no cabeçalho e vocabulário Le Gras no agendamento", async () => {
     installProviderClient({ authenticated: true, initiallyLinked: true, productKey: "le-gras", logoPath: "studio/logo.png" });
     const view = render(
@@ -731,10 +748,11 @@ describe("cliente conectado", () => {
         <ConnectedClientShell initialSlug="barbearia-real"><ConnectedClientHome /></ConnectedClientShell>
       </ConnectedClientProvider>,
     );
-    await waitFor(() => expect(screen.getByRole("link", { name: "Display · Início" })).toHaveAttribute("href", "/cliente/inicio?barbearia=barbearia-real"));
-    expect(view.container.querySelector("img")).toHaveAttribute(
+    expect(document.querySelector('[data-ad-slot="client-header"]')).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Display · Início" })).not.toBeInTheDocument();
+    await waitFor(() => expect(view.container.querySelector("img")).toHaveAttribute(
       "src", "https://assets.example.test/organization-logos/studio/logo.png",
-    );
+    ));
     view.rerender(<ConnectedClientProvider initialSlug="barbearia-real"><ConnectedBooking /></ConnectedClientProvider>);
     expect(await screen.findByRole("heading", { name: "Escolha o Serviço" })).toBeInTheDocument();
     expect(screen.queryByText("Escolha uma sessão fotográfica ou pacote do catálogo do estúdio.")).not.toBeInTheDocument();
@@ -996,6 +1014,9 @@ describe("cliente conectado", () => {
 
     for (const label of ["Dependentes", "Meus estabelecimentos", "Comunicação", "Direitos LGPD"]) {
       const toggle = screen.getByRole("button", { name: label });
+      if (label === "Meus estabelecimentos") {
+        expect(toggle.querySelector(".brand__mark")).toBeInTheDocument();
+      }
       const previous = toggle.getAttribute("aria-expanded");
       fireEvent.click(toggle);
       expect(toggle).toHaveAttribute("aria-expanded", previous === "true" ? "false" : "true");

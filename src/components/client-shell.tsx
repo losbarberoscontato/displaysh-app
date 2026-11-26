@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, CalendarPlus2, CreditCard, House, MapPin, UserRound } from "lucide-react";
-import { Brand } from "@/components/brand";
 
 const clientNavigation = [
   { href: "/cliente/inicio", label: "Home", icon: House },
@@ -20,7 +19,7 @@ export function ClientShell({ children, demoMode = false }: { children: React.Re
     <div className="client-shell">
       <header className="client-topbar">
         <div className="client-topbar__inner">
-          <Brand href="/cliente/inicio" name="Display" tagline="App" mark="D" />
+          <div className="client-header-ad-slot" data-ad-slot="client-header" />
           <nav aria-label="Navegação do cliente">
             {clientNavigation.map((item) => {
               const Icon = item.icon;

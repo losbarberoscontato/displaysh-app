@@ -85,7 +85,9 @@
 }
 .tenantMenuButton { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; margin-left: auto; padding: 0; border: 1px solid var(--border, #d3ccc0); border-radius: 12px; background: var(--surface, #fffefa); color: var(--forest-900, #30473e); }
 .tenantMenu { position: fixed; z-index: 70; top: 140px; right: max(16px, calc((100% - 1180px) / 2)); width: min(300px, calc(100% - 32px)); display: grid; gap: 7px; padding: 15px; border: 1px solid #ded8cc; border-radius: 14px; background: #fffefa; box-shadow: 0 18px 48px rgb(13 37 29 / 18%); }
-.tenantMenu strong { padding: 3px 4px 7px; color: #526059; font-size: 12px; }
+.tenantMenuHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px 5px; }
+.tenantMenuHeader strong { color: #526059; font-size: 12px; }
+.tenantMenuHeader :global(.brand__mark) { width: 36px; height: 36px; flex: 0 0 auto; }
 .tenantMenu button { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 11px; border: 1px solid #ded7cb; border-radius: 9px; background: #fff; color: #263b34; font-size: 12px; font-weight: 800; text-align: left; }
 .tenantMenu > p { padding: 6px 4px; color: var(--muted, #667069); font-size: 12px; }
 
@@ -810,6 +812,8 @@
   text-align: left;
   cursor: pointer;
 }
+.collapsiblePanel .establishmentsToggle { grid-template-columns: 38px minmax(0, 1fr) 17px 38px; }
+.establishmentsToggle :global(.brand__mark) { width: 36px; height: 36px; justify-self: end; }
 .collapsiblePanel .sectionToggle > span:nth-child(2) { min-width: 0; }
 .collapsiblePanel .sectionToggle strong { display: block; color: inherit; font-size: 17px; line-height: 1.2; }
 .collapsiblePanel .sectionToggle > svg:last-child { color: currentColor; transition: transform .18s ease; }
