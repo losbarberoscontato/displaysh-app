@@ -502,15 +502,16 @@
 .reservationTableWrap { overflow-x: auto; border: 1px solid var(--border, #ddd6ca); border-radius: 15px; background: var(--surface, #fffefa); }
 .reservationTable { width: 100%; min-width: 540px; table-layout: fixed; border-collapse: collapse; }
 .reservationTable th { padding: 11px 10px; background: color-mix(in srgb, var(--forest-900, #163c33) 6%, var(--surface, #fffefa)); color: var(--muted, #69726c); font-size: 10px; font-weight: 800; text-align: left; }
-.reservationTable th:nth-child(1), .reservationTable td:nth-child(1) { width: 23%; }
-.reservationTable th:nth-child(2), .reservationTable td:nth-child(2) { width: 25%; }
+.reservationTable th:nth-child(1), .reservationTable td:nth-child(1) { width: 29%; }
+.reservationTable th:nth-child(2), .reservationTable td:nth-child(2) { width: 24%; }
 .reservationTable th:nth-child(3), .reservationTable td:nth-child(3) { width: 27%; }
-.reservationTable th:last-child, .reservationTable td:last-child { width: 25%; }
+.reservationTable th:last-child, .reservationTable td:last-child { width: 20%; }
 .reservationTable td { padding: 13px 10px; border-top: 1px solid var(--border, #ebe5db); color: var(--ink, #25211d); font-size: 11px; vertical-align: middle; overflow-wrap: anywhere; }
 .reservationTable td strong, .reservationTable td small { display: block; }
 .reservationTable td strong { font-size: 11px; font-weight: 750; }
 .reservationTable td small { margin-top: 4px; color: var(--muted, #797f78); font-size: 10px; }
-.reservationTable time { font-variant-numeric: tabular-nums; }
+.reservationTable time { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.reservationTable time > span:first-child { text-transform: capitalize; }
 .reservationActions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; flex-wrap: wrap; }
 .reservationAction { width: 32px; height: 32px; display: inline-grid; flex: 0 0 auto; place-items: center; border: 1px solid var(--border, #d8d4cc); border-radius: 9px; background: var(--surface, #fffefa); color: var(--forest-900, #163c33); text-decoration: none; cursor: pointer; }
 .reservationAction:hover:not(:disabled) { background: color-mix(in srgb, var(--forest-900, #163c33) 7%, var(--surface, #fffefa)); }

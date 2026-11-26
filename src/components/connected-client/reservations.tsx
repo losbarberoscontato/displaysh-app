@@ -359,6 +359,13 @@ function ReservationsContent() {
                     const { startsAt: sessionStart } = parsePostgresRange(appointment.service_period);
                     const serviceName = appointment.items.map((item) => item.service_name_snapshot).join(" + ") || "Reserva";
                     const barberName = context.barbers.find((item) => item.id === appointment.barber_id)?.name ?? vocabulary.professionalLabel;
+                    const sessionWeekday = formatInstant(sessionStart, timezone, {
+                      weekday: "long",
+                      dateStyle: undefined,
+                      timeStyle: undefined,
+                    }).replace(/-feira$/u, "");
+                    const sessionDate = formatInstant(sessionStart, timezone, { dateStyle: "short", timeStyle: undefined });
+                    const sessionTime = formatInstant(sessionStart, timezone, { dateStyle: undefined, timeStyle: "short" });
                     const sessionDateTime = formatInstant(sessionStart, timezone, { dateStyle: "full", timeStyle: "short" });
                     const managerPhone = managerNotificationPhone?.replace(/\D/gu, "");
                     const whatsappHref = managerPhone
@@ -371,7 +378,7 @@ function ReservationsContent() {
                       && !appointment.subscription_has_overdue_installment
                       && canCustomerReschedule(appointment.status, sessionStart, 0, context.organization.accepting_bookings);
                     return <tr key={appointment.id}>
-                      <td><time dateTime={sessionStart}>{formatInstant(sessionStart, timezone, { dateStyle: "short", timeStyle: "short" })}</time></td>
+                      <td><time dateTime={sessionStart}><span>{sessionWeekday}</span><span>{sessionDate}</span><span>{sessionTime}</span></time></td>
                       <td><strong>{serviceName}</strong><small>{appointment.payment_mode === "SUBSCRIPTION" || appointment.subscription_session_id ? "Assinatura" : "Avulso"}</small></td>
                       <td><strong>{barberName}</strong><small>{context.organization.name}</small></td>
                       <td><div className={styles.reservationActions}>
