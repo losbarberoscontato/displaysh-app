@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { CalendarDays, CalendarPlus2, ChevronRight, CreditCard, House, MapPin, Menu, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ConnectedClientProvider, useConnectedClient } from "@/components/connected-client/context";
 import { Brand } from "@/components/brand";
 import { locationAddressLine, normalizeTenantSlug } from "@/components/connected-client/format";
@@ -26,6 +26,8 @@ function ShellContent({ children }: { children: React.ReactNode }) {
   const { context, customer, organizations, user, authLoading, slug, entry, identity, switchTenant } = useConnectedClient();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [targetSlug, setTargetSlug] = useState<string | null>(null);
+  const switcherButtonRef = useRef<HTMLButtonElement>(null);
+  const tenantMenuRef = useRef<HTMLElement>(null);
   const suffix = slug ? `?barbearia=${encodeURIComponent(slug)}` : "";
   const target = targetSlug
     ? organizations.find((item) => item.organization_slug === targetSlug) ?? null
@@ -39,6 +41,26 @@ function ShellContent({ children }: { children: React.ReactNode }) {
       router.replace(`/cliente/reservas${suffix}`);
     }
   }, [authLoading, pathname, router, subscriptionAccess, suffix, user]);
+  useEffect(() => {
+    if (!switcherOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (switcherButtonRef.current?.contains(target) || tenantMenuRef.current?.contains(target)) return;
+      setSwitcherOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setSwitcherOpen(false);
+      switcherButtonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [switcherOpen]);
   const visibleNavigation = navigation;
   const logoPath = context?.organization.logo_path ?? entry?.logo_path;
   const logoUrl = logoPath && supabase
@@ -108,9 +130,23 @@ function ShellContent({ children }: { children: React.ReactNode }) {
           </span>
         </div>
         {user && (
-          <button type="button" className={styles.tenantMenuButton} onClick={() => setSwitcherOpen((open) => !open)} aria-label="Estabelecimentos" title="Estabelecimentos" aria-expanded={switcherOpen} aria-controls="client-tenant-menu">
+          <button ref={switcherButtonRef} type="button" className={styles.tenantMenuButton} onClick={() => setSwitcherOpen((open) => !open)} aria-label="Estabelecimentos" title="Estabelecimentos" aria-expanded={switcherOpen} aria-controls="client-tenant-menu">
             {switcherOpen ? <X size={19} aria-hidden="true" /> : <Menu size={19} aria-hidden="true" />}
           </button>
+        )}
+        {switcherOpen && (
+          <section ref={tenantMenuRef} id="client-tenant-menu" className={styles.tenantMenu} aria-label="Trocar de estabelecimento">
+            <div className={styles.tenantMenuHeader}>
+              <strong>Meus estabelecimentos</strong>
+              <span className="brand__mark" aria-hidden="true"><span>D</span></span>
+            </div>
+            {organizations.filter((item) => item.organization_slug !== slug).map((item) => (
+              <button key={item.organization_id} type="button" onClick={() => setTargetSlug(item.organization_slug)}>
+                <span>{item.organization_name} · {productLabel(item.product_key)}</span><ChevronRight size={16} aria-hidden="true" />
+              </button>
+            ))}
+            {organizations.length <= 1 && <p>Você não tem outros estabelecimentos disponíveis.</p>}
+          </section>
         )}
       </div>}
       <main className={`${styles.main} ${standaloneAccessPage ? styles.standaloneAccessMain : ""}`}>
@@ -120,20 +156,6 @@ function ShellContent({ children }: { children: React.ReactNode }) {
           </div>
         ) : children}
       </main>
-      {switcherOpen && (
-        <section id="client-tenant-menu" className={styles.tenantMenu} aria-label="Trocar de estabelecimento">
-          <div className={styles.tenantMenuHeader}>
-            <strong>Meus estabelecimentos</strong>
-            <span className="brand__mark" aria-hidden="true"><span>D</span></span>
-          </div>
-          {organizations.filter((item) => item.organization_slug !== slug).map((item) => (
-            <button key={item.organization_id} type="button" onClick={() => setTargetSlug(item.organization_slug)}>
-              <span>{item.organization_name} · {productLabel(item.product_key)}</span><ChevronRight size={16} aria-hidden="true" />
-            </button>
-          ))}
-          {organizations.length <= 1 && <p>Você não tem outros estabelecimentos disponíveis.</p>}
-        </section>
-      )}
       {target && (
         <section className={styles.switchConfirm} role="dialog" aria-modal="true" aria-labelledby="shell-switch-title">
           <p>Trocar de estabelecimento</p>

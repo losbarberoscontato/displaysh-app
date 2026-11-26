@@ -216,7 +216,7 @@ function ProfileContent() {
     : null;
   return (
     <div className={styles.profile}>
-      <header className={styles.pageHeading}><span>Sua conta · {context.organization.name}</span><h1>Perfil e privacidade</h1><p>Gerencie seus dados e preferências de comunicação {vocabulary.inOrganization}.</p></header>
+      <header className={styles.pageHeading}><h1>Perfil e privacidade</h1><p>Gerencie seus dados e preferências de comunicação {vocabulary.inOrganization}.</p></header>
       {notice && <div className={styles.notice} role="status"><Check size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={15} /></button></div>}
       {error && <div className={styles.errorBox} role="alert"><strong>Ação não concluída</strong><span>{error}</span></div>}
       <div className={styles.profileGrid}>

@@ -344,7 +344,7 @@ function ReservationsContent() {
 
   return (
     <div className={styles.reservations}>
-      <header className={styles.pageHeading}><span>Sua agenda · {context.organization.name}</span><h1>Minhas reservas</h1></header>
+      <header className={styles.pageHeading}><h1>Minhas reservas</h1></header>
       {notice && <div className={styles.notice} role="status"><Check size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={15} /></button></div>}
       {error && <div className={styles.errorBox} role="alert"><strong>Falha ao carregar</strong><span>{error}</span><button type="button" onClick={() => void load()}><RefreshCw size={15} /> Tentar novamente</button></div>}
       {loading ? <div className={styles.state} role="status"><LoaderCircle className={styles.spin} /> Carregando reservas…</div> : (

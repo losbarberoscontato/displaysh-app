@@ -744,6 +744,28 @@ describe("cliente conectado", () => {
     expect(menu.textContent).not.toContain("Display App");
   });
 
+  it("fecha o seletor de estabelecimentos ao clicar fora e com Escape", async () => {
+    installProviderClient({ authenticated: true, initiallyLinked: true, linkedElsewhere: true });
+    render(
+      <ConnectedClientShell initialSlug="barbearia-real">
+        <span>Conteúdo carregado</span>
+      </ConnectedClientShell>,
+    );
+
+    const button = await screen.findByRole("button", { name: "Estabelecimentos" });
+    fireEvent.click(button);
+    expect(screen.getByRole("region", { name: "Trocar de estabelecimento" })).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Trocar de estabelecimento" })).not.toBeInTheDocument());
+
+    fireEvent.click(button);
+    expect(screen.getByRole("region", { name: "Trocar de estabelecimento" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Trocar de estabelecimento" })).not.toBeInTheDocument());
+    expect(button).toHaveFocus();
+  });
+
   it("mantém logo do estabelecimento no cabeçalho e vocabulário Le Gras no agendamento", async () => {
     installProviderClient({ authenticated: true, initiallyLinked: true, productKey: "le-gras", logoPath: "studio/logo.png" });
     const view = render(
