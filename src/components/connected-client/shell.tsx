@@ -6,7 +6,7 @@ import { CalendarDays, CalendarPlus2, ChevronRight, CreditCard, House, MapPin, M
 import { useEffect, useMemo, useState } from "react";
 import { ConnectedClientProvider, useConnectedClient } from "@/components/connected-client/context";
 import { Brand } from "@/components/brand";
-import { locationAddressLine } from "@/components/connected-client/format";
+import { locationAddressLine, normalizeTenantSlug } from "@/components/connected-client/format";
 import styles from "@/components/connected-client/connected-client.module.css";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { productIdentityStyle } from "@/lib/product-identity";
@@ -35,10 +35,10 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     supabase, context, customer, user,
   );
   useEffect(() => {
-    if (pathname.startsWith("/cliente/assinaturas") && subscriptionAccess === false) {
+    if (user && !authLoading && pathname.startsWith("/cliente/assinaturas") && subscriptionAccess === false) {
       router.replace(`/cliente/reservas${suffix}`);
     }
-  }, [pathname, router, subscriptionAccess, suffix]);
+  }, [authLoading, pathname, router, subscriptionAccess, suffix, user]);
   const visibleNavigation = navigation;
   const logoPath = context?.organization.logo_path ?? entry?.logo_path;
   const logoUrl = logoPath && supabase
@@ -48,10 +48,32 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     "los-barberos": "Los Barberos", "le-gras": "Le Gras", "pro-stetic": "ProStetic", "music-pro": "MusicPro", "ateliepro": "AteliePro",
   })[key ?? ""] ?? "Produto indisponível";
   const isAccessPage = pathname === "/cliente/entrar" || pathname === "/cliente/redefinir-senha";
+  const isHomePage = pathname.replace(/\/+$/u, "") === "/cliente/inicio";
+  const requiresClientLogin = pathname.startsWith("/cliente/") && !isHomePage && !isAccessPage;
+  const redirectUnauthenticated = requiresClientLogin && !authLoading && !user;
+  const blockUnauthenticatedPage = requiresClientLogin && !user;
   const hasEstablishmentContext = Boolean(context || entry);
   const standaloneAccessPage = pathname === "/cliente/entrar" && !hasEstablishmentContext;
   const identityStyle = productIdentityStyle(identity);
   const themed = Boolean(identityStyle && entry?.product_key !== "los-barberos");
+
+  useEffect(() => {
+    if (!redirectUnauthenticated) return;
+    const currentUrl = new URL(window.location.href);
+    const querySlug = currentUrl.searchParams.get("barbearia")
+      ?? currentUrl.searchParams.get("tenant")
+      ?? currentUrl.searchParams.get("slug");
+    const establishmentSlug = normalizeTenantSlug(querySlug) ?? slug;
+    const loginParams = new URLSearchParams();
+    if (establishmentSlug) {
+      loginParams.set("barbearia", establishmentSlug);
+      loginParams.set("next", "/cliente/reservas");
+    } else {
+      const nextPath = pathname.startsWith("/cliente/assinaturas/") ? "/cliente/assinaturas" : pathname;
+      loginParams.set("next", `${nextPath}${currentUrl.search}`);
+    }
+    router.replace(`/cliente/entrar?${loginParams.toString()}`);
+  }, [pathname, redirectUnauthenticated, router, slug]);
 
   return (
     <div className={`${styles.shell} ${themed ? styles.productTheme : ""} ${isAccessPage && themed ? styles.productAccess : ""}`} style={identityStyle}>
@@ -90,7 +112,13 @@ function ShellContent({ children }: { children: React.ReactNode }) {
           </button>
         )}
       </div>}
-      <main className={`${styles.main} ${standaloneAccessPage ? styles.standaloneAccessMain : ""}`}>{children}</main>
+      <main className={`${styles.main} ${standaloneAccessPage ? styles.standaloneAccessMain : ""}`}>
+        {blockUnauthenticatedPage ? (
+          <div className={styles.state} role="status">
+            {authLoading ? "Verificando sua conta…" : "Abrindo acesso do cliente…"}
+          </div>
+        ) : children}
+      </main>
       {switcherOpen && (
         <section id="client-tenant-menu" className={styles.tenantMenu} aria-label="Trocar de estabelecimento">
           <div className={styles.tenantMenuHeader}>

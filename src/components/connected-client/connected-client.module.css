@@ -620,9 +620,12 @@
 .nextAppointmentTable td:nth-child(2) small { margin-top: 4px; color: var(--muted, #68736d); font-size: 10px; font-weight: 550; }
 .mapHome { width: min(900px, 100%); display: grid; grid-template-rows: auto auto minmax(410px, 1fr); gap: 18px; margin: 0 auto; }
 .mapHome h1 { color: var(--ink, #211b23); font-size: clamp(23px, 5vw, 31px); font-weight: 800; letter-spacing: -.035em; }
+.mapSearchRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
 .mapSearch { min-height: 58px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border: 1px solid var(--border, #ddd5de); border-radius: 16px; background: var(--surface, #fffaff); color: var(--forest-900, #29143d); box-shadow: 0 8px 24px color-mix(in srgb, var(--forest-900, #29143d) 7%, transparent); }
 .mapSearch input { width: 100%; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--ink, #211b23); font: inherit; font-size: 15px; }
 .mapSearch input::placeholder { color: var(--muted, #756b7c); opacity: 1; }
+.mapSearchButton { min-height: 58px; display: inline-flex; align-items: center; justify-content: center; padding: 0 18px; border: 1px solid var(--forest-900, #29143d); border-radius: 16px; background: var(--forest-900, #29143d); color: var(--surface, #fffaff); font-size: 14px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.mapSearchButton:focus-visible { outline: 3px solid color-mix(in srgb, var(--forest-900, #29143d) 28%, transparent); outline-offset: 3px; }
 .mapCanvas { position: relative; min-height: 410px; overflow: hidden; border: 1px solid var(--border, #ddd5de); border-radius: 22px; background-color: color-mix(in srgb, var(--forest-900, #29143d) 5%, var(--surface, #fffaff)); background-image: radial-gradient(ellipse at 16% 28%, color-mix(in srgb, var(--success, #31705d) 13%, transparent) 0 9%, transparent 9.3%), radial-gradient(ellipse at 78% 76%, color-mix(in srgb, var(--success, #31705d) 12%, transparent) 0 13%, transparent 13.3%); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 45%); }
 .mapPrototype { position: absolute; z-index: 2; top: 16px; left: 16px; padding: 7px 10px; border-radius: 999px; background: color-mix(in srgb, var(--surface, #fffaff) 92%, transparent); color: var(--muted, #756b7c); font-size: 10px; font-weight: 750; }
 .mapRoad { position: absolute; display: block; border: 8px solid color-mix(in srgb, var(--surface, #fffaff) 88%, #c9bdc9); border-radius: 999px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--forest-900, #29143d) 5%, transparent); }

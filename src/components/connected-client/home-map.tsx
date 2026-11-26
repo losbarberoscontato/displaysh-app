@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { MapPin, Search } from "lucide-react";
 import styles from "@/components/connected-client/connected-client.module.css";
 
@@ -7,10 +8,13 @@ export function ClientMapHome() {
   return (
     <section className={styles.mapHome} aria-labelledby="map-home-title">
       <h1 id="map-home-title">Encontre o serviço que precisa</h1>
-      <label className={styles.mapSearch}>
-        <Search size={20} aria-hidden="true" />
-        <input type="search" placeholder="Qual serviço você precisa hoje?" aria-label="Qual serviço você precisa hoje?" />
-      </label>
+      <div className={styles.mapSearchRow}>
+        <label className={styles.mapSearch}>
+          <Search size={20} aria-hidden="true" />
+          <input type="search" placeholder="Qual serviço você precisa hoje?" aria-label="Qual serviço você precisa hoje?" />
+        </label>
+        <Link className={styles.mapSearchButton} href="/cliente/entrar">Pesquisar</Link>
+      </div>
       <div className={styles.mapCanvas} role="img" aria-label="Protótipo de mapa com estabelecimentos próximos">
         <span className={styles.mapPrototype}>Protótipo do mapa</span>
         <span className={`${styles.mapRoad} ${styles.mapRoadPrimary}`} />
