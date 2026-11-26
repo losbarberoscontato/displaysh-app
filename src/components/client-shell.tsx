@@ -20,7 +20,7 @@ export function ClientShell({ children, demoMode = false }: { children: React.Re
     <div className="client-shell">
       <header className="client-topbar">
         <div className="client-topbar__inner">
-          <div className="client-header-ad-slot" data-ad-slot="client-header">
+          <div className="client-topbar__brand">
             <Brand href="/cliente/inicio" name="Display" tagline="App" mark="D" />
           </div>
           <nav aria-label="Navegação do cliente">
@@ -59,6 +59,7 @@ export function ClientShell({ children, demoMode = false }: { children: React.Re
           );
         })}
       </nav>
+      <div className="client-ad-footer-slot" data-ad-slot="client-footer" />
     </div>
   );
 }

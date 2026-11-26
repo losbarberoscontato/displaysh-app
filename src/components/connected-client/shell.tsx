@@ -53,6 +53,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
   const redirectUnauthenticated = requiresClientLogin && !authLoading && !user;
   const blockUnauthenticatedPage = requiresClientLogin && !user;
   const hasEstablishmentContext = Boolean(context || entry);
+  const hideMobileTopbar = hasEstablishmentContext || authLoading || Boolean(user);
   const standaloneAccessPage = pathname === "/cliente/entrar" && !hasEstablishmentContext;
   const identityStyle = productIdentityStyle(identity);
   const themed = Boolean(identityStyle && entry?.product_key !== "los-barberos");
@@ -77,9 +78,9 @@ function ShellContent({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={`${styles.shell} ${themed ? styles.productTheme : ""} ${isAccessPage && themed ? styles.productAccess : ""}`} style={identityStyle}>
-      <header className={styles.topbar}>
+      <header className={`${styles.topbar} ${hideMobileTopbar ? styles.mobileTopbarHidden : ""}`}>
         <div className={styles.topbarInner}>
-          <div className="client-header-ad-slot" data-ad-slot="client-header">
+          <div className="client-topbar__brand">
             {!authLoading && !user && <Brand href="/cliente/inicio" name="Display" tagline="App" mark="D" />}
           </div>
           <nav className={styles.desktopNav} aria-label="Navegação do cliente">
@@ -162,6 +163,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
+      <div className={styles.adFooterSlot} data-ad-slot="client-footer" />
     </div>
   );
 }

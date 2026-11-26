@@ -478,10 +478,10 @@
     .integration-card__actions { grid-column: 1 / -1; flex-direction: row; align-items: center; }
     .client-topbar nav { display: none; }
     .client-topbar__inner { width: calc(100% - 28px); height: 58px; }
-    .client-header-ad-slot { margin-inline: auto; }
+    .client-topbar__brand { margin-inline: auto; }
     .client-location-strip { min-height: 29px; }
-    .client-main { padding-bottom: 82px; }
-    .client-bottom-nav { position: fixed; z-index: 55; right: 0; bottom: 0; left: 0; min-height: 63px; display: grid; grid-template-columns: repeat(5,1fr); padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--border); background: rgba(255,254,250,.97); backdrop-filter: blur(15px); }
+    .client-main { padding-bottom: calc(132px + env(safe-area-inset-bottom)); }
+    .client-bottom-nav { position: fixed; z-index: 55; right: 0; bottom: calc(50px + env(safe-area-inset-bottom)); left: 0; min-height: 63px; display: grid; grid-template-columns: repeat(5,1fr); padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--border); background: rgba(255,254,250,.97); backdrop-filter: blur(15px); }
     .client-bottom-nav a { min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); font-size: clamp(7px,2.2vw,9px); }
     .client-bottom-nav a.is-active { color: var(--forest-700); }
     .booking-flow { padding-bottom: 140px; }
@@ -808,10 +808,10 @@
 }
 
 @layer pages {
-  .client-shell { min-height: 100vh; background: var(--page-canvas); }
+  .client-shell { min-height: 100vh; display: flex; flex-direction: column; background: var(--page-canvas); }
   .client-topbar { position: sticky; z-index: 45; top: 0; border-bottom: 1px solid var(--border); background: rgba(255,254,250,.93); backdrop-filter: blur(16px); }
   .client-topbar__inner { width: min(1060px, calc(100% - 38px)); height: 66px; display: flex; align-items: center; margin-inline: auto; }
-  .client-header-ad-slot { width: min(320px, 100%); height: 50px; flex: 0 1 320px; }
+  .client-topbar__brand { width: min(320px, 100%); height: 50px; flex: 0 1 320px; }
   .client-topbar nav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
   .client-topbar nav a { min-height: 35px; display: flex; align-items: center; gap: 6px; padding: 0 11px; border-radius: 9px; color: var(--muted); font-size: 9px; font-weight: 750; }
   .client-topbar nav a.is-active { background: var(--sage-50); color: var(--forest-700); }
@@ -821,8 +821,9 @@
   .client-location-strip svg { color: var(--amber-700); }
   .client-location-strip__status { display: flex; align-items: center; gap: 5px; margin-left: 8px; color: var(--success); font-weight: 800; }
   .client-location-strip__status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-  .client-main { min-height: calc(100vh - 98px); }
+  .client-main { min-height: calc(100vh - 98px); flex: 1; }
   .client-bottom-nav { display: none; }
+  .client-ad-footer-slot { width: 100%; height: 50px; flex: 0 0 50px; margin-top: auto; background: var(--page-canvas); }
   .booking-flow { padding-bottom: 90px; }
   .booking-heading { width: min(960px, calc(100% - 40px)); display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; margin: 0 auto; padding: 42px 0 27px; }
   .booking-heading h1, .customer-page-heading h1 { margin-top: 5px; font: 700 clamp(31px, 4vw, 44px)/1.02 var(--font-display); letter-spacing: -.04em; }
@@ -2276,6 +2277,9 @@
     .landing-trial__inner { align-items: flex-start; flex-direction: column; }.landing-trial { padding: 70px 0; }
   }
   @media (max-width: 760px) {
+    .client-topbar { display: none; }
+    .client-ad-footer-slot { position: fixed; z-index: 54; right: 0; bottom: 0; left: 0; height: calc(50px + env(safe-area-inset-bottom)); flex: none; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--border); background: var(--page-canvas); }
+    .client-shell { padding-bottom: 0; }
     .landing-nav__inner { min-height: 70px; }.landing-nav nav { display: none; }.landing-login-link { min-height: 38px; padding-inline: 8px; font-size: 12px; }
     .landing-hero { padding: 112px 0 58px; }.landing-hero__copy h1 { font-size: clamp(42px,12.2vw,61px); }.landing-hero__copy > p { font-size: 15px; }.landing-hero__assurance { font-size: 11px !important; }
     .landing-hero__actions { flex-direction: column; }.landing-hero__actions .button { width: 100%; }
