@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, Camera, Check, CircleX, CreditCard, LoaderCircle, MessageCircle, RefreshCw, RotateCcw, Scissors, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, Check, CircleX, CreditCard, History, LoaderCircle, MessageCircle, RefreshCw, RotateCcw, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -371,7 +371,7 @@ function ReservationsContent() {
                       && !appointment.subscription_has_overdue_installment
                       && canCustomerReschedule(appointment.status, sessionStart, 0, context.organization.accepting_bookings);
                     return <tr key={appointment.id}>
-                      <td><time dateTime={sessionStart}>{formatInstant(sessionStart, timezone, { dateStyle: "medium", timeStyle: "short" })}</time></td>
+                      <td><time dateTime={sessionStart}>{formatInstant(sessionStart, timezone, { dateStyle: "short", timeStyle: "short" })}</time></td>
                       <td><strong>{serviceName}</strong><small>{appointment.payment_mode === "SUBSCRIPTION" || appointment.subscription_session_id ? "Assinatura" : "Avulso"}</small></td>
                       <td><strong>{barberName}</strong><small>{context.organization.name}</small></td>
                       <td><div className={styles.reservationActions}>
@@ -387,10 +387,10 @@ function ReservationsContent() {
             )}
           </section>
           <section className={styles.reservationSection}>
-            <div className={styles.sectionTitle}>{entry?.product_key === "le-gras" ? <Camera /> : <Scissors />}<div><h2>Histórico</h2><p>{vocabulary.servicesLabel} e reservas encerradas</p></div></div>
+            <div className={styles.sectionTitle}><History /><div><h2>Histórico</h2><p>{vocabulary.servicesLabel} e reservas encerradas</p></div></div>
             {!history.length ? <p className={styles.empty}>Histórico vazio.</p> : <div className={styles.history}>{history.map((appointment) => {
               const { startsAt: start } = parsePostgresRange(appointment.service_period);
-              return <article key={appointment.id}><span>{formatInstant(start, timezone, { dateStyle: "medium", timeStyle: undefined })}</span><div><strong>{appointment.items.map((item) => item.service_name_snapshot).join(" + ") || "Reserva"}</strong><small>{context.barbers.find((item) => item.id === appointment.barber_id)?.name ?? vocabulary.professionalLabel}</small></div><b data-status={appointment.status}>{appointmentStatusLabel(appointment)}</b><em>{appointment.payment_mode === "SUBSCRIPTION" ? "Sessão assinatura" : formatMoney(appointment.total_cents_snapshot, appointment.currency)}</em></article>;
+              return <article key={appointment.id}><span>{formatInstant(start, timezone, { dateStyle: "short", timeStyle: undefined })}</span><div><strong>{appointment.items.map((item) => item.service_name_snapshot).join(" + ") || "Reserva"}</strong><small>{context.barbers.find((item) => item.id === appointment.barber_id)?.name ?? vocabulary.professionalLabel}</small></div><b data-status={appointment.status}>{appointmentStatusLabel(appointment)}</b><em>{appointment.payment_mode === "SUBSCRIPTION" ? "Sessão assinatura" : formatMoney(appointment.total_cents_snapshot, appointment.currency)}</em></article>;
             })}</div>}
           </section>
         </>
