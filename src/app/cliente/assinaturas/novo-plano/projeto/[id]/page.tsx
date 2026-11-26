@@ -1,7 +1,7 @@
-import { ConnectedSubscriptions } from "@/components/connected-client/subscriptions";
-import { hasSupabaseConfig } from "@/lib/env";
+import { redirect } from "next/navigation";
 
-export default async function ProjectPlanDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  return hasSupabaseConfig ? <ConnectedSubscriptions view="project" itemId={id} /> : <p>Detalhes do plano ficarão disponíveis quando a conta estiver conectada.</p>;
+export default async function DisabledCustomerProjectPage({ searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ barbearia?: string }> }) {
+  const params = await searchParams;
+  const query = params.barbearia ? `?barbearia=${encodeURIComponent(params.barbearia)}` : "";
+  redirect(`/cliente/assinaturas${query}`);
 }

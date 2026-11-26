@@ -132,7 +132,7 @@ type ProjectBookingOption = { service_id: string; service_name: string; barber_i
 type ProjectCancellationDraft = { engagementId: string; reason: string; observations: string; lastSessionId: string };
 type ProjectBookingDraft = { session: ProjectSession; options: ProjectBookingOption[]; barberId: string; serviceId: string; date: string; time: string; environmentId: string; environments: Array<{ id: string; name: string; sort_order: number }>; loading: boolean };
 type PublicProject = { id: string; name: string; description: string | null; starts_on: string | null; sales_close_on: string | null; ends_on: string | null; package: { id: string; name: string; description: string | null; price_cents: number; sessions_count: number }[] };
-type SubscriptionView = "home" | "my-plans" | "closed-plans" | "my-plan" | "new-plan" | "subscription" | "project" | "subscription-offer" | "project-offer";
+type SubscriptionView = "my-plans" | "closed-plans" | "my-plan" | "new-plan" | "subscription" | "project" | "subscription-offer" | "project-offer";
 
 const paymentMethodLabel: Record<string, string> = {
   CARD: "Cartão de crédito",
@@ -153,7 +153,7 @@ const bundlePaymentMethodLabel: Record<string, string> = {
   UPFRONT: "À vista",
 };
 
-export function ConnectedSubscriptions({ view = "home", itemId }: { view?: SubscriptionView; itemId?: string }) {
+export function ConnectedSubscriptions({ view = "my-plans", itemId }: { view?: SubscriptionView; itemId?: string }) {
   const { context, customer, user } = useConnectedClient();
   const [rows, setRows] = useState<Row[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
@@ -395,7 +395,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
         setMessage(`Não foi possível confirmar a assinatura: ${error.message}`);
         return;
       }
-      window.location.assign(route("/cliente/assinaturas/meus-planos"));
+      window.location.assign(route("/cliente/assinaturas"));
     } catch (error) {
       setMessage(`Não foi possível confirmar a assinatura: ${error instanceof Error ? error.message : "falha de comunicação"}`);
     } finally {
@@ -408,28 +408,28 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     const client = getSupabaseBrowserClient(); if (!client) return;
     const { error } = await client.rpc("accept_customer_project_engagement", { p_organization_id: context.organization.id, p_engagement_id: offer.id });
     setMessage(error ? error.message : "Plano confirmado.");
-    if (!error) window.location.assign(route("/cliente/assinaturas/meus-planos"));
+    if (!error) window.location.assign(route("/cliente/assinaturas"));
   }
   async function declineSubscriptionOffer(id: string) {
     if (!context || !window.confirm("Recusar este plano? Ele será arquivado como recusado e o gestor será avisado.")) return;
     const client = getSupabaseBrowserClient(); if (!client) return;
     const { error } = await client.rpc("decline_customer_subscription_offer", { p_organization_id: context.organization.id, p_subscription_id: id });
     setMessage(error ? error.message : "Plano recusado e arquivado.");
-    if (!error) window.location.assign(route("/cliente/assinaturas/meus-planos"));
+    if (!error) window.location.assign(route("/cliente/assinaturas"));
   }
   async function declineProjectOffer(offer: ProjectOffer) {
     if (!context || !window.confirm("Recusar este plano? Ele será arquivado como recusado e o gestor será avisado.")) return;
     const client = getSupabaseBrowserClient(); if (!client) return;
     const { error } = await client.rpc("decline_customer_project_engagement", { p_organization_id: context.organization.id, p_engagement_id: offer.id });
     setMessage(error ? error.message : "Plano recusado e arquivado.");
-    if (!error) window.location.assign(route("/cliente/assinaturas/meus-planos"));
+    if (!error) window.location.assign(route("/cliente/assinaturas"));
   }
   async function requestProject(projectId: string, packageId: string, projectName: string, packageName: string) {
     if (!context || !window.confirm(`Solicitar o pacote ${packageName} do plano ${projectName}?`)) return;
     const client = getSupabaseBrowserClient(); if (!client) return;
     const { error } = await client.rpc("request_customer_project_engagement", { p_organization_id: context.organization.id, p_project_id: projectId, p_package_id: packageId });
     setMessage(error ? error.message : "Solicitação enviada. Aguarde contato do gestor.");
-    if (!error) window.location.assign(route("/cliente/assinaturas/meus-planos"));
+    if (!error) window.location.assign(route("/cliente/assinaturas"));
   }
   async function requestSubscriptionCancellation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -574,35 +574,14 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     && !row.contract_accepted_at
     && (row.status === "REQUESTED" || (row.status === "ACTIVE" && Boolean(row.manager_activated_provisionally_at)));
   const requestedOffers = rows.filter(isPendingManagerOffer);
-  const pendingProjectOffers = projectOffers.filter((offer) => offer.status === "PROPOSAL" && offer.created_by !== user?.id);
   const selectedPlan = plans.find((plan) => plan.id === itemId);
   const selectedProject = publicProjects.find((project) => project.id === itemId);
   const selectedSubscriptionOffer = requestedOffers.find((row) => row.id === itemId);
   const selectedBundleOfferContract = bundleContracts.find((contract) => contract.subscription_id === selectedSubscriptionOffer?.id);
   const selectedBundleOfferSlots = bundleFixedSlots.filter((slot) => slot.subscription_id === selectedSubscriptionOffer?.id);
-  const selectedProjectOffer = pendingProjectOffers.find((offer) => offer.id === itemId);
+  const selectedProjectOffer = projectOffers.find((offer) => offer.status === "PROPOSAL" && offer.created_by !== user?.id && offer.id === itemId);
   const selectedCustomerProject = projectOffers.find((offer) => offer.id === itemId && offer.status !== "DECLINED" && !projectCancellationArchiveReady(offer));
   const selectedCustomerSubscription = rows.find((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row));
-
-  if (view === "home") return <section className={styles.subscriptionStack}>
-    <header><h1>Assinaturas</h1><p>Consulte seus planos e as opções disponíveis deste estabelecimento.</p></header>
-    {message && <p>{message}</p>}
-    {(requestedOffers.length > 0 || pendingProjectOffers.length > 0) && <div className={styles.subscriptionStack}>
-      <h2>Planos aguardando sua decisão</h2>
-      {requestedOffers.map((row) => <Link className={styles.subscriptionCard} key={row.id} href={route(`/cliente/assinaturas/ofertas/assinatura/${row.id}`)}>
-      <span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><h3>{row.plan?.name ?? "Plano"}</h3><p>Confirme os detalhes e realize o aceite do seu plano.</p>
-        <span className={styles.offerViewButton}>Clique para ver</span>
-      </Link>)}
-      {pendingProjectOffers.map((offer) => <Link className={styles.subscriptionCard} key={offer.id} href={route(`/cliente/assinaturas/ofertas/projeto/${offer.id}`)}>
-        <span className={styles.planStatus}>Aguardando aceite</span><h3>{offer.project?.name ?? "Plano"} · {offer.package?.name ?? "Pacote"}</h3>
-        <p>O gestor enviou este plano para você aceitar.</p><strong>{money(offer.contracted_cents)}</strong><span>Ver detalhes e decidir</span>
-      </Link>)}
-    </div>}
-    <nav className={styles.planMenu} aria-label="Planos">
-      <Link href={route("/cliente/assinaturas/meus-planos")}><strong>Meus Planos</strong><span>Assinaturas, projetos e histórico</span></Link>
-      <Link href={route("/cliente/assinaturas/novo-plano")}><strong>Planos e projetos</strong><span>Consulte as opções deste estabelecimento</span></Link>
-    </nav>
-  </section>;
 
   if (view === "new-plan") return <section className={styles.subscriptionStack}>
     <header><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Assinaturas</Link><h1>Planos e projetos</h1><p>Consulte as opções disponíveis deste estabelecimento.</p></header>
@@ -714,7 +693,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
     <article className={styles.subscriptionCard}><p>{selectedProjectOffer.package?.description ?? "Pacote selecionado pelo gestor."}</p><small>{selectedProjectOffer.package?.sessions_count ?? 0} sessão(ões)</small><strong>{money(selectedProjectOffer.contracted_cents)}</strong><div className={styles.planActions}><button className={styles.subscriptionAction} type="button" onClick={() => void acceptProjectOffer(selectedProjectOffer)}>Confirmar assinatura</button><button className={styles.subscriptionSecondary} type="button" onClick={() => void declineProjectOffer(selectedProjectOffer)}>Recusar contrato</button></div></article>
   </section>;
 
-  if (view === "my-plan" && !selectedCustomerSubscription && !selectedCustomerProject) return <section className={styles.subscriptionStack}><Link href={route("/cliente/assinaturas/meus-planos")} className={styles.subscriptionBack}>← Meus Planos</Link><h1>{message ? "Carregando plano…" : "Plano indisponível"}</h1>{message && <p>{message}</p>}</section>;
+  if (view === "my-plan" && !selectedCustomerSubscription) return <section className={styles.subscriptionStack}><Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Minhas Assinaturas</Link><h1>{message ? "Carregando plano…" : "Plano indisponível"}</h1>{message && <p>{message}</p>}</section>;
 
   if (view === "my-plan" && selectedCustomerProject) {
     const engagement = selectedCustomerProject;
@@ -763,37 +742,24 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
   return (
     <section className={styles.subscriptionStack}>
       <header>
-        <Link href={route(view === "my-plan" || view === "closed-plans" ? "/cliente/assinaturas/meus-planos" : "/cliente/assinaturas")} className={styles.subscriptionBack}>← {view === "my-plan" || view === "closed-plans" ? "Meus Planos" : "Assinaturas"}</Link>
-        <h1>{view === "my-plan" ? selectedCustomerSubscription?.plan?.name ?? "Detalhes do plano" : view === "closed-plans" ? "Planos Encerrados" : "Meus Planos"}</h1>
-        {(view === "my-plans" || view === "closed-plans") && <p>Planos ativos, solicitações e histórico deste estabelecimento.</p>}
+        {view !== "my-plans" && <Link href={route("/cliente/assinaturas")} className={styles.subscriptionBack}>← Minhas Assinaturas</Link>}
+        <h1>{view === "my-plan" ? selectedCustomerSubscription?.plan?.name ?? "Detalhes do plano" : view === "closed-plans" ? "Planos Encerrados" : "Minhas Assinaturas"}</h1>
       </header>
       {message && <p>{message}</p>}
-      {view === "my-plans" && projectOffers.some((offer) => !projectCancellationArchiveReady(offer) && (offer.created_by === user?.id || ["ACTIVE", "COMPLETED", "CANCELED", "CANCELED_BY_ORGANIZATION", "DECLINED"].includes(offer.status))) && <div className={styles.subscriptionStack}>
-        <h2>Planos vinculados</h2>
-        {projectOffers.filter((offer) => !projectCancellationArchiveReady(offer) && (offer.created_by === user?.id || ["ACTIVE", "COMPLETED", "CANCELED", "CANCELED_BY_ORGANIZATION", "DECLINED"].includes(offer.status))).map((offer) => {
-          const customerRequested = offer.created_by === user?.id;
-          if (offer.status === "DECLINED") return <article className={styles.subscriptionCard} key={offer.id}><span className={styles.planStatus}>Cliente Recusou</span><h3>{offer.project?.name ?? "Projeto"} · {offer.package?.name ?? "Pacote"}</h3><p>Contrato recusado e arquivado.</p></article>;
-          return <Link className={`${styles.subscriptionCard} ${styles.subscriptionCardLink}`} href={route(`/cliente/assinaturas/meus-planos/${offer.id}`)} key={offer.id}>
-            {projectCancellationRequestByEngagement.get(offer.id)?.status === "PENDING" && <span className={styles.planStatus}>Cancelamento pendente</span>}
-            {(offer.status === "CANCELED" || offer.status === "CANCELED_BY_ORGANIZATION") && <span className={styles.planStatus}>Aguardando regular pendências</span>}
-            <h3>{offer.project?.name ?? "Projeto"} · {offer.package?.name ?? "Pacote"}</h3>
-            <p>{offer.package?.description ?? (customerRequested ? "Solicitação enviada; aguarde o gestor." : "Plano de projeto contratado.")}</p>
-            <strong>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(offer.contracted_cents / 100)}</strong>
-            {offer.status === "PROPOSAL" && customerRequested && <small>Solicitação enviada · aguardando retorno</small>}
-            {offer.status === "ACTIVE" && <small>Plano ativo · {projectInstallments.filter((row) => row.engagement_id === offer.id).length} cobrança(s) · {projectSessions.filter((row) => row.engagement_id === offer.id).length} sessão(ões)</small>}
-            {offer.status === "COMPLETED" && <small>Plano concluído</small>}
-            <span>Ver detalhes do plano</span>
-          </Link>;
-        })}
+      {view === "my-plans" && requestedOffers.length > 0 && <div className={styles.subscriptionStack}>
+        <h2>Planos aguardando sua decisão</h2>
+        {requestedOffers.map((row) => <Link className={styles.subscriptionCard} key={row.id} href={route(`/cliente/assinaturas/ofertas/assinatura/${row.id}`)}>
+          <span className={`${styles.planStatus} ${styles.pendingOfferPulse}`}>Aguardando aceite</span><h3>{row.plan?.name ?? "Plano"}</h3><p>Confirme os detalhes e realize o aceite do seu plano.</p>
+          <span className={styles.offerViewButton}>Clique para ver</span>
+        </Link>)}
       </div>}
       {view === "closed-plans" && <div className={styles.subscriptionStack}>
         <h2>Planos Encerrados</h2>
         {rows.filter((row) => row.status === "DECLINED").map((row) => <article className={styles.subscriptionCard} key={`declined-${row.id}`}><span className={styles.planStatus}>Recusado</span><h3>{row.plan?.name ?? "Plano"}</h3><p>Oferta recusada e arquivada.</p></article>)}
-        {projectOffers.filter(projectCancellationArchiveReady).map((offer) => <article className={styles.subscriptionCard} key={`closed-project-${offer.id}`}><span className={styles.planStatus}>Encerrado</span><h3>{offer.project?.name ?? "Projeto"} · {offer.package?.name ?? "Pacote"}</h3><p>Plano de projeto encerrado. Não há parcelas ou sessões pendentes.</p><strong>{money(offer.contracted_cents)}</strong></article>)}
         {rows.filter((row) => row.status === "CANCELED" || cancellationArchiveReady(row)).map((row) => row.status === "CANCELED" && !cancellationArchiveReady(row) ? <Link className={`${styles.subscriptionCard} ${styles.subscriptionCardLink}`} href={route(`/cliente/assinaturas/meus-planos/${row.id}`)} key={`closed-subscription-${row.id}`}>
           <span className={styles.planStatus}>Cancelada · finalizando pendências</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura cancelada."}</p><strong>{row.plan_version ? money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents) : "—"}</strong><small className={styles.subscriptionMeta}>{row.plan_version?.billing_period === "BIWEEKLY" ? "Quinzenal" : "Mensal"} · venc. {formatDate(row.first_due_date)} · pagamento: {paymentMethodLabel[row.payment_method] ?? row.payment_method} · {subscriptionStatusLabel[row.status] ?? row.status}</small><span>Ver detalhes do plano</span>
         </Link> : <article className={styles.subscriptionCard} key={`closed-subscription-${row.id}`}><span className={styles.planStatus}>{row.status === "CANCELED" ? "Cancelado" : "Encerrado"}</span><h3>{row.plan?.name ?? "Plano"}</h3><p>{row.plan?.description ?? "Assinatura encerrada sem pendências."}</p><strong>{row.plan_version ? money(bundleContracts.find((contract) => contract.subscription_id === row.id)?.total_price_cents ?? row.plan_version.price_cents) : "—"}</strong></article>)}
-        {!projectOffers.some(projectCancellationArchiveReady) && !rows.some((row) => row.status === "DECLINED" || row.status === "CANCELED" || cancellationArchiveReady(row)) && <p>Nenhum plano encerrado disponível.</p>}
+        {!rows.some((row) => row.status === "DECLINED" || row.status === "CANCELED" || cancellationArchiveReady(row)) && <p>Nenhum plano encerrado disponível.</p>}
       </div>}
       {(view === "my-plan" ? rows.filter((row) => row.id === itemId && row.status !== "DECLINED" && !isPendingManagerOffer(row) && !cancellationArchiveReady(row)) : view === "closed-plans" ? [] : rows.filter((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row))).map((row) => view === "my-plan" && row.plan_version?.model === "SESSION_BUNDLE_V1" ? (() => {
         const contract = bundleContracts.find((item) => item.subscription_id === row.id);
@@ -943,7 +909,7 @@ export function ConnectedSubscriptions({ view = "home", itemId }: { view?: Subsc
           <span>Ver detalhes do plano</span>
         </Link>
       ))}
-      {view === "my-plans" && !rows.some((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row)) && !projectOffers.some((offer) => offer.created_by === user?.id || offer.status === "ACTIVE" || offer.status === "DECLINED") && <p>Você ainda não possui planos neste estabelecimento.</p>}
+      {view === "my-plans" && !rows.some((row) => row.status !== "DECLINED" && row.status !== "CANCELED" && !cancellationArchiveReady(row) && !isPendingManagerOffer(row)) && requestedOffers.length === 0 && <p>Você ainda não possui planos neste estabelecimento.</p>}
       {view === "my-plans" && <Link className={styles.subscriptionCard} href={route("/cliente/assinaturas/meus-planos/encerrados")}><h2>Planos Encerrados</h2><p>Consulte planos cancelados e contratos finalizados.</p><span>Acessar planos encerrados</span></Link>}
       {cancellationDraft && (() => {
         const rowCycles = cycles.filter((cycle) => cycle.subscription_id === cancellationDraft.subscriptionId);

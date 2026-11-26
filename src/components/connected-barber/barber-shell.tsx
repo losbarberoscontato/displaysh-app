@@ -7,7 +7,6 @@ import {
   Banknote,
   Bell,
   CalendarDays,
-  BriefcaseBusiness,
   FolderKanban,
   ChevronDown,
   LogOut,
@@ -58,7 +57,6 @@ export function BarberShell({ context, children }: { context: BarberAppContext; 
   const customerPlural = identity?.vocabulary.customerPlural ?? "clientes";
   const navigation: BarberNavigationItem[] = [
     { href: "/barbeiro/agenda", label: "Agenda", icon: CalendarDays },
-    ...(context.projects_access_enabled ? [{ href: "/barbeiro/projetos", label: "Projetos", icon: BriefcaseBusiness }] : []),
     ...(context.kanban_access_enabled ? [{ href: "/barbeiro/kanban", label: "Kanban", icon: FolderKanban }] : []),
     ...(context.cash_access_enabled ? [{ href: "/barbeiro/caixa", label: "Caixa", icon: Banknote }] : []),
   ];
