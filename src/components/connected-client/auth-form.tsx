@@ -10,6 +10,7 @@ import { notifyClientAccountSaved } from "@/components/connected-client/account-
 import { GoogleMark } from "@/components/google-mark";
 import { formatBirthDateInput, normalizeBirthDateInput, parseBirthDateInput } from "@/lib/birth-date";
 import { clientAuthDestination, clientPasswordSchema, clientSignupSchema } from "@/lib/client-auth";
+import { resolvePublicSiteOrigin } from "@/lib/public-site";
 import { normalizePhoneE164 } from "@/lib/phone";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -181,7 +182,10 @@ export function ClientAuthForm({
     const slug = resolved.searchParams.get("barbearia");
     if (slug) callbackParams.set("barbearia", slug);
     if (provider) callbackParams.set("provider", provider);
-    return `${window.location.origin}/auth/callback?${callbackParams.toString()}`;
+    const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+    // Use allowlisted canonical origin on hosted aliases so Supabase doesn't fall back to its site URL.
+    const callbackOrigin = localHost ? window.location.origin : resolvePublicSiteOrigin();
+    return `${callbackOrigin}/auth/callback?${callbackParams.toString()}`;
   }
 
   function recoveryRedirectUrl(): string {
