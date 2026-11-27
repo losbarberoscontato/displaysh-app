@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarClock, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { localDateTimeToIso } from "@/components/connected-manager/format";
 import type { BarberAppContext } from "./types";
@@ -16,6 +16,14 @@ type Exception = { id: string; kind: "UNAVAILABLE" | "AVAILABLE_OVERRIDE"; servi
 type ChangeMessage = { id: string; message: string; created_at: string; details: { actor_role?: string } };
 type ScheduleData = { barber_id: string; timezone: string; intervals: Interval[]; environments: Environment[]; exceptions: Exception[]; messages: ChangeMessage[] };
 export type ScheduleSection = "overview" | "folgas" | "historico" | "nova-folga";
+
+function scheduleMutationError(message: string) {
+  if (/future appointments|cannot be changed|cannot be blocked/i.test(message)) return "Há um atendimento agendado nesse horário. Reagende ou cancele antes de alterar a escala.";
+  if (/no active agenda environment|select an active agenda environment/i.test(message)) return "Escolha um ambiente ativo para esta escala.";
+  if (/environment already has a work interval/i.test(message)) return "Este horário acabou de ser ocupado por outro profissional nesta sala. Escolha outro horário disponível.";
+  if (/barber already has a work interval/i.test(message)) return "Você já possui um horário cadastrado neste período.";
+  return message;
+}
 
 const weekdays = [
   { day: 1, label: "Segunda-feira" }, { day: 2, label: "Terça-feira" },
@@ -43,13 +51,14 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [scheduleWarning, setScheduleWarning] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Interval | null>(null);
   const [expandedDay, setExpandedDay] = useState<number | null>(null);
   const [editorDay, setEditorDay] = useState<number | null>(null);
-  const [editing, setEditing] = useState<Interval | null>(null);
   const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState("");
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const slotRequestId = useRef(0);
+  const batchRequestId = useRef<string | null>(null);
   const [environmentId, setEnvironmentId] = useState("");
   const [exceptionStart, setExceptionStart] = useState("");
   const [exceptionEnd, setExceptionEnd] = useState("");
@@ -77,11 +86,11 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
   }, [context.organization_id]);
   useEffect(() => { void Promise.resolve().then(() => load(true)); }, [load]);
 
-  async function refreshSlots(day: number, selectedEnvironmentId: string, ignoreIntervalId?: string) {
+  async function refreshSlots(day: number, selectedEnvironmentId: string) {
     const requestId = ++slotRequestId.current;
     if (!selectedEnvironmentId) {
       setAvailableSlots([]);
-      setSelectedSlot("");
+      setSelectedSlots([]);
       setLoadingSlots(false);
       return;
     }
@@ -98,7 +107,6 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
       p_organization_id: context.organization_id,
       p_weekday: day,
       p_environment_id: selectedEnvironmentId,
-      p_ignore_interval_id: ignoreIntervalId ?? null,
     });
     if (requestId !== slotRequestId.current) return;
     if (error) {
@@ -107,7 +115,7 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
     } else {
       const result = Array.isArray(data) ? data as AvailableSlot[] : [];
       setAvailableSlots(result);
-      setSelectedSlot((current) => result.some((slot) => slot.starts_at.slice(0, 5) === current) ? current : "");
+      setSelectedSlots((current) => current.filter((start) => result.some((slot) => slot.starts_at.slice(0, 5) === start)));
     }
     setLoadingSlots(false);
   }
@@ -116,13 +124,7 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
     const supabase = getSupabaseBrowserClient();
     if (!supabase) throw new Error("Supabase indisponível.");
     const { data, error } = await supabase.rpc("mutate_barber_schedule", { p_organization_id: context.organization_id, p_barber_id: context.barber_id, p_action: action, ...input });
-    if (error) {
-      if (/future appointments|cannot be changed|cannot be blocked/i.test(error.message)) throw new Error("Há um atendimento agendado nesse horário. Reagende ou cancele antes de alterar a escala.");
-      if (/no active agenda environment|select an active agenda environment/i.test(error.message)) throw new Error("Escolha um ambiente ativo para esta escala.");
-      if (/environment already has a work interval/i.test(error.message)) throw new Error("Este horário acabou de ser ocupado por outro profissional nesta sala. Escolha outro horário disponível.");
-      if (/barber already has a work interval/i.test(error.message)) throw new Error("Você já possui um horário cadastrado neste período.");
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(scheduleMutationError(error.message));
     const responseMessage = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : "Alteração salva e registrada.";
     setMessage(responseMessage);
     await load();
@@ -130,42 +132,52 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
   }
 
   function openAdd(day: number) {
-    setEditing(null);
+    batchRequestId.current = null;
     setEditorDay(day);
     setEnvironmentId("");
-    setSelectedSlot("");
+    setSelectedSlots([]);
     void refreshSlots(day, "");
   }
 
-  function openEdit(item: Interval) {
-    setEditing(item);
-    setEditorDay(item.weekday);
-    setExpandedDay(item.weekday);
-    setEnvironmentId(item.environment_id ?? "");
-    setSelectedSlot(item.starts_at.slice(0, 5));
-    void refreshSlots(item.weekday, item.environment_id ?? "", item.id);
+  function closeIntervalEditor() {
+    batchRequestId.current = null;
+    slotRequestId.current += 1;
+    setEditorDay(null);
+    setSelectedSlots([]);
+    setAvailableSlots([]);
+    setLoadingSlots(false);
   }
 
-  async function saveInterval(event: FormEvent<HTMLFormElement>) {
+  async function saveIntervals(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (editorDay === null) return;
-    const slot = availableSlots.find((item) => item.starts_at.slice(0, 5) === selectedSlot);
-    if (!slot) {
-      setMessage("Selecione um horário disponível para esta sala.");
+    const slots = availableSlots.filter((slot) => selectedSlots.includes(slot.starts_at.slice(0, 5)));
+    if (!slots.length || slots.length !== selectedSlots.length) {
+      setMessage("Selecione um ou mais horários ainda disponíveis para esta sala.");
       return;
     }
     setSaving(true);
     setMessage("");
     try {
-      await mutate(editing ? "UPDATE_INTERVAL" : "ADD_INTERVAL", {
-        ...(editing ? { p_interval_id: editing.id } : {}),
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) throw new Error("Supabase indisponível.");
+      const requestId = batchRequestId.current ?? crypto.randomUUID();
+      batchRequestId.current = requestId;
+      const { data, error } = await supabase.rpc("add_my_barber_schedule_intervals", {
+        p_organization_id: context.organization_id,
+        p_barber_id: context.barber_id,
         p_weekday: editorDay,
-        p_starts_at: slot.starts_at.slice(0, 5),
-        p_ends_at: slot.ends_at.slice(0, 5),
-        p_environment_id: environmentId || null,
+        p_environment_id: environmentId,
+        p_start_times: slots.map((slot) => slot.starts_at.slice(0, 5)),
+        p_request_id: requestId,
       });
-      setEditing(null);
-      setEditorDay(null);
+      if (error) throw new Error(scheduleMutationError(error.message));
+      const result = data && typeof data === "object" ? data as { message?: unknown } : null;
+      setMessage(typeof result?.message === "string" ? result.message : `${slots.length} horários adicionados à escala.`);
+      batchRequestId.current = null;
+      closeIntervalEditor();
+      await load();
+      router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível salvar o horário.");
     } finally {
@@ -227,28 +239,39 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
       {section === "overview" && <>
         <section className={styles.card}>
           <h2>Horários semanais</h2>
-          <p className={styles.muted}>Horários com atendimentos agendados não podem ser editados ou removidos.</p>
+          <p className={styles.muted}>Horários com atendimentos agendados não podem ser removidos.</p>
           <div className={styles.scheduleAccordion}>
             {weekdays.map(({ day, label }) => {
               const items = intervals.filter((item) => item.weekday === day).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
               const expanded = expandedDay === day;
               return <article className={styles.scheduleAccordionItem} key={day}>
-                <button type="button" className={styles.scheduleAccordionTrigger} aria-expanded={expanded} onClick={() => { setExpandedDay(expanded ? null : day); setEditorDay(null); setEditing(null); slotRequestId.current += 1; setAvailableSlots([]); setLoadingSlots(false); }}>
+                <button type="button" className={styles.scheduleAccordionTrigger} aria-expanded={expanded} onClick={() => { setExpandedDay(expanded ? null : day); closeIntervalEditor(); }}>
                   <span><strong>{label}</strong><small>{items.length ? `${items.length} ${items.length === 1 ? "horário" : "horários"}` : "Sem horário cadastrado"}</small></span>
                   <ChevronRight size={20} aria-hidden="true" />
                 </button>
                 {expanded && <div className={styles.scheduleAccordionBody}>
-                  {editorDay === day ? <form className={`${styles.scheduleIntervalForm} ${styles.form}`} onSubmit={(event) => void saveInterval(event)}>
-                    <h3>{editing ? "Editar horário" : `Adicionar horário · ${label}`}</h3>
+                  {editorDay === day ? <form className={`${styles.scheduleIntervalForm} ${styles.form}`} onSubmit={(event) => void saveIntervals(event)}>
+                    <h3>{`Adicionar horários · ${label}`}</h3>
                     <div className={`${styles.scheduleFormGrid} ${styles.scheduleSlotFields}`}>
-                      <label>Ambiente<select required value={environmentId} onChange={(event) => { const nextEnvironmentId = event.target.value; setEnvironmentId(nextEnvironmentId); setSelectedSlot(""); if (editorDay !== null) void refreshSlots(editorDay, nextEnvironmentId, editing?.id); }}><option value="">Selecione primeiro o ambiente</option>{environments.map((environment) => <option value={environment.id} key={environment.id}>{environment.name}</option>)}</select></label>
-                      <label>Horário disponível<select required value={selectedSlot} disabled={!environmentId || loadingSlots || !availableSlots.length} onChange={(event) => setSelectedSlot(event.target.value)}><option value="">{!environmentId ? "Selecione um ambiente" : loadingSlots ? "Buscando horários…" : availableSlots.length ? "Selecione um horário" : "Sem horários disponíveis"}</option>{availableSlots.map((slot) => <option value={slot.starts_at.slice(0, 5)} key={slot.starts_at}>{slot.starts_at.slice(0, 5)}–{slot.ends_at.slice(0, 5)}</option>)}</select></label>
+                      <label>Ambiente<select required value={environmentId} onChange={(event) => { const nextEnvironmentId = event.target.value; setEnvironmentId(nextEnvironmentId); setSelectedSlots([]); batchRequestId.current = null; if (editorDay !== null) void refreshSlots(editorDay, nextEnvironmentId); }}><option value="">Selecione primeiro o ambiente</option>{environments.map((environment) => <option value={environment.id} key={environment.id}>{environment.name}</option>)}</select></label>
+                      <div className={styles.scheduleSlotPicker}>
+                        <p id={`schedule-slot-label-${day}`} className={styles.scheduleSlotPickerTitle}>Horários disponíveis <small>(marque um ou mais)</small></p>
+                        {!environmentId ? <p className={styles.muted}>Selecione primeiro um ambiente.</p> : loadingSlots ? <p className={styles.muted}>Buscando horários…</p> : availableSlots.length ? <div className={styles.scheduleSlotOptions} role="group" aria-labelledby={`schedule-slot-label-${day}`}>
+                          {availableSlots.map((slot) => {
+                            const start = slot.starts_at.slice(0, 5);
+                            const intervalLabel = `${start}–${slot.ends_at.slice(0, 5)}`;
+                            return <label className={`${styles.scheduleSlotOption} ${selectedSlots.includes(start) ? styles.scheduleSlotOptionSelected : ""}`} key={start}>
+                              <input type="checkbox" checked={selectedSlots.includes(start)} disabled={saving} onChange={(event) => { const checked = event.currentTarget.checked; batchRequestId.current = null; setSelectedSlots((current) => checked ? [...current, start] : current.filter((value) => value !== start)); }} />
+                              <span>{intervalLabel}</span>
+                            </label>;
+                          })}
+                        </div> : <p className={styles.muted}>Não há blocos de uma hora livres nesta sala para este dia.</p>}
+                      </div>
                     </div>
                     {!environments.length && <p className={styles.muted}>Não há ambientes ativos disponíveis para esta unidade.</p>}
-                    {environmentId && !loadingSlots && availableSlots.length === 0 && <p className={styles.muted}>Não há blocos de uma hora livres nesta sala para este dia.</p>}
                     <div className={styles.formActions}>
-                      <button className={`${styles.button} ${styles.secondary}`} type="button" onClick={() => { setEditorDay(null); setEditing(null); setSelectedSlot(""); setAvailableSlots([]); setLoadingSlots(false); slotRequestId.current += 1; }}>Cancelar</button>
-                      <button className={styles.button} disabled={saving || loadingSlots || !environments.length || !environmentId || !selectedSlot}>{saving ? "Salvando…" : editing ? "Salvar alterações" : "Adicionar horário"}</button>
+                      <button className={`${styles.button} ${styles.secondary}`} type="button" disabled={saving} onClick={closeIntervalEditor}>Cancelar</button>
+                      <button className={styles.button} disabled={saving || loadingSlots || !environments.length || !environmentId || selectedSlots.length === 0}>{saving ? "Salvando…" : "Adicionar horários"}</button>
                     </div>
                   </form> : <button className={`${styles.button} ${styles.secondary} ${styles.scheduleAddButton}`} type="button" aria-label={`Adicionar horário para ${label}`} title="Adicionar horário" onClick={() => openAdd(day)}><Plus size={20} /></button>}
                   {items.length ? <div className={styles.scheduleTableWrap}>
@@ -256,16 +279,12 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
                       <thead><tr><th scope="col">Horário</th><th scope="col">Ambiente</th><th scope="col" aria-label="Ações" /></tr></thead>
                       <tbody>{items.map((item) => {
                         const environment = environments.find((entry) => entry.id === item.environment_id);
-                        const startsAtMinutes = Number(item.starts_at.slice(0, 2)) * 60 + Number(item.starts_at.slice(3, 5));
-                        const endsAtMinutes = Number(item.ends_at.slice(0, 2)) * 60 + Number(item.ends_at.slice(3, 5));
-                        const canEdit = endsAtMinutes - startsAtMinutes === 60;
                         const intervalLabel = `${item.starts_at.slice(0, 5)}–${item.ends_at.slice(0, 5)}`;
                         return <tr key={item.id}>
                           <td>{intervalLabel}</td>
                           <td>{environment?.name ?? "Não identificado"}</td>
                           <td><div className={styles.scheduleTableActions}>
-                            {canEdit && <button className={`${styles.button} ${styles.scheduleIconButton}`} type="button" aria-label={`Editar horário ${intervalLabel}`} title="Editar horário" disabled={saving} onClick={() => openEdit(item)}><Pencil size={17} /></button>}
-                            <button className={`${styles.button} ${styles.scheduleIconButton} ${styles.scheduleDeleteButton}`} type="button" aria-label={`Excluir horário ${intervalLabel}`} title="Excluir horário" disabled={saving} onClick={() => void remove("DELETE_INTERVAL", item.id)}><Trash2 size={17} /></button>
+                            <button className={`${styles.button} ${styles.scheduleIconButton} ${styles.scheduleDeleteButton}`} type="button" aria-label={`Excluir horário ${intervalLabel}`} title="Excluir horário" disabled={saving} onClick={() => setPendingDelete(item)}><Trash2 size={17} /></button>
                           </div></td>
                         </tr>;
                       })}</tbody>
@@ -307,6 +326,16 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
         <h2 id="schedule-warning-title">Horário não pode ser removido</h2>
         <p>{scheduleWarning}</p>
         <div className={styles.formActions}><button className={styles.button} type="button" onClick={() => setScheduleWarning("")}>Entendi</button></div>
+      </section>
+    </div>}
+    {pendingDelete && <div className={styles.modal} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingDelete(null); }}>
+      <section className={styles.dialog} role="alertdialog" aria-modal="true" aria-labelledby="schedule-delete-title" aria-describedby="schedule-delete-description">
+        <h2 id="schedule-delete-title">Excluir horário?</h2>
+        <p id="schedule-delete-description">Confirma excluir {weekdays.find((item) => item.day === pendingDelete.weekday)?.label.toLowerCase()} das {pendingDelete.starts_at.slice(0, 5)} às {pendingDelete.ends_at.slice(0, 5)}? Horários com atendimentos não podem ser removidos.</p>
+        <div className={styles.formActions}>
+          <button className={`${styles.button} ${styles.secondary}`} type="button" onClick={() => setPendingDelete(null)}>Cancelar</button>
+          <button className={`${styles.button} ${styles.dangerButton}`} type="button" disabled={saving} onClick={() => { const item = pendingDelete; setPendingDelete(null); if (item) void remove("DELETE_INTERVAL", item.id); }}><Trash2 size={16} /> Excluir horário</button>
+        </div>
       </section>
     </div>}
   </>;
