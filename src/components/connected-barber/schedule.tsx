@@ -238,19 +238,9 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
                   <ChevronRight size={20} aria-hidden="true" />
                 </button>
                 {expanded && <div className={styles.scheduleAccordionBody}>
-                  {items.length ? <div className={styles.list}>{items.map((item) => {
-                    const environment = environments.find((entry) => entry.id === item.environment_id);
-                    return <article className={styles.scheduleInterval} key={item.id}>
-                      <span><strong>{item.starts_at.slice(0, 5)}–{item.ends_at.slice(0, 5)}</strong><small>Ambiente: {environment?.name ?? "Não identificado"}</small></span>
-                      <div className={styles.actions}>
-                        {Number(item.ends_at.slice(0, 2)) * 60 + Number(item.ends_at.slice(3, 5)) - (Number(item.starts_at.slice(0, 2)) * 60 + Number(item.starts_at.slice(3, 5))) === 60 && <button className={`${styles.button} ${styles.secondary}`} type="button" disabled={saving} onClick={() => openEdit(item)}><Pencil size={14} /> Editar</button>}
-                        <button className={`${styles.button} ${styles.dangerButton}`} type="button" disabled={saving} onClick={() => void remove("DELETE_INTERVAL", item.id)}><Trash2 size={14} /> Remover</button>
-                      </div>
-                    </article>;
-                  })}</div> : <p className={styles.muted}>Nenhum horário cadastrado para este dia.</p>}
                   {editorDay === day ? <form className={`${styles.scheduleIntervalForm} ${styles.form}`} onSubmit={(event) => void saveInterval(event)}>
                     <h3>{editing ? "Editar horário" : `Adicionar horário · ${label}`}</h3>
-                    <div className={styles.scheduleFormGrid}>
+                    <div className={`${styles.scheduleFormGrid} ${styles.scheduleSlotFields}`}>
                       <label>Ambiente<select required value={environmentId} onChange={(event) => { const nextEnvironmentId = event.target.value; setEnvironmentId(nextEnvironmentId); setSelectedSlot(""); if (editorDay !== null) void refreshSlots(editorDay, nextEnvironmentId, editing?.id); }}><option value="">Selecione primeiro o ambiente</option>{environments.map((environment) => <option value={environment.id} key={environment.id}>{environment.name}</option>)}</select></label>
                       <label>Horário disponível<select required value={selectedSlot} disabled={!environmentId || loadingSlots || !availableSlots.length} onChange={(event) => setSelectedSlot(event.target.value)}><option value="">{!environmentId ? "Selecione um ambiente" : loadingSlots ? "Buscando horários…" : availableSlots.length ? "Selecione um horário" : "Sem horários disponíveis"}</option>{availableSlots.map((slot) => <option value={slot.starts_at.slice(0, 5)} key={slot.starts_at}>{slot.starts_at.slice(0, 5)}–{slot.ends_at.slice(0, 5)}</option>)}</select></label>
                     </div>
@@ -260,7 +250,27 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
                       <button className={`${styles.button} ${styles.secondary}`} type="button" onClick={() => { setEditorDay(null); setEditing(null); setSelectedSlot(""); setAvailableSlots([]); setLoadingSlots(false); slotRequestId.current += 1; }}>Cancelar</button>
                       <button className={styles.button} disabled={saving || loadingSlots || !environments.length || !environmentId || !selectedSlot}>{saving ? "Salvando…" : editing ? "Salvar alterações" : "Adicionar horário"}</button>
                     </div>
-                  </form> : <button className={`${styles.button} ${styles.secondary} ${styles.scheduleAddButton}`} type="button" onClick={() => openAdd(day)}><Plus size={15} /> Adicionar horário</button>}
+                  </form> : <button className={`${styles.button} ${styles.secondary} ${styles.scheduleAddButton}`} type="button" aria-label={`Adicionar horário para ${label}`} title="Adicionar horário" onClick={() => openAdd(day)}><Plus size={20} /></button>}
+                  {items.length ? <div className={styles.scheduleTableWrap}>
+                    <table className={styles.scheduleTable} aria-label={`Horários de ${label}`}>
+                      <thead><tr><th scope="col">Horário</th><th scope="col">Ambiente</th><th scope="col" aria-label="Ações" /></tr></thead>
+                      <tbody>{items.map((item) => {
+                        const environment = environments.find((entry) => entry.id === item.environment_id);
+                        const startsAtMinutes = Number(item.starts_at.slice(0, 2)) * 60 + Number(item.starts_at.slice(3, 5));
+                        const endsAtMinutes = Number(item.ends_at.slice(0, 2)) * 60 + Number(item.ends_at.slice(3, 5));
+                        const canEdit = endsAtMinutes - startsAtMinutes === 60;
+                        const intervalLabel = `${item.starts_at.slice(0, 5)}–${item.ends_at.slice(0, 5)}`;
+                        return <tr key={item.id}>
+                          <td>{intervalLabel}</td>
+                          <td>{environment?.name ?? "Não identificado"}</td>
+                          <td><div className={styles.scheduleTableActions}>
+                            {canEdit && <button className={`${styles.button} ${styles.scheduleIconButton}`} type="button" aria-label={`Editar horário ${intervalLabel}`} title="Editar horário" disabled={saving} onClick={() => openEdit(item)}><Pencil size={17} /></button>}
+                            <button className={`${styles.button} ${styles.scheduleIconButton} ${styles.scheduleDeleteButton}`} type="button" aria-label={`Excluir horário ${intervalLabel}`} title="Excluir horário" disabled={saving} onClick={() => void remove("DELETE_INTERVAL", item.id)}><Trash2 size={17} /></button>
+                          </div></td>
+                        </tr>;
+                      })}</tbody>
+                    </table>
+                  </div> : <p className={styles.muted}>Nenhum horário cadastrado para este dia.</p>}
                 </div>}
               </article>;
             })}
