@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarClock, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -10,6 +10,7 @@ import type { BarberAppContext } from "./types";
 import styles from "./barber.module.css";
 
 type Interval = { id: string; weekday: number; starts_at: string; ends_at: string; environment_id: string | null };
+type AvailableSlot = { starts_at: string; ends_at: string };
 type Environment = { id: string; name: string; location_id: string };
 type Exception = { id: string; kind: "UNAVAILABLE" | "AVAILABLE_OVERRIDE"; service_period: string; reason: string | null };
 type ChangeMessage = { id: string; message: string; created_at: string; details: { actor_role?: string } };
@@ -41,11 +42,14 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [scheduleWarning, setScheduleWarning] = useState("");
   const [expandedDay, setExpandedDay] = useState<number | null>(null);
   const [editorDay, setEditorDay] = useState<number | null>(null);
   const [editing, setEditing] = useState<Interval | null>(null);
-  const [startsAt, setStartsAt] = useState("09:00");
-  const [endsAt, setEndsAt] = useState("17:00");
+  const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState("");
+  const slotRequestId = useRef(0);
   const [environmentId, setEnvironmentId] = useState("");
   const [exceptionStart, setExceptionStart] = useState("");
   const [exceptionEnd, setExceptionEnd] = useState("");
@@ -73,6 +77,41 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
   }, [context.organization_id]);
   useEffect(() => { void Promise.resolve().then(() => load(true)); }, [load]);
 
+  async function refreshSlots(day: number, selectedEnvironmentId: string, ignoreIntervalId?: string) {
+    const requestId = ++slotRequestId.current;
+    if (!selectedEnvironmentId) {
+      setAvailableSlots([]);
+      setSelectedSlot("");
+      setLoadingSlots(false);
+      return;
+    }
+    setLoadingSlots(true);
+    setMessage("");
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      setAvailableSlots([]);
+      setLoadingSlots(false);
+      setMessage("Supabase indisponível.");
+      return;
+    }
+    const { data, error } = await supabase.rpc("get_my_barber_available_schedule_slots", {
+      p_organization_id: context.organization_id,
+      p_weekday: day,
+      p_environment_id: selectedEnvironmentId,
+      p_ignore_interval_id: ignoreIntervalId ?? null,
+    });
+    if (requestId !== slotRequestId.current) return;
+    if (error) {
+      setAvailableSlots([]);
+      setMessage(error.message);
+    } else {
+      const result = Array.isArray(data) ? data as AvailableSlot[] : [];
+      setAvailableSlots(result);
+      setSelectedSlot((current) => result.some((slot) => slot.starts_at.slice(0, 5) === current) ? current : "");
+    }
+    setLoadingSlots(false);
+  }
+
   async function mutate(action: string, input: Record<string, unknown> = {}) {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) throw new Error("Supabase indisponível.");
@@ -80,6 +119,8 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
     if (error) {
       if (/future appointments|cannot be changed|cannot be blocked/i.test(error.message)) throw new Error("Há um atendimento agendado nesse horário. Reagende ou cancele antes de alterar a escala.");
       if (/no active agenda environment|select an active agenda environment/i.test(error.message)) throw new Error("Escolha um ambiente ativo para esta escala.");
+      if (/environment already has a work interval/i.test(error.message)) throw new Error("Este horário acabou de ser ocupado por outro profissional nesta sala. Escolha outro horário disponível.");
+      if (/barber already has a work interval/i.test(error.message)) throw new Error("Você já possui um horário cadastrado neste período.");
       throw new Error(error.message);
     }
     const responseMessage = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : "Alteração salva e registrada.";
@@ -91,31 +132,36 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
   function openAdd(day: number) {
     setEditing(null);
     setEditorDay(day);
-    setStartsAt("09:00");
-    setEndsAt("17:00");
-    setEnvironmentId(schedule?.environments[0]?.id ?? "");
+    setEnvironmentId("");
+    setSelectedSlot("");
+    void refreshSlots(day, "");
   }
 
   function openEdit(item: Interval) {
     setEditing(item);
     setEditorDay(item.weekday);
     setExpandedDay(item.weekday);
-    setStartsAt(item.starts_at.slice(0, 5));
-    setEndsAt(item.ends_at.slice(0, 5));
     setEnvironmentId(item.environment_id ?? "");
+    setSelectedSlot(item.starts_at.slice(0, 5));
+    void refreshSlots(item.weekday, item.environment_id ?? "", item.id);
   }
 
   async function saveInterval(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (editorDay === null) return;
+    const slot = availableSlots.find((item) => item.starts_at.slice(0, 5) === selectedSlot);
+    if (!slot) {
+      setMessage("Selecione um horário disponível para esta sala.");
+      return;
+    }
     setSaving(true);
     setMessage("");
     try {
       await mutate(editing ? "UPDATE_INTERVAL" : "ADD_INTERVAL", {
         ...(editing ? { p_interval_id: editing.id } : {}),
         p_weekday: editorDay,
-        p_starts_at: startsAt,
-        p_ends_at: endsAt,
+        p_starts_at: slot.starts_at.slice(0, 5),
+        p_ends_at: slot.ends_at.slice(0, 5),
         p_environment_id: environmentId || null,
       });
       setEditing(null);
@@ -154,7 +200,9 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
     try {
       await mutate(action, action === "DELETE_INTERVAL" ? { p_interval_id: id } : { p_exception_id: id });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível excluir o item.");
+      const details = error instanceof Error ? error.message : "Não foi possível excluir o item.";
+      if (action === "DELETE_INTERVAL" && /não é possível remover/i.test(details)) setScheduleWarning(details);
+      else setMessage(details);
     } finally {
       setSaving(false);
     }
@@ -165,16 +213,13 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
   const exceptions = schedule?.exceptions ?? [];
   const changes = schedule?.messages ?? [];
   const pageTitle = section === "folgas" ? "Folgas e exceções" : section === "historico" ? "Histórico da escala" : section === "nova-folga" ? "Adicionar folga ou exceção" : "Escala";
-  const backHref = section === "overview" ? `/barbeiro/perfil${query}` : baseHref;
-  const headerText = section === "overview" ? "Gerencie seus horários recorrentes e folgas." : section === "nova-folga" ? "Informe o período que ficará indisponível para novos atendimentos." : "Consulte as alterações e folgas da sua escala.";
+  const backHref = baseHref;
 
   return <>
     <section className={styles.hero}>
       <div>
-        <p className={styles.eyebrow}>{context.organization_name}</p>
         <h1 className={styles.title}>{pageTitle}</h1>
-        <p className={styles.muted}>{headerText}</p>
-        <Link className={styles.switcher} href={backHref}>{section === "overview" ? "← Voltar para Meu" : "← Voltar para Escala"}</Link>
+        {section !== "overview" && <Link className={styles.switcher} href={backHref}>← Voltar para Escala</Link>}
       </div>
     </section>
     {message && <p className={styles.notice} role="status">{message}</p>}
@@ -188,7 +233,7 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
               const items = intervals.filter((item) => item.weekday === day).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
               const expanded = expandedDay === day;
               return <article className={styles.scheduleAccordionItem} key={day}>
-                <button type="button" className={styles.scheduleAccordionTrigger} aria-expanded={expanded} onClick={() => { setExpandedDay(expanded ? null : day); setEditorDay(null); setEditing(null); }}>
+                <button type="button" className={styles.scheduleAccordionTrigger} aria-expanded={expanded} onClick={() => { setExpandedDay(expanded ? null : day); setEditorDay(null); setEditing(null); slotRequestId.current += 1; setAvailableSlots([]); setLoadingSlots(false); }}>
                   <span><strong>{label}</strong><small>{items.length ? `${items.length} ${items.length === 1 ? "horário" : "horários"}` : "Sem horário cadastrado"}</small></span>
                   <ChevronRight size={20} aria-hidden="true" />
                 </button>
@@ -198,7 +243,7 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
                     return <article className={styles.scheduleInterval} key={item.id}>
                       <span><strong>{item.starts_at.slice(0, 5)}–{item.ends_at.slice(0, 5)}</strong><small>Ambiente: {environment?.name ?? "Não identificado"}</small></span>
                       <div className={styles.actions}>
-                        <button className={`${styles.button} ${styles.secondary}`} type="button" disabled={saving} onClick={() => openEdit(item)}><Pencil size={14} /> Editar</button>
+                        {Number(item.ends_at.slice(0, 2)) * 60 + Number(item.ends_at.slice(3, 5)) - (Number(item.starts_at.slice(0, 2)) * 60 + Number(item.starts_at.slice(3, 5))) === 60 && <button className={`${styles.button} ${styles.secondary}`} type="button" disabled={saving} onClick={() => openEdit(item)}><Pencil size={14} /> Editar</button>}
                         <button className={`${styles.button} ${styles.dangerButton}`} type="button" disabled={saving} onClick={() => void remove("DELETE_INTERVAL", item.id)}><Trash2 size={14} /> Remover</button>
                       </div>
                     </article>;
@@ -206,14 +251,14 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
                   {editorDay === day ? <form className={`${styles.scheduleIntervalForm} ${styles.form}`} onSubmit={(event) => void saveInterval(event)}>
                     <h3>{editing ? "Editar horário" : `Adicionar horário · ${label}`}</h3>
                     <div className={styles.scheduleFormGrid}>
-                      <label>Início<input type="time" required value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label>
-                      <label>Fim<input type="time" required value={endsAt} onChange={(event) => setEndsAt(event.target.value)} /></label>
-                      <label>Ambiente<select required value={environmentId} onChange={(event) => setEnvironmentId(event.target.value)}><option value="">Selecione</option>{environments.map((environment) => <option value={environment.id} key={environment.id}>{environment.name}</option>)}</select></label>
+                      <label>Ambiente<select required value={environmentId} onChange={(event) => { const nextEnvironmentId = event.target.value; setEnvironmentId(nextEnvironmentId); setSelectedSlot(""); if (editorDay !== null) void refreshSlots(editorDay, nextEnvironmentId, editing?.id); }}><option value="">Selecione primeiro o ambiente</option>{environments.map((environment) => <option value={environment.id} key={environment.id}>{environment.name}</option>)}</select></label>
+                      <label>Horário disponível<select required value={selectedSlot} disabled={!environmentId || loadingSlots || !availableSlots.length} onChange={(event) => setSelectedSlot(event.target.value)}><option value="">{!environmentId ? "Selecione um ambiente" : loadingSlots ? "Buscando horários…" : availableSlots.length ? "Selecione um horário" : "Sem horários disponíveis"}</option>{availableSlots.map((slot) => <option value={slot.starts_at.slice(0, 5)} key={slot.starts_at}>{slot.starts_at.slice(0, 5)}–{slot.ends_at.slice(0, 5)}</option>)}</select></label>
                     </div>
                     {!environments.length && <p className={styles.muted}>Não há ambientes ativos disponíveis para esta unidade.</p>}
+                    {environmentId && !loadingSlots && availableSlots.length === 0 && <p className={styles.muted}>Não há blocos de uma hora livres nesta sala para este dia.</p>}
                     <div className={styles.formActions}>
-                      <button className={`${styles.button} ${styles.secondary}`} type="button" onClick={() => { setEditorDay(null); setEditing(null); }}>Cancelar</button>
-                      <button className={styles.button} disabled={saving || !environments.length || !environmentId}>{saving ? "Salvando…" : editing ? "Salvar alterações" : "Adicionar horário"}</button>
+                      <button className={`${styles.button} ${styles.secondary}`} type="button" onClick={() => { setEditorDay(null); setEditing(null); setSelectedSlot(""); setAvailableSlots([]); setLoadingSlots(false); slotRequestId.current += 1; }}>Cancelar</button>
+                      <button className={styles.button} disabled={saving || loadingSlots || !environments.length || !environmentId || !selectedSlot}>{saving ? "Salvando…" : editing ? "Salvar alterações" : "Adicionar horário"}</button>
                     </div>
                   </form> : <button className={`${styles.button} ${styles.secondary} ${styles.scheduleAddButton}`} type="button" onClick={() => openAdd(day)}><Plus size={15} /> Adicionar horário</button>}
                 </div>}
@@ -247,5 +292,12 @@ export function BarberSchedule({ context, section = "overview" }: { context: Bar
         {changes.length ? <div className={styles.list}>{changes.map((item) => <article className={styles.scheduleChange} key={item.id}><strong>{item.message}</strong><small>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short", timeZone: schedule?.timezone ?? context.timezone }).format(new Date(item.created_at))}</small></article>)}</div> : <p className={styles.muted}>As alterações salvas aparecerão aqui com o responsável.</p>}
       </section>}
     </>}
+    {scheduleWarning && <div className={styles.modal} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setScheduleWarning(""); }}>
+      <section className={styles.dialog} role="alertdialog" aria-modal="true" aria-labelledby="schedule-warning-title">
+        <h2 id="schedule-warning-title">Horário não pode ser removido</h2>
+        <p>{scheduleWarning}</p>
+        <div className={styles.formActions}><button className={styles.button} type="button" onClick={() => setScheduleWarning("")}>Entendi</button></div>
+      </section>
+    </div>}
   </>;
 }
