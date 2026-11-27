@@ -10,7 +10,7 @@ import { productLoginPath } from "@/lib/product-routes";
 
 export const metadata: Metadata = { title: { absolute: "Acesso ao App da Equipe | Display SH" } };
 
-export default async function BarberLoginPage({ searchParams }: { searchParams: Promise<{ next?: string; barbearia?: string; erro?: string }> }) {
+export default async function BarberLoginPage({ searchParams }: { searchParams: Promise<{ next?: string; barbearia?: string; erro?: string; modo?: string }> }) {
   const params = await searchParams;
   const organization = await getBarberLoginOrganization(params.barbearia);
   const productKey = params.barbearia
@@ -27,7 +27,7 @@ export default async function BarberLoginPage({ searchParams }: { searchParams: 
 
       <section className="system-login-page__main" aria-label={`Acesso ao ${identity?.vocabulary.teamApp ?? "App do Barbeiro"}`}>
         <div className="system-login-panel">
-          <BarberAuthForm next={params.next} slug={params.barbearia} error={params.erro} productKey={productKey} identity={identity} organization={organization} />
+          <BarberAuthForm next={params.next} slug={params.barbearia} error={params.erro} mode={params.modo === "cadastro" ? "signup" : "signin"} productKey={productKey} identity={identity} organization={organization} />
         </div>
       </section>
 
