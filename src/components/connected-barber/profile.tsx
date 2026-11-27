@@ -41,36 +41,20 @@ function BarberCalendarIntegration({ context }: { context: BarberAppContext }) {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
+    let active = true;
     void (async () => {
-      const [authResult, connectionResult] = await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from("google_calendar_connections")
-          .select("google_account_email,status")
-          .eq("organization_id", context.organization_id)
-          .eq("target_type", "BARBER")
-          .eq("barber_id", context.barber_id)
-          .maybeSingle(),
-      ]);
-      setCalendar(connectionResult.data);
-      const providers = authResult.data.user?.app_metadata?.providers;
-      const usedGoogleAuth = authResult.data.user?.app_metadata?.provider === "google"
-        || (Array.isArray(providers) && providers.includes("google"));
-      const attemptKey = `google-calendar-consent:${context.organization_id}:${context.barber_id}`;
-      if (!connectionResult.data && usedGoogleAuth && !sessionStorage.getItem(attemptKey)) {
-        sessionStorage.setItem(attemptKey, "started");
-        setConnectingCalendar(true);
-        const { data, error } = await supabase.functions.invoke("google-calendar-oauth-start", {
-          body: { organizationId: context.organization_id, targetType: "BARBER", barberId: context.barber_id, returnPath },
-        });
-        const authorizationUrl = data && typeof data === "object" && "authorizationUrl" in data ? data.authorizationUrl : null;
-        if (!error && typeof authorizationUrl === "string") window.location.assign(authorizationUrl);
-        else {
-          setConnectingCalendar(false);
-          setMessage(error?.message ?? "Não foi possível iniciar a autorização do Google Agenda.");
-        }
-      }
+      const { data, error } = await supabase.from("google_calendar_connections")
+        .select("google_account_email,status")
+        .eq("organization_id", context.organization_id)
+        .eq("target_type", "BARBER")
+        .eq("barber_id", context.barber_id)
+        .maybeSingle();
+      if (!active) return;
+      if (error) setMessage(error.message);
+      else setCalendar(data);
     })();
-  }, [context.organization_id, context.barber_id, returnPath]);
+    return () => { active = false; };
+  }, [context.organization_id, context.barber_id]);
 
   async function connectGoogleCalendar() {
     setConnectingCalendar(true);
