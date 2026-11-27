@@ -32,7 +32,7 @@ import {
 import {
   formatCents,
   formatRange,
-  localDateTimeToIso,
+  humanizeError,
 } from "@/components/connected-manager/format";
 import {
   ActionMessage,
@@ -52,6 +52,12 @@ import styles from "@/components/connected-manager/connected-manager.module.css"
 
 type StatusFilter =
   "ALL" | "CONFIRMED" | "IN_SERVICE" | "COMPLETED" | "CANCELED" | "NO_SHOW";
+type BarberManualAppointmentSlot = { starts_at: string; ends_at: string };
+type BarberManualAppointmentAvailability = {
+  key: string;
+  slots: BarberManualAppointmentSlot[];
+  error: string | null;
+};
 const hours = Array.from(
   { length: 14 },
   (_, index) => `${String(index + 8).padStart(2, "0")}:00`,
@@ -91,6 +97,13 @@ function formatAgendaDate(dateKey: string) {
   const day = parts.find((part) => part.type === "day")?.value ?? "";
   const month = parts.find((part) => part.type === "month")?.value ?? "";
   return `${weekday[0]?.toLocaleUpperCase("pt-BR")}${weekday.slice(1)} ${day}/${month}`;
+}
+function formatSlotTime(startsAt: string, timezone: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(startsAt));
 }
 function shiftMonth(dateKey: string, amount: number) {
   const date = new Date(`${dateKey}T12:00:00.000Z`);
@@ -169,6 +182,12 @@ export function BarberAgenda({
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [selected, setSelected] = useState<BarberAppointment | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [newAppointmentServiceId, setNewAppointmentServiceId] = useState("");
+  const [newAppointmentBarberId, setNewAppointmentBarberId] = useState(ownAgenda ? context.barber_id : "");
+  const [newAppointmentDate, setNewAppointmentDate] = useState(date);
+  const [newAppointmentTime, setNewAppointmentTime] = useState("");
+  const [manualAvailability, setManualAvailability] = useState<BarberManualAppointmentAvailability | null>(null);
+  const [manualAvailabilityRefresh, setManualAvailabilityRefresh] = useState(0);
   const [receiptTarget, setReceiptTarget] = useState<BarberAppointment | null>(
     null,
   );
@@ -225,6 +244,21 @@ export function BarberAgenda({
     : barberFilter === "ALL"
       ? professionals
       : professionals.filter((barber) => barber.id === barberFilter);
+  const newAppointmentMaxDate = shiftDateKey(todayKey, 180);
+  const manualAvailabilityRequestKey = newOpen && newAppointmentServiceId && newAppointmentBarberId && newAppointmentDate
+    ? JSON.stringify([
+      context.organization_id,
+      context.organization_slug,
+      newAppointmentBarberId,
+      newAppointmentDate,
+      newAppointmentServiceId,
+      manualAvailabilityRefresh,
+    ])
+    : "";
+  const currentManualAvailability = manualAvailability?.key === manualAvailabilityRequestKey ? manualAvailability : null;
+  const manualAvailabilitySlots = currentManualAvailability?.slots ?? [];
+  const manualAvailabilityLoading = Boolean(manualAvailabilityRequestKey && !currentManualAvailability);
+  const manualAvailabilityError = currentManualAvailability?.error ?? null;
   const nowLine = currentTime
     ? currentTimeGeometry(date, currentTime, timezone)
     : null;
@@ -264,6 +298,38 @@ export function BarberAgenda({
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [datePickerOpen]);
+  useEffect(() => {
+    if (!manualAvailabilityRequestKey) return;
+    let current = true;
+    async function loadAvailability() {
+      const client = getSupabaseBrowserClient();
+      if (!client) {
+        queueMicrotask(() => {
+          if (current) setManualAvailability({ key: manualAvailabilityRequestKey, slots: [], error: "Conexão com o sistema indisponível." });
+        });
+        return;
+      }
+      try {
+        const { data, error } = await client.rpc("get_barber_manual_appointment_slots", {
+          p_organization_id: context.organization_id,
+          p_barber_id: newAppointmentBarberId,
+          p_local_date: newAppointmentDate,
+          p_selections: [{ type: "SERVICE", id: newAppointmentServiceId, quantity: 1 }],
+        });
+        if (!current) return;
+        if (error) {
+          setManualAvailability({ key: manualAvailabilityRequestKey, slots: [], error: humanizeError(new Error(error.message)) });
+          return;
+        }
+        const result = data as { slots?: BarberManualAppointmentSlot[] } | null;
+        setManualAvailability({ key: manualAvailabilityRequestKey, slots: result?.slots ?? [], error: null });
+      } catch (error) {
+        if (current) setManualAvailability({ key: manualAvailabilityRequestKey, slots: [], error: humanizeError(error) });
+      }
+    }
+    void loadAvailability();
+    return () => { current = false; };
+  }, [context.organization_id, manualAvailabilityRequestKey, newAppointmentBarberId, newAppointmentDate, newAppointmentServiceId]);
   function appointmentDate(appointment: BarberAppointment) {
     return appointmentDateKey(appointment.service_period, timezone);
   }
@@ -317,6 +383,15 @@ export function BarberAgenda({
     setCustomerQuery("");
     setSelectedCustomerId("");
     setAttendeeDependentId("");
+    setNewAppointmentTime("");
+  }
+  function openCreate() {
+    setNewAppointmentServiceId("");
+    setNewAppointmentBarberId(ownAgenda ? context.barber_id : "");
+    setNewAppointmentDate(date < todayKey || date > newAppointmentMaxDate ? todayKey : date);
+    setNewAppointmentTime("");
+    setManualAvailabilityRefresh((current) => current + 1);
+    setNewOpen(true);
   }
   async function callRpc(
     name: string,
@@ -391,19 +466,28 @@ export function BarberAgenda({
       setMessage("Escolha serviço e profissional.");
       return;
     }
-    const startsAt = `${String(data.get("date") ?? "")}T${String(data.get("time") ?? "")}`;
+    const selectedSlot = manualAvailabilitySlots.find((slot) => slot.starts_at === String(data.get("time") ?? ""));
+    if (!selectedSlot || manualAvailabilityLoading || manualAvailabilityError) {
+      setMessage("Selecione um horário entre as opções disponíveis para este profissional.");
+      return;
+    }
     const appointmentId = await callRpc(
         "barber_create_manual_appointment",
         {
           p_organization_id: context.organization_id,
           p_customer_id: selectedCustomerId,
           p_barber_id: barberId,
-          p_starts_at: localDateTimeToIso(startsAt, timezone),
+          p_starts_at: selectedSlot.starts_at,
           p_selections: [{ type: "SERVICE", id: serviceId, quantity: 1 }],
           p_notes: String(data.get("notes") ?? "").trim() || null,
         },
         "Agendamento criado com saldo pendente para o balcão.",
       );
+    if (!appointmentId) {
+      setNewAppointmentTime("");
+      setManualAvailabilityRefresh((current) => current + 1);
+      return;
+    }
     if (appointmentId) {
       if (attendeeDependentId) { const client = getSupabaseBrowserClient(); if (client) await client.rpc("set_appointment_attendee", { p_appointment_id: String(appointmentId), p_attendee_dependent_id: attendeeDependentId }); }
       selectDate(String(data.get("date")));
@@ -619,7 +703,7 @@ export function BarberAgenda({
           </div>
         </div>
       </section>
-      <button type="button" className="barber-agenda-fab" aria-label="Novo agendamento" title="Novo agendamento" onClick={() => setNewOpen(true)}>
+      <button type="button" className="barber-agenda-fab" aria-label="Novo agendamento" title="Novo agendamento" onClick={openCreate}>
         <Plus size={27} strokeWidth={2.2} />
       </button>
       {selected && (
@@ -889,7 +973,7 @@ export function BarberAgenda({
                 <label>
                   Serviço
                   <span className="select-input">
-                    <select name="service_id" required defaultValue="">
+                    <select name="service_id" required value={newAppointmentServiceId} onChange={(event) => { setNewAppointmentServiceId(event.target.value); setNewAppointmentTime(""); }}>
                       <option value="">Selecione</option>
                       {services.map((service) => (
                         <option key={service.id} value={service.id}>
@@ -906,8 +990,9 @@ export function BarberAgenda({
                     <select
                       name="barber_id"
                       required
-                      defaultValue={ownAgenda ? context.barber_id : ""}
+                      value={newAppointmentBarberId}
                       disabled={ownAgenda}
+                      onChange={(event) => { setNewAppointmentBarberId(event.target.value); setNewAppointmentTime(""); }}
                     >
                       {!ownAgenda && <option value="">Selecione</option>}
                       {displayedBarbers.map((barber) => (
@@ -928,25 +1013,36 @@ export function BarberAgenda({
                     <input
                       name="date"
                       type="date"
-                      defaultValue={date}
+                      min={todayKey}
+                      max={newAppointmentMaxDate}
+                      value={newAppointmentDate}
                       required
+                      onChange={(event) => { setNewAppointmentDate(event.target.value); setNewAppointmentTime(""); }}
                     />
                   </span>
                 </label>
                 <label>
                   Horário
-                  <span className="input-shell">
+                  <span className="select-input">
                     <Clock3 size={17} />
-                    <input
+                    <select
                       name="time"
-                      type="time"
-                      defaultValue="09:00"
-                      step="900"
                       required
-                    />
+                      value={newAppointmentTime}
+                      disabled={!manualAvailabilityRequestKey || manualAvailabilityLoading || Boolean(manualAvailabilityError) || manualAvailabilitySlots.length === 0}
+                      onChange={(event) => setNewAppointmentTime(event.target.value)}
+                    >
+                      <option value="">{manualAvailabilityLoading ? "Consultando horários disponíveis…" : manualAvailabilityError ? "Não foi possível consultar" : manualAvailabilityRequestKey ? "Selecione um horário disponível" : "Selecione serviço e profissional"}</option>
+                      {manualAvailabilitySlots.map((slot) => (
+                        <option key={slot.starts_at} value={slot.starts_at}>{formatSlotTime(slot.starts_at, timezone)}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={15} />
                   </span>
                 </label>
               </div>
+              {manualAvailabilityError && <small role="alert">{manualAvailabilityError}</small>}
+              {currentManualAvailability && !manualAvailabilityError && manualAvailabilitySlots.length === 0 && <small>Nenhum horário disponível para este profissional nesta data.</small>}
               <label>
                 Observação <small>opcional</small>
                 <textarea
@@ -964,7 +1060,7 @@ export function BarberAgenda({
               >
                 Cancelar
               </button>
-              <button type="submit" className="button button--dark">
+              <button type="submit" className="button button--dark" disabled={manualAvailabilityLoading || Boolean(manualAvailabilityError) || !manualAvailabilitySlots.some((slot) => slot.starts_at === newAppointmentTime)}>
                 <CalendarPlus2 size={17} /> Criar agendamento
               </button>
             </div>
