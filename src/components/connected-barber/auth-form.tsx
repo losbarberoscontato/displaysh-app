@@ -1,17 +1,19 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
+import { ArrowRight, Building2, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { barberAuthDestination } from "@/lib/barber-auth";
+import type { BarberLoginOrganization } from "@/components/connected-barber/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { GoogleMark } from "@/components/google-mark";
 import type { ProductKey } from "@/lib/product-context";
 import type { ProductIdentityConfig } from "@/lib/product-identity";
 import { productLoginPath } from "@/lib/product-routes";
 
-export function BarberAuthForm({ next, slug, error, productKey = "los-barberos", identity }: { next?: string | null; slug?: string | null; error?: string | null; productKey?: ProductKey; identity?: ProductIdentityConfig | null }) {
+export function BarberAuthForm({ next, slug, error, productKey = "los-barberos", identity, organization }: { next?: string | null; slug?: string | null; error?: string | null; productKey?: ProductKey; identity?: ProductIdentityConfig | null; organization?: BarberLoginOrganization | null }) {
   const router = useRouter();
   const [message, setMessage] = useState(error ? "Não foi possível concluir o acesso. Faça login novamente." : "");
   const [showPassword, setShowPassword] = useState(false);
@@ -19,7 +21,7 @@ export function BarberAuthForm({ next, slug, error, productKey = "los-barberos",
   const [oauthLoading, setOauthLoading] = useState(false);
   const destination = barberAuthDestination({ next, slug });
   const appName = identity?.vocabulary.teamApp ?? "App do Barbeiro";
-  const loginHeading = productKey === "ateliepro" ? "Entre no seu ateliê" : productKey === "music-pro" ? "Entre na sua escola" : productKey === "le-gras" || productKey === "pro-stetic" ? "Entre no seu estúdio" : "Entre na sua barbearia";
+  const loginHeading = "Entre para a equipe";
   const createAccountHref = `${productLoginPath(productKey)}?modo=cadastro&next=${encodeURIComponent(destination)}`;
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
@@ -55,7 +57,14 @@ export function BarberAuthForm({ next, slug, error, productKey = "los-barberos",
     <div className="login-card">
       <div className="login-card__heading">
         <h1>{loginHeading}</h1>
-        <p>Acompanhe seus atendimentos e sua agenda em um só lugar.</p>
+        {organization && <div className="login-organization">
+          <span className="login-organization__logo">
+            {organization.logoUrl
+              ? <Image src={organization.logoUrl} alt="" width={48} height={48} sizes="48px" unoptimized />
+              : <Building2 size={22} aria-hidden="true" />}
+          </span>
+          <strong>{organization.name}</strong>
+        </div>}
       </div>
 
       <button className="google-button" type="button" onClick={() => void signInWithGoogle()} disabled={oauthLoading}>

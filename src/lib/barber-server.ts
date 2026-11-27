@@ -10,6 +10,7 @@ import type {
   BarberCashSession,
   BarberCustomer,
   BarberFinancialAccount,
+  BarberLoginOrganization,
   BarberProfessional,
   BarberService,
   BarberProject,
@@ -63,17 +64,29 @@ async function listBarberContexts(slug?: string | null): Promise<BarberAppContex
   }));
 }
 
-export async function getOrganizationProductKeyBySlug(slug: string | null | undefined): Promise<ProductKey> {
+export async function getBarberLoginOrganization(slug: string | null | undefined): Promise<BarberLoginOrganization | null> {
   const normalizedSlug = normalizeTenantSlug(slug);
-  if (!normalizedSlug) return "los-barberos";
+  if (!normalizedSlug) return null;
   const supabase = await getSupabaseServerClient();
-  if (!supabase) return "los-barberos";
-  const { data } = await supabase.rpc("get_public_client_entry_context", {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc("get_public_client_entry_context", {
     p_booking_public_id: null,
     p_organization_slug: normalizedSlug,
   });
-  const entry = data as { product_key?: unknown } | null;
-  return parseProductKey(entry?.product_key) ?? "los-barberos";
+  if (error) return null;
+  const entry = data as { organization_name?: unknown; logo_path?: unknown; product_key?: unknown } | null;
+  if (!entry || typeof entry.organization_name !== "string") return null;
+  const logoPath = typeof entry.logo_path === "string" ? entry.logo_path : null;
+  return {
+    name: entry.organization_name,
+    logoUrl: logoPath ? supabase.storage.from("organization-logos").getPublicUrl(logoPath).data.publicUrl : null,
+    productKey: parseProductKey(entry.product_key) ?? "los-barberos",
+  };
+}
+
+export async function getOrganizationProductKeyBySlug(slug: string | null | undefined): Promise<ProductKey> {
+  const organization = await getBarberLoginOrganization(slug);
+  return organization?.productKey ?? "los-barberos";
 }
 
 export async function getBarberAppContext(slug?: string | null): Promise<BarberAppContext | null> {

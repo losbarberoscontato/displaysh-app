@@ -3,6 +3,7 @@ import type { ProductIdentityConfig } from "@/lib/product-identity";
 
 export type BarberAgendaScope = "OWN" | "FULL";
 export type BarberCashSessionStatus = "OPEN" | "RECONCILED";
+export type BarberLoginOrganization = { name: string; logoUrl: string | null; productKey: ProductKey };
 
 export type BarberAppContext = {
   organization_id: string;
