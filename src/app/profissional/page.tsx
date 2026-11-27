@@ -10,10 +10,10 @@ export const metadata: Metadata = {
 
 export default async function ProfessionalOrganizationSwitcherPage() {
   const access = await getBarberAccessState();
-  if (!access) redirect("/barbeiro/entrar");
-  if (!access.organizations.length) redirect("/barbeiro/entrar");
+  if (!access) redirect("/profissional/entrar");
+  if (!access.organizations.length) redirect("/profissional/entrar");
   if (access.organizations.length === 1) {
-    redirect(`/barbeiro/agenda?barbearia=${encodeURIComponent(access.organizations[0].organization_slug)}`);
+    redirect(`/profissional/agenda?barbearia=${encodeURIComponent(access.organizations[0].organization_slug)}`);
   }
 
   return (

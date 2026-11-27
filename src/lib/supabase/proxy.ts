@@ -6,6 +6,7 @@ const publicWithoutSupabase = [
   "/",
   "/auth/callback",
   "/barbeiro/entrar",
+  "/profissional/entrar",
   "/entrar",
   "/exclusao-de-dados",
   "/login",

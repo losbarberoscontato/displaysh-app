@@ -1,8 +1,9 @@
 import { normalizeSafeReturnPath } from "@/lib/integrations/state";
 import { normalizeTenantSlug } from "@/components/connected-client/format";
 
-const defaultBarberDestination = "/barbeiro";
+const defaultBarberDestination = "/profissional/agenda";
 const barberDestinations = new Set([
+  "/profissional/agenda",
   "/barbeiro",
   "/barbeiro/agenda",
   "/barbeiro/caixa",
@@ -31,8 +32,11 @@ export function barberAuthDestination(input: {
 export function barberLoginHref(next = defaultBarberDestination, slug?: string | null): string {
   const destination = barberAuthDestination({ next, slug });
   const url = new URL(destination, "https://barbeiro.local");
-  const params = new URLSearchParams({ next: url.pathname });
+  const nextPath = url.pathname === "/barbeiro" || url.pathname === "/barbeiro/agenda"
+    ? "/profissional/agenda"
+    : url.pathname;
+  const params = new URLSearchParams({ next: nextPath });
   const normalizedSlug = url.searchParams.get("barbearia");
   if (normalizedSlug) params.set("barbearia", normalizedSlug);
-  return `/barbeiro/entrar?${params.toString()}`;
+  return `/profissional/entrar?${params.toString()}`;
 }

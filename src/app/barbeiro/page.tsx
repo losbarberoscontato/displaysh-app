@@ -7,6 +7,6 @@ export default async function BarberHomePage() {
   const access = await getBarberAccessState();
   if (!access) redirect(barberLoginHref("/barbeiro"));
   if (!access.organizations.length) return <BarberDisconnectedScreen profile={access.profile} email={access.email} />;
-  if (access.organizations.length === 1) redirect(`/barbeiro/agenda?barbearia=${encodeURIComponent(access.organizations[0].organization_slug)}`);
+  if (access.organizations.length === 1) redirect(`/profissional/agenda?barbearia=${encodeURIComponent(access.organizations[0].organization_slug)}`);
   return <BarberConnectionScreen organizations={access.organizations} />;
 }

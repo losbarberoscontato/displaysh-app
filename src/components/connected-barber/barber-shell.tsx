@@ -64,7 +64,7 @@ export function BarberShell({ context, children }: { context: BarberAppContext; 
     setSigningOut(true);
     const supabase = getSupabaseBrowserClient();
     await supabase?.auth.signOut({ scope: "local" });
-    router.replace(`/barbeiro/entrar?barbearia=${encodeURIComponent(context.organization_slug)}`);
+    router.replace(`/profissional/entrar?barbearia=${encodeURIComponent(context.organization_slug)}`);
     router.refresh();
   }
 

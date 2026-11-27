@@ -22,7 +22,7 @@ function barberAuthModeHref(mode: BarberAuthMode, destination: string): string {
   });
   const slug = target.searchParams.get("barbearia");
   if (slug) params.set("barbearia", slug);
-  return `/barbeiro/entrar?${params.toString()}`;
+  return `/profissional/entrar?${params.toString()}`;
 }
 
 export function BarberAuthForm({ next, slug, error, mode = "signin", productKey = "los-barberos", identity, organization }: { next?: string | null; slug?: string | null; error?: string | null; mode?: BarberAuthMode; productKey?: ProductKey; identity?: ProductIdentityConfig | null; organization?: BarberLoginOrganization | null }) {

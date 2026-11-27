@@ -48,7 +48,7 @@ export function SettingsManager(props: Props) {
   const bookingUrl = props.organization.booking_public_id
     ? `${publicOrigin}/b/${props.organization.booking_public_id}`
     : `${publicOrigin}/b/${props.organization.slug}`;
-  const barberAccessPath = barberLoginHref("/barbeiro/agenda", props.organization.slug);
+  const barberAccessPath = barberLoginHref("/profissional/agenda", props.organization.slug);
   const barberAccessUrl = `${publicOrigin}${barberAccessPath}`;
   const [exporting, setExporting] = useState(false);
   const [rulesHelpOpen, setRulesHelpOpen] = useState(false);

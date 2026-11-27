@@ -36,7 +36,7 @@ export function BarberConnectionScreen({ organizations, mode = "choose" }: { org
                 <span className={styles.organizationFallback} aria-hidden="true">{initials(organization.organization_name)}</span>
               )}
               <strong>{organization.organization_name}</strong>
-              <Link className={styles.enterButton} href={`/barbeiro/agenda?barbearia=${encodeURIComponent(organization.organization_slug)}`}>
+              <Link className={styles.enterButton} href={`/profissional/agenda?barbearia=${encodeURIComponent(organization.organization_slug)}`}>
                 {switching ? "Alterar" : "Entrar"} <ArrowRight size={18} />
               </Link>
             </li>

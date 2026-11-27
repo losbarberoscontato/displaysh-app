@@ -372,7 +372,7 @@ describe("connected manager UI", () => {
     expect(within(sheet).getByLabelText("Logo Los Barberos")).toBeInTheDocument();
     expect(within(sheet).getByTestId("queue-print-qr")).toHaveAttribute("width", "520");
     expect(screen.getByText("Acesso ao App do Barbeiro")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Abrir app" })).toHaveAttribute("href", "/barbeiro/entrar?next=%2Fbarbeiro%2Fagenda&barbearia=barbearia-real");
+    expect(screen.getByRole("link", { name: "Abrir app" })).toHaveAttribute("href", "/profissional/entrar?next=%2Fprofissional%2Fagenda&barbearia=barbearia-real");
   });
 
   it("não exibe hold, sinal ou frequência de comissões nas regras da barbearia", () => {

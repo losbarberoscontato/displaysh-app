@@ -32,7 +32,7 @@ export function OrganizationSwitcherGate({
       return;
     }
 
-    router.replace("/barbeiro/entrar");
+    router.replace("/profissional/entrar");
   }, [allowedOrganizationSlugs, router]);
 
   if (!authorized) {

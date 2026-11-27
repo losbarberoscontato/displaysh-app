@@ -27,7 +27,8 @@ export async function GET(request: NextRequest) {
   const isClientDestination = requestedNextValues.length === 1
     && (requestedNext === "/cliente" || requestedNext.startsWith("/cliente?") || requestedNext.startsWith("/cliente/"));
   const isBarberDestination = requestedNextValues.length === 1
-    && (requestedNext === "/barbeiro" || requestedNext.startsWith("/barbeiro/"));
+    && (requestedNext === "/barbeiro" || requestedNext.startsWith("/barbeiro/")
+      || requestedNext === "/profissional" || requestedNext.startsWith("/profissional/"));
   const destination = requestedNextValues.length !== 1
     ? "/gestor"
     : isClientDestination
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       params.set("next", destination);
     }
     const loginPath = isClientDestination ? "/cliente/entrar"
-      : isBarberDestination ? "/barbeiro/entrar" : productLoginPath(selectedProduct);
+      : isBarberDestination ? "/profissional/entrar" : productLoginPath(selectedProduct);
     if (isBarberDestination && requestedSlug) params.set("barbearia", requestedSlug);
     return NextResponse.redirect(new URL(`${loginPath}?${params.toString()}`, url.origin));
   }
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
       params.set("next", destination);
     }
     const loginPath = isClientDestination ? "/cliente/entrar"
-      : isBarberDestination ? "/barbeiro/entrar" : productLoginPath(selectedProduct);
+      : isBarberDestination ? "/profissional/entrar" : productLoginPath(selectedProduct);
     if (isBarberDestination && requestedSlug) params.set("barbearia", requestedSlug);
     return NextResponse.redirect(new URL(`${loginPath}?${params.toString()}`, url.origin));
   }
