@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
@@ -11,14 +11,14 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
-  Filter,
   MapPin,
   MessageCircle,
+  Plus,
   Scissors,
   UserRound,
   X,
 } from "lucide-react";
-import { Avatar, PageHeader } from "@/components/ui";
+import { Avatar } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   appointmentGeometry,
@@ -27,8 +27,6 @@ import {
   currentTimeGeometry,
   dateKeyInTimezone,
   monthCells,
-  shiftDateKey,
-  weekDateKeys,
 } from "@/components/connected-manager/agenda-calendar";
 import {
   formatCents,
@@ -44,19 +42,20 @@ import type {
   BarberAppointment,
   BarberAppointmentItem,
   BarberCustomer,
+  BarberEnvironment,
   BarberFinancialAccount,
   BarberProfessional,
   BarberService,
 } from "./types";
 import styles from "@/components/connected-manager/connected-manager.module.css";
 
-type View = "day" | "week" | "month";
 type StatusFilter =
   "ALL" | "CONFIRMED" | "IN_SERVICE" | "COMPLETED" | "CANCELED" | "NO_SHOW";
 const hours = Array.from(
   { length: 14 },
   (_, index) => `${String(index + 8).padStart(2, "0")}:00`,
 );
+const calendarWeekdays = ["S", "T", "Q", "Q", "S", "S", "D"];
 const statusLabels: Record<StatusFilter, string> = {
   ALL: "Todos os status",
   CONFIRMED: "Agendado",
@@ -79,6 +78,18 @@ function formatDate(
     ...options,
     timeZone: "UTC",
   }).format(new Date(`${dateKey}T12:00:00.000Z`));
+}
+function formatAgendaDate(dateKey: string) {
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "UTC",
+  }).formatToParts(new Date(`${dateKey}T12:00:00.000Z`));
+  const weekday = parts.find((part) => part.type === "weekday")?.value.replace("-feira", "") ?? "Dia";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  return `${weekday[0]?.toLocaleUpperCase("pt-BR")}${weekday.slice(1)} ${day}/${month}`;
 }
 function shiftMonth(dateKey: string, amount: number) {
   const date = new Date(`${dateKey}T12:00:00.000Z`);
@@ -116,22 +127,26 @@ function statusDisplay(appointment: BarberAppointment) {
 
 export function BarberAgenda({
   context,
+  initialDate,
   appointments,
   appointmentItems,
   customers,
   services,
   professionals,
+  environments,
   outstandingByAppointment,
   accounts,
   kanbanBoards = [],
   kanbanCards = [],
 }: {
   context: BarberAppContext;
+  initialDate?: string | null;
   appointments: BarberAppointment[];
   appointmentItems: BarberAppointmentItem[];
   customers: BarberCustomer[];
   services: BarberService[];
   professionals: BarberProfessional[];
+  environments: BarberEnvironment[];
   outstandingByAppointment: Map<string, number>;
   accounts: BarberFinancialAccount[];
   kanbanBoards?: { id: string; name: string }[];
@@ -142,9 +157,10 @@ export function BarberAgenda({
   const todayKey = dateKeyInTimezone(new Date(), timezone);
   const ownAgenda = context.agenda_access_scope === "OWN";
   const [message, setMessage] = useState("");
-  const [view, setView] = useState<View>("day");
-  const [date, setDate] = useState(todayKey);
+  const [date, setDate] = useState(initialDate ?? todayKey);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(todayKey);
+  const datePickerRef = useRef<HTMLDivElement>(null);
   const [barberFilter, setBarberFilter] = useState(
     ownAgenda ? context.barber_id : "ALL",
   );
@@ -165,6 +181,10 @@ export function BarberAgenda({
   const barberById = useMemo(
     () => new Map(professionals.map((item) => [item.id, item])),
     [professionals],
+  );
+  const environmentById = useMemo(
+    () => new Map(environments.map((item) => [item.id, item.name])),
+    [environments],
   );
   const itemsByAppointment = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -203,27 +223,45 @@ export function BarberAgenda({
     : barberFilter === "ALL"
       ? professionals
       : professionals.filter((barber) => barber.id === barberFilter);
-  const weekDates = weekDateKeys(date);
-  const month = monthCells(date);
   const nowLine = currentTime
     ? currentTimeGeometry(date, currentTime, timezone)
     : null;
   const dayAppointmentLayouts = useMemo(() => {
-    const layout = new Map<string, { lane: number; lanes: number }>();
-    for (const barber of displayedBarbers) {
-      const barberAppointments = filteredAppointments.filter((appointment) => appointment.barber_id === barber.id && appointmentDateKey(appointment.service_period, timezone) === date);
-      for (const [id, value] of buildAppointmentLayouts(barberAppointments, (appointment) => appointment.id, (appointment) => appointment.service_period)) {
-        layout.set(id, value);
-      }
-    }
-    return layout;
-  }, [date, displayedBarbers, filteredAppointments, timezone]);
+    const appointmentsForDate = filteredAppointments.filter(
+      (appointment) => appointmentDateKey(appointment.service_period, timezone) === date,
+    );
+    return buildAppointmentLayouts(
+      appointmentsForDate,
+      (appointment) => appointment.id,
+      (appointment) => appointment.service_period,
+    );
+  }, [date, filteredAppointments, timezone]);
+  const dayLaneCount = Math.max(
+    1,
+    ...Array.from(dayAppointmentLayouts.values(), (layout) => layout.lanes),
+  );
   useEffect(() => {
     const update = () => setCurrentTime(new Date());
     update();
     const interval = window.setInterval(update, 300_000);
     return () => window.clearInterval(interval);
   }, []);
+  useEffect(() => {
+    if (!datePickerOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !datePickerRef.current?.contains(event.target))
+        setDatePickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDatePickerOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [datePickerOpen]);
   function appointmentDate(appointment: BarberAppointment) {
     return appointmentDateKey(appointment.service_period, timezone);
   }
@@ -232,15 +270,16 @@ export function BarberAgenda({
       (appointment) => appointmentDate(appointment) === dateKey,
     );
   }
+  function selectDate(dateKey: string) {
+    setDate(dateKey);
+    setDatePickerOpen(false);
+    const params = new URLSearchParams(window.location.search);
+    params.set("barbearia", context.organization_slug);
+    params.set("data", dateKey);
+    router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+  }
   function serviceLabel(appointmentId: string) {
     return itemsByAppointment.get(appointmentId)?.join(" + ") || "Atendimento";
-  }
-  function navigate(amount: number) {
-    setDate((current) =>
-      view === "month"
-        ? shiftMonth(current, amount)
-        : shiftDateKey(current, amount * (view === "week" ? 7 : 1)),
-    );
   }
   function closeCreate() {
     setNewOpen(false);
@@ -336,8 +375,7 @@ export function BarberAgenda({
       );
     if (appointmentId) {
       if (attendeeDependentId) { const client = getSupabaseBrowserClient(); if (client) await client.rpc("set_appointment_attendee", { p_appointment_id: String(appointmentId), p_attendee_dependent_id: attendeeDependentId }); }
-      setDate(String(data.get("date")));
-      setView("day");
+      selectDate(String(data.get("date")));
       closeCreate();
     }
   }
@@ -376,78 +414,78 @@ export function BarberAgenda({
     ? (outstandingByAppointment.get(selected.id) ??
       selected.total_cents_snapshot)
     : 0;
+  const datePickerCalendar = monthCells(datePickerMonth);
+  const datePickerTitle = formatDate(datePickerMonth, {
+    month: "long",
+    year: "numeric",
+  }).replace(/^\p{L}/u, (letter) => letter.toLocaleUpperCase("pt-BR"));
   return (
-    <div className={styles.stack}>
-      <div className={styles.agendaHeader}>
-        <PageHeader
-          title="Agenda"
-          description={
-            ownAgenda
-              ? "Organize os seus horários e atendimentos em tempo real."
-              : "Organize equipe, horários e atendimentos em tempo real."
-          }
-        />
-        <span className={styles.agendaHelpLink}>
-          {ownAgenda ? "Minha agenda" : "Agenda completa"}
-        </span>
-      </div>
-      <ActionMessage message={message} />
-      <div className={`agenda-toolbar ${styles.connectedToolbar}`}>
-        <div className="agenda-toolbar__date">
+    <div className={`${styles.stack} barber-agenda-page`}>
+      {message && <ActionMessage message={message} />}
+      <div className="barber-agenda-toolbar">
+        <div className="barber-agenda-date" ref={datePickerRef}>
           <button
             type="button"
-            className="icon-button"
-            aria-label="Período anterior"
-            onClick={() => navigate(-1)}
+            className="barber-agenda-date__trigger"
+            aria-label={`Selecionar data. Data atual: ${formatAgendaDate(date)}`}
+            aria-haspopup="dialog"
+            aria-expanded={datePickerOpen}
+            aria-controls="barber-agenda-calendar-picker"
+            onClick={() => {
+              if (!datePickerOpen) setDatePickerMonth(date);
+              setDatePickerOpen((open) => !open);
+            }}
           >
-            <ChevronLeft size={18} />
-          </button>
-          <button
-            type="button"
-            className="agenda-date-button"
-            aria-label="Selecionar data"
-            onClick={() => setDatePickerOpen((open) => !open)}
-          >
-            <CalendarDays size={17} />
-            <span>
-              <strong>{formatDate(date)}</strong>
-              <small>{date === todayKey ? "Hoje" : "Selecionar dia"}</small>
-            </span>
-            <ChevronDown size={15} />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Próximo período"
-            onClick={() => navigate(1)}
-          >
-            <ChevronRight size={18} />
-          </button>
-          <button
-            type="button"
-            className="button button--soft button--sm"
-            onClick={() => setDate(todayKey)}
-          >
-            Hoje
+            <strong>{formatAgendaDate(date)}</strong>
+            <ChevronDown size={17} aria-hidden="true" />
           </button>
           {datePickerOpen && (
-            <div className="agenda-date-picker">
-              <label htmlFor="barber-agenda-date">Selecionar data</label>
-              <input
-                id="barber-agenda-date"
-                type="date"
-                value={date}
-                onChange={(event) => {
-                  setDate(event.target.value);
-                  setDatePickerOpen(false);
-                }}
-              />
+            <div
+              className="barber-agenda-date__picker"
+              id="barber-agenda-calendar-picker"
+              role="dialog"
+              aria-label="Selecionar data da agenda"
+            >
+              <header>
+                <button
+                  type="button"
+                  aria-label="Mês anterior"
+                  onClick={() => setDatePickerMonth((current) => shiftMonth(current, -1))}
+                >
+                  <ChevronLeft size={17} />
+                </button>
+                <strong>{datePickerTitle}</strong>
+                <button
+                  type="button"
+                  aria-label="Próximo mês"
+                  onClick={() => setDatePickerMonth((current) => shiftMonth(current, 1))}
+                >
+                  <ChevronRight size={17} />
+                </button>
+              </header>
+              <div className="barber-agenda-date__weekdays" aria-hidden="true">
+                {calendarWeekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}
+              </div>
+              <div className="barber-agenda-date__days">
+                {datePickerCalendar.map((cell) => (
+                  <button
+                    type="button"
+                    key={cell.dateKey}
+                    className={`${cell.outside ? "is-outside" : ""}${cell.dateKey === date ? " is-selected" : ""}${cell.dateKey === todayKey ? " is-today" : ""}`}
+                    aria-label={formatAgendaDate(cell.dateKey)}
+                    aria-pressed={cell.dateKey === date}
+                    onClick={() => selectDate(cell.dateKey)}
+                  >
+                    {cell.day}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
-        <div className={`agenda-toolbar__controls ${styles.connectedControls}`}>
-          <label className="select-shell">
-            <Filter size={16} />
+        <div className="barber-agenda-filters">
+          <label className="barber-agenda-filter">
+            <span className="sr-only">Filtrar por profissional</span>
             <select
               aria-label="Filtrar por profissional"
               value={barberFilter}
@@ -455,296 +493,98 @@ export function BarberAgenda({
               onChange={(event) => setBarberFilter(event.target.value)}
             >
               {!ownAgenda && <option value="ALL">Todos</option>}
-              {displayedBarbers.map((barber) => (
-                <option key={barber.id} value={barber.id}>
-                  {barber.display_name}
-                </option>
+              {professionals.map((barber) => (
+                <option key={barber.id} value={barber.id}>{barber.display_name}</option>
               ))}
             </select>
-            <ChevronDown size={14} />
+            <ChevronDown size={15} aria-hidden="true" />
           </label>
-          <label className="select-shell">
+          <label className="barber-agenda-filter">
+            <span className="sr-only">Filtrar por status</span>
             <select
               aria-label="Filtrar por status"
               value={status}
-              onChange={(event) =>
-                setStatus(event.target.value as StatusFilter)
-              }
+              onChange={(event) => setStatus(event.target.value as StatusFilter)}
             >
               {(Object.keys(statusLabels) as StatusFilter[]).map((item) => (
-                <option key={item} value={item}>
-                  {statusLabels[item]}
-                </option>
+                <option key={item} value={item}>{statusLabels[item]}</option>
               ))}
             </select>
-            <ChevronDown size={14} />
+            <ChevronDown size={15} aria-hidden="true" />
           </label>
-          <div
-            className="segmented-control"
-            aria-label="Visualização da agenda"
-          >
-            <button
-              type="button"
-              className={view === "day" ? "is-active" : ""}
-              onClick={() => setView("day")}
-            >
-              Dia
-            </button>
-            <button
-              type="button"
-              className={view === "week" ? "is-active" : ""}
-              onClick={() => setView("week")}
-            >
-              Semana
-            </button>
-            <button
-              type="button"
-              className={view === "month" ? "is-active" : ""}
-              onClick={() => setView("month")}
-            >
-              Mês
-            </button>
-          </div>
-          <button
-            type="button"
-            className="button button--dark"
-            onClick={() => setNewOpen(true)}
-          >
-            <CalendarPlus2 size={17} /> Novo agendamento
-          </button>
         </div>
       </div>
-      {view === "day" && (
-        <section className="agenda-day panel" aria-label="Agenda diária">
+      <section className="agenda-day barber-agenda-day" aria-label="Agenda diária">
+        <div
+          className="agenda-day__head"
+          style={{ gridTemplateColumns: "56px minmax(0, 1fr)" }}
+        >
+          <div className="agenda-day__time-label">Horário</div>
+          <div className="agenda-day__general-date">
+            <small>{formatDate(date, { weekday: "long" }).replace("-feira", "")}</small>
+            <strong>{formatDate(date, { day: "2-digit" })}</strong>
+          </div>
+        </div>
+        <div className="agenda-day__scroll" aria-label="Horários da agenda">
           <div
-            className="agenda-day__head"
+            className="agenda-day__grid"
             style={{
-              gridTemplateColumns: `56px repeat(${Math.max(displayedBarbers.length, 1)}, minmax(220px, 1fr))`,
+              gridTemplateColumns: `56px repeat(${dayLaneCount}, minmax(248px, 1fr))`,
+              height: hours.length * 78,
             }}
           >
-            <div className="agenda-day__time-label">Horário</div>
-            {displayedBarbers.map((barber, index) => (
-              <div className="agenda-day__barber" key={barber.id}>
-                <Avatar
-                  initials={barber.display_name.slice(0, 2).toUpperCase()}
-                  tone={
-                    index % 3 === 0
-                      ? "sage"
-                      : index % 3 === 1
-                        ? "amber"
-                        : "blue"
-                  }
-                  size="sm"
-                />
-                <span>
-                  <strong>{barber.display_name}</strong>
-                  <small>
-                    {
-                      appointmentsOn(date).filter(
-                        (appointment) => appointment.barber_id === barber.id,
-                      ).length
-                    }{" "}
-                    hoje
-                  </small>
-                </span>
-                <i />
-              </div>
-            ))}
-          </div>
-          <div className="agenda-day__scroll" aria-label="Horários da agenda">
+            {!appointmentsOn(date).length && (
+              <div className="agenda-day__empty">Nenhum agendamento para este dia.</div>
+            )}
             <div
-              className="agenda-day__grid"
-              style={{
-                gridTemplateColumns: `56px repeat(${Math.max(displayedBarbers.length, 1)}, minmax(220px, 1fr))`,
-                height: hours.length * 78,
-              }}
+              className="agenda-time-axis"
+              style={{ gridTemplateRows: `repeat(${hours.length}, 78px)` }}
             >
-              {!appointmentsOn(date).length && (
-                <div className="agenda-day__empty">
-                  Nenhum agendamento para este dia.
-                </div>
-              )}
-              <div
-                className="agenda-time-axis"
-                style={{ gridTemplateRows: `repeat(${hours.length}, 78px)` }}
-              >
-                {hours.map((hour) => (
-                  <span key={hour}>{hour}</span>
-                ))}
-              </div>
-              {displayedBarbers.map((barber, barberIndex) => (
-                <div
-                  className="agenda-column"
-                  style={{ gridTemplateRows: `repeat(${hours.length}, 78px)` }}
-                  key={barber.id}
-                >
-                  {hours.map((hour) => (
-                    <span className="agenda-gridline" key={hour} />
-                  ))}
-                  {appointmentsOn(date)
-                    .filter(
-                      (appointment) => appointment.barber_id === barber.id,
-                    )
-                    .map((appointment, itemIndex) => {
-                      const geometry = appointmentGeometry(
-                        appointment.service_period,
-                        timezone,
-                      );
-                      if (!geometry) return null;
-                      const display = statusDisplay(appointment);
-                      const layout = dayAppointmentLayouts.get(appointment.id) ?? { lane: 0, lanes: 1 };
-                      const laneWidth = 100 / layout.lanes;
-                      return (
-                        <button
-                          key={appointment.id}
-                          type="button"
-                          aria-label={`Abrir agendamento de ${customerById.get(appointment.customer_id)?.full_name ?? "Cliente"}, ${geometry.startLabel}–${geometry.endLabel}, ${serviceLabel(appointment.id)}, ${display.label}`}
-                          title={`${geometry.startLabel}–${geometry.endLabel} | ${serviceLabel(appointment.id)} | ${display.label}`}
-                          className={`agenda-event agenda-event--${(barberIndex + itemIndex) % 3} agenda-event--response-${display.tone}${geometry.height <= 24 ? " agenda-event--compact" : geometry.height <= 39 ? " agenda-event--short" : ""}`}
-                          style={{ top: geometry.top, height: geometry.height, left: `calc(${layout.lane * laneWidth}% + 6px)`, right: "auto", width: `calc(${laneWidth}% - 12px)` }}
-                          onClick={() => setSelected(appointment)}
-                        >
-                          <span className="agenda-event__time">
-                            <span aria-hidden="true">
-                              {geometry.startLabel}
-                            </span>
-                            <span className="sr-only">— {geometry.endLabel}</span>
-                          </span>
-                          <span className="agenda-event__details">
-                            <strong>
-                              {customerById.get(appointment.customer_id)
-                                ?.full_name ?? "Cliente"}
-                            </strong>
-                            <span className="agenda-event__meta">
-                              <small>{serviceLabel(appointment.id)}</small>
-                              <i>{display.label}</i>
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                </div>
-              ))}
-              {nowLine && (
-                <div
-                  className="agenda-now-line"
-                  style={{ top: nowLine.top }}
-                  aria-label={`Hora atual: ${nowLine.label}`}
-                >
-                  <span>{nowLine.label}</span>
-                  <i />
-                </div>
-              )}
+              {hours.map((hour) => <span key={hour}>{hour}</span>)}
             </div>
-          </div>
-        </section>
-      )}
-      {view === "week" && (
-        <section className="panel agenda-week" aria-label="Agenda semanal">
-          <div className="agenda-week__head">
-            <span>Horário</span>
-            {weekDates.map((day) => (
-              <button
-                type="button"
-                key={day}
-                className={`${styles.weekDay} ${day === todayKey ? styles.weekDayToday : ""}`}
-                onClick={() => {
-                  setDate(day);
-                  setView("day");
-                }}
-              >
-                <strong>
-                  {formatDate(day, { weekday: "short", day: "2-digit" })}
-                </strong>
-                <small>{appointmentsOn(day).length} reservas</small>
-              </button>
-            ))}
-          </div>
-          <div className="agenda-week__body">
-            {hours.map((hour) => (
-              <div className="agenda-week__row" key={hour}>
-                <time>{hour}</time>
-                {weekDates.map((day, column) => (
-                  <div className={styles.weekCell} key={day}>
-                    {appointmentsOn(day)
-                      .filter((appointment) =>
-                        appointmentGeometry(
-                          appointment.service_period,
-                          timezone,
-                        )?.startLabel.startsWith(hour.slice(0, 2)),
-                      )
-                      .map((appointment) => (
-                        <button
-                          type="button"
-                          key={appointment.id}
-                          className={`has-event tone-${column % 3}`}
-                          onClick={() => setSelected(appointment)}
-                        >
-                          <strong>
-                            {
-                              appointmentGeometry(
-                                appointment.service_period,
-                                timezone,
-                              )?.startLabel
-                            }{" "}
-                            ·{" "}
-                            {customerById.get(appointment.customer_id)
-                              ?.full_name ?? "Cliente"}
-                          </strong>
-                          <small>{serviceLabel(appointment.id)}</small>
-                        </button>
-                      ))}
-                  </div>
-                ))}
+            <div
+              className="agenda-column"
+              style={{ gridTemplateRows: `repeat(${hours.length}, 78px)` }}
+            >
+              {hours.map((hour) => <span className="agenda-gridline" key={hour} />)}
+              {appointmentsOn(date).map((appointment, itemIndex) => {
+                const geometry = appointmentGeometry(appointment.service_period, timezone);
+                if (!geometry) return null;
+                const display = statusDisplay(appointment);
+                const layout = dayAppointmentLayouts.get(appointment.id) ?? { lane: 0, lanes: 1 };
+                const laneWidth = 100 / dayLaneCount;
+                const customerName = customerById.get(appointment.customer_id)?.full_name ?? "Cliente";
+                const professionalName = barberById.get(appointment.barber_id)?.display_name ?? "Profissional";
+                const environmentName = environmentById.get(appointment.environment_id ?? "") ?? "Ambiente não definido";
+                return (
+                  <button
+                    key={appointment.id}
+                    type="button"
+                    aria-label={`Abrir agendamento de ${customerName}, ${professionalName}, ${environmentName}, ${geometry.startLabel}–${geometry.endLabel}, ${display.label}`}
+                    title={`${customerName} · ${professionalName} | ${environmentName}`}
+                    className={`agenda-event agenda-event--${itemIndex % 3} agenda-event--response-${display.tone}${geometry.height <= 24 ? " agenda-event--compact" : geometry.height <= 39 ? " agenda-event--short" : ""}`}
+                    style={{ top: geometry.top, height: geometry.height, left: `calc(${layout.lane * laneWidth}% + 6px)`, right: "auto", width: `calc(${laneWidth}% - 12px)` }}
+                    onClick={() => setSelected(appointment)}
+                  >
+                    <span className="agenda-event__details">
+                      <strong>{customerName}</strong>
+                      <small>{professionalName} | {environmentName}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {nowLine && (
+              <div className="agenda-now-line" style={{ top: nowLine.top }} aria-label={`Hora atual: ${nowLine.label}`}>
+                <span>{nowLine.label}</span><i />
               </div>
-            ))}
+            )}
           </div>
-        </section>
-      )}
-      {view === "month" && (
-        <section className="panel agenda-month" aria-label="Agenda mensal">
-          <div className="agenda-month__weekdays">
-            {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"].map((day) => (
-              <span key={day}>{day}</span>
-            ))}
-          </div>
-          <div className="agenda-month__grid">
-            {month.map((cell) => {
-              const dayAppointments = appointmentsOn(cell.dateKey);
-              return (
-                <button
-                  type="button"
-                  key={cell.dateKey}
-                  className={`${cell.outside ? "is-muted" : ""} ${cell.dateKey === todayKey ? "is-today" : ""}`}
-                  onClick={() => {
-                    setDate(cell.dateKey);
-                    setView("day");
-                  }}
-                >
-                  <span>{cell.day}</span>
-                  {dayAppointments.length > 0 && (
-                    <>
-                      <strong>
-                        {dayAppointments.length}{" "}
-                        {dayAppointments.length === 1 ? "reserva" : "reservas"}
-                      </strong>
-                      <small>
-                        {formatCents(
-                          dayAppointments.reduce(
-                            (sum, appointment) =>
-                              sum + appointment.total_cents_snapshot,
-                            0,
-                          ),
-                        )}
-                      </small>
-                    </>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
+        </div>
+      </section>
+      <button type="button" className="barber-agenda-fab" aria-label="Novo agendamento" title="Novo agendamento" onClick={() => setNewOpen(true)}>
+        <Plus size={27} strokeWidth={2.2} />
+      </button>
       {selected && (
         <div className="modal-layer" role="presentation">
           <button

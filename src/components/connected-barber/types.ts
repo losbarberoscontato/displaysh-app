@@ -45,6 +45,7 @@ export type BarberAppointment = {
   id: string;
   customer_id: string;
   barber_id: string;
+  environment_id?: string | null;
   status: "CONFIRMED" | "IN_SERVICE" | "COMPLETED" | "CANCELED" | "NO_SHOW" | string;
   service_period: string;
   total_cents_snapshot: number;
@@ -58,6 +59,7 @@ export type BarberAppointment = {
 export type BarberCustomer = { id: string; full_name: string; phone_e164: string | null; dependents?: Array<{ id: string; full_name: string }> };
 export type BarberService = { id: string; name: string; price_cents: number; duration_minutes: number };
 export type BarberProfessional = { id: string; display_name: string };
+export type BarberEnvironment = { id: string; name: string };
 export type BarberCashSession = {
   id: string;
   closure_id?: number | null;

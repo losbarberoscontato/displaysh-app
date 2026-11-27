@@ -9,6 +9,7 @@ import type {
   BarberCashReceipt,
   BarberCashSession,
   BarberCustomer,
+  BarberEnvironment,
   BarberFinancialAccount,
   BarberLoginOrganization,
   BarberProfessional,
@@ -19,6 +20,7 @@ import type {
   BarberProjectLink,
 } from "@/components/connected-barber/types";
 import { normalizeTenantSlug } from "@/components/connected-client/format";
+import { localDateTimeToIso } from "@/components/connected-manager/format";
 import { parseProductKey } from "@/lib/product-context";
 import { getPublishedProductIdentity } from "@/lib/product-identity-server";
 import type { ProductKey } from "@/lib/product-context";
@@ -120,19 +122,33 @@ export async function getBarberAccessState(): Promise<BarberAccessState | null> 
   return { user_id: user.id, email: user.email ?? null, profile, organizations };
 }
 
-export async function loadBarberAgenda(slug?: string | null) {
+export async function loadBarberAgenda(slug?: string | null, selectedDate?: string | null) {
   const context = await getBarberAppContext(slug);
   const supabase = await getSupabaseServerClient();
   if (!context || !supabase) return null;
   const now = new Date();
-  const from = new Date(now); from.setDate(from.getDate() - 7);
-  const to = new Date(now); to.setDate(to.getDate() + 31);
-  const [appointments, appointmentItems, customers, services, professionals, financial, accounts] = await Promise.all([
-    supabase.from("appointments").select("id,customer_id,barber_id,status,service_period,total_cents_snapshot,payment_mode,notes,source,created_at,whatsapp_response_status").eq("organization_id", context.organization_id).not("status", "in", "(HELD,EXPIRED)").overlaps("service_period", `[${from.toISOString()},${to.toISOString()})`).order("service_period").limit(500),
+  const requestedDate = selectedDate && /^\d{4}-\d{2}-\d{2}$/u.test(selectedDate) ? new Date(`${selectedDate}T12:00:00.000Z`) : null;
+  const isValidRequestedDate = Boolean(requestedDate && !Number.isNaN(requestedDate.getTime()) && requestedDate.toISOString().slice(0, 10) === selectedDate);
+  const nextDate = isValidRequestedDate ? new Date(requestedDate!) : null;
+  nextDate?.setUTCDate(nextDate.getUTCDate() + 1);
+  const nextDateKey = nextDate?.toISOString().slice(0, 10);
+  const from = isValidRequestedDate
+    ? new Date(localDateTimeToIso(`${selectedDate}T00:00`, context.timezone))
+    : new Date(now);
+  const to = isValidRequestedDate && nextDateKey
+    ? new Date(localDateTimeToIso(`${nextDateKey}T00:00`, context.timezone))
+    : new Date(now);
+  if (!isValidRequestedDate) {
+    from.setDate(from.getDate() - 7);
+    to.setDate(to.getDate() + 31);
+  }
+  const [appointments, appointmentItems, customers, services, professionals, environments, financial, accounts] = await Promise.all([
+    supabase.from("appointments").select("id,customer_id,barber_id,environment_id,status,service_period,total_cents_snapshot,payment_mode,notes,source,created_at,whatsapp_response_status").eq("organization_id", context.organization_id).not("status", "in", "(HELD,EXPIRED)").overlaps("service_period", `[${from.toISOString()},${to.toISOString()})`).order("service_period").limit(500),
     supabase.from("appointment_items").select("appointment_id,service_name_snapshot,position").eq("organization_id", context.organization_id).limit(1500),
     supabase.from("customers").select("id,full_name,phone_e164,customer_dependents(id,full_name)").eq("organization_id", context.organization_id).eq("active", true).is("merged_into_customer_id", null).order("full_name").limit(500),
     supabase.from("services").select("id,name,price_cents,duration_minutes").eq("organization_id", context.organization_id).eq("active", true).order("name"),
     supabase.from("barbers").select("id,display_name").eq("organization_id", context.organization_id).eq("active", true).order("display_name"),
+    supabase.from("agenda_environments").select("id,name").eq("organization_id", context.organization_id).order("sort_order"),
     supabase.from("appointment_financial_summary").select("appointment_id,outstanding_cents").eq("organization_id", context.organization_id).limit(500),
     context.cash_access_enabled
       ? supabase.from("financial_accounts").select("id,name,kind").eq("organization_id", context.organization_id).eq("active", true).order("name")
@@ -151,6 +167,7 @@ export async function loadBarberAgenda(slug?: string | null) {
     customers: rows(customers.data as BarberCustomer[]),
     services: rows(services.data as BarberService[]),
     professionals: rows(professionals.data as BarberProfessional[]),
+    environments: rows(environments.data as BarberEnvironment[]),
     outstandingByAppointment: new Map(rows(financial.data as { appointment_id: string; outstanding_cents: number }[]).map((item) => [item.appointment_id, item.outstanding_cents])),
     accounts: rows(accounts.data as BarberFinancialAccount[]),
   };

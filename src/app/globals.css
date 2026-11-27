@@ -86,6 +86,111 @@
   .queue-print-sheet__thanks { margin: auto 0 0; color: #48645b; font: 500 4.3mm/1.35 Arial, sans-serif; }
 }
 
+@layer responsive {
+  .barber-manager-shell .barber-organization-switcher { min-height: 58px; }
+  .barber-manager-shell .barber-organization-switcher > span:nth-child(2) { min-width: 0; }
+  .barber-manager-shell .barber-organization-switcher strong { font-size: 12px; }
+  .barber-manager-shell .barber-organization-switcher .organization-switcher__mark { width: 42px; height: 42px; border-radius: 11px; font-size: 12px; }
+  .barber-manager-shell .manager-nav > button { min-height: 39px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: rgba(255, 255, 255, .35); font: inherit; font-size: 12px; font-weight: 650; text-align: left; }
+  .barber-manager-shell .manager-nav > button:disabled { cursor: not-allowed; }
+  .barber-topbar-org { position: absolute; top: 50%; left: 50%; z-index: 1; width: min(42vw, 430px); display: flex; align-items: center; justify-content: center; gap: 10px; overflow: hidden; color: var(--ink); text-decoration: none; transform: translate(-50%, -50%); }
+  .barber-topbar-org__logo { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--forest-800); font-size: 12px; font-weight: 850; }
+  .barber-topbar-org__logo.has-logo { background-color: #fff; background-position: center; background-repeat: no-repeat; background-size: contain; }
+  .barber-topbar-org strong { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+  .barber-manager-shell .manager-main.barber-agenda-main { width: 100%; max-width: none; margin: 0; padding: 14px 18px 36px; }
+  .barber-agenda-page { min-width: 0; gap: 8px; }
+  .barber-agenda-toolbar { position: relative; z-index: 15; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; min-height: 52px; padding: 2px clamp(8px, 1vw, 14px); }
+  .barber-agenda-date { position: relative; z-index: 16; min-width: 0; }
+  .barber-agenda-date__trigger { min-height: 42px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); color: var(--ink); cursor: pointer; }
+  .barber-agenda-date__trigger:hover, .barber-agenda-date__trigger[aria-expanded="true"] { border-color: var(--forest-600); background: var(--sage-50); }
+  .barber-agenda-date__trigger:focus-visible, .barber-agenda-date__picker button:focus-visible, .barber-agenda-filter:focus-within { outline: 3px solid color-mix(in srgb, var(--forest-700) 25%, transparent); outline-offset: 2px; }
+  .barber-agenda-date__trigger strong { overflow: hidden; font-size: 15px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+  .barber-agenda-date__trigger svg { flex: 0 0 auto; color: var(--forest-700); }
+  .barber-agenda-date__picker { position: absolute; top: calc(100% + 8px); left: 0; z-index: 45; width: min(318px, calc(100vw - 24px)); padding: 13px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 16px 38px rgba(34, 43, 36, .19); }
+  .barber-agenda-date__picker header { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .barber-agenda-date__picker header strong { overflow: hidden; color: var(--ink); font-size: 15px; font-weight: 800; text-align: center; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+  .barber-agenda-date__picker header button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--ink-2); cursor: pointer; }
+  .barber-agenda-date__picker header button:hover { background: var(--sage-50); color: var(--forest-800); }
+  .barber-agenda-date__weekdays, .barber-agenda-date__days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .barber-agenda-date__weekdays { margin-bottom: 3px; }
+  .barber-agenda-date__weekdays span { min-height: 30px; display: grid; place-items: center; color: var(--muted); font-size: 11px; font-weight: 800; }
+  .barber-agenda-date__days { gap: 2px; }
+  .barber-agenda-date__days button { width: 34px; height: 34px; justify-self: center; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
+  .barber-agenda-date__days button:hover { background: var(--sage-50); }
+  .barber-agenda-date__days button.is-outside { color: var(--muted-2); }
+  .barber-agenda-date__days button.is-today { box-shadow: inset 0 0 0 1px var(--forest-600); }
+  .barber-agenda-date__days button.is-selected { background: var(--forest-800); color: #fff; box-shadow: none; }
+  .barber-agenda-filters { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(126px, 180px)); justify-content: end; gap: 8px; }
+  .barber-agenda-filter { min-width: 0; min-height: 40px; position: relative; display: flex; align-items: center; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); }
+  .barber-agenda-filter select { width: 100%; min-width: 0; min-height: 38px; appearance: none; padding: 0 20px 0 0; border: 0; outline: 0; background: transparent; color: inherit; font-size: 12px; font-weight: 700; text-overflow: ellipsis; }
+  .barber-agenda-filter select:disabled { color: var(--ink-2); opacity: .85; }
+  .barber-agenda-filter > svg { position: absolute; right: 8px; color: var(--muted); pointer-events: none; }
+  .barber-agenda-day { overflow: visible; border-radius: 14px; }
+  .barber-agenda-day .agenda-day__head { min-width: 0; grid-template-columns: 56px minmax(0, 1fr); }
+  .agenda-day__general-date { min-height: 52px; display: flex; align-items: center; gap: 9px; padding: 7px 12px; }
+  .agenda-day__general-date small { color: var(--ink-2); font-size: 12px; font-weight: 700; text-transform: capitalize; }
+  .agenda-day__general-date strong { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--forest-800); color: #fff; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .barber-agenda-day .agenda-day__scroll { max-height: none; overflow-x: auto; overflow-y: clip; scrollbar-gutter: auto; }
+  .barber-agenda-day .agenda-day__grid { width: 100%; min-width: 0; overflow: visible; }
+  .barber-agenda-day .agenda-time-axis { position: relative; z-index: 3; background: var(--surface); }
+  .barber-agenda-day .agenda-column { min-width: 0; border-right: 0; }
+  .barber-agenda-day .agenda-event { display: flex; grid-template-columns: 1fr; align-items: stretch; min-width: 0; padding: 5px 9px; overflow: hidden; border-radius: 8px; }
+  .barber-agenda-day .agenda-event__details { min-width: 0; width: 100%; display: grid; align-content: center; gap: 3px; }
+  .barber-agenda-day .agenda-event__details strong { display: block; max-width: 100%; overflow: hidden; font-size: 14px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+  .barber-agenda-day .agenda-event__details small { display: block; max-width: 100%; overflow: hidden; color: var(--ink-2); font-size: 11px; font-weight: 700; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+  .barber-agenda-day .agenda-event--short { padding: 2px 7px; }
+  .barber-agenda-day .agenda-event--short .agenda-event__details { gap: 1px; }
+  .barber-agenda-day .agenda-event--short .agenda-event__details strong { font-size: 11px; line-height: 1.05; }
+  .barber-agenda-day .agenda-event--short .agenda-event__details small { font-size: 9px; line-height: 1.05; }
+  .barber-agenda-day .agenda-event--compact { padding: 0 5px; }
+  .barber-agenda-day .agenda-event--compact .agenda-event__details { gap: 0; }
+  .barber-agenda-day .agenda-event--compact .agenda-event__details strong { font-size: 9px; line-height: 1; }
+  .barber-agenda-day .agenda-event--compact .agenda-event__details small { font-size: 8px; line-height: 1; }
+  .barber-agenda-fab { position: fixed; right: 27px; bottom: 24px; z-index: 40; width: 60px; height: 60px; display: grid; place-items: center; border: 0; border-radius: 20px; background: var(--forest-800); color: #fff; box-shadow: 0 8px 24px rgba(24, 56, 45, .28); cursor: pointer; transition: background-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+  .barber-agenda-fab:hover { background: var(--forest-700); box-shadow: 0 10px 28px rgba(24, 56, 45, .34); transform: translateY(-2px); }
+  .barber-agenda-fab:focus-visible { outline: 3px solid var(--amber-400); outline-offset: 3px; }
+  .barber-ad-footer-slot { display: none; }
+  @media (max-width: 980px) {
+    .barber-manager-shell .manager-sidebar { padding-top: 18px; }
+    .barber-manager-shell .manager-drawer__head { min-height: 44px; }
+    .barber-manager-shell .manager-drawer__head > strong { color: #fff; font-size: 15px; font-weight: 800; }
+    .barber-manager-shell .manager-drawer .barber-organization-switcher { margin-bottom: 12px; }
+    .barber-manager-shell .manager-drawer .manager-nav { overflow-y: auto; padding-bottom: 12px; }
+    .barber-manager-shell .manager-main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+    .barber-manager-shell .manager-main.barber-agenda-main { padding: 8px 0 calc(78px + env(safe-area-inset-bottom)); }
+    .barber-ad-footer-slot { position: fixed; z-index: 54; right: 0; bottom: 0; left: 0; height: calc(50px + env(safe-area-inset-bottom)); display: block; flex: none; margin-top: 0; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--border); background: var(--page-canvas); }
+    .barber-agenda-fab { right: 16px; bottom: calc(72px + env(safe-area-inset-bottom)); }
+  }
+
+  @media (max-width: 760px) {
+    .barber-topbar-org { width: min(62vw, 250px); gap: 7px; }
+    .barber-topbar-org__logo { width: 36px; height: 36px; flex-basis: 36px; border-radius: 10px; }
+    .barber-topbar-org strong { font-size: 12px; }
+    .barber-manager-shell .manager-topbar { padding-inline: 12px; }
+    .barber-manager-shell .manager-main.barber-agenda-main { padding-top: 5px; }
+    .barber-agenda-toolbar { grid-template-columns: auto minmax(0, 1fr); gap: 6px; min-height: 48px; padding-inline: 8px; }
+    .barber-agenda-date__trigger { min-height: 40px; gap: 5px; padding-inline: 8px; }
+    .barber-agenda-date__trigger strong { font-size: 12px; }
+    .barber-agenda-date__trigger svg { width: 14px; }
+    .barber-agenda-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+    .barber-agenda-filter { min-height: 38px; padding-inline: 7px; }
+    .barber-agenda-filter select { min-height: 36px; padding-right: 16px; font-size: 10px; }
+    .barber-agenda-filter > svg { right: 5px; width: 12px; }
+    .barber-agenda-day { border-radius: 0; border-right: 0; border-left: 0; }
+    .barber-agenda-day .agenda-day__head { grid-template-columns: 52px minmax(0, 1fr); }
+    .agenda-day__general-date { min-height: 46px; padding-inline: 9px; }
+    .barber-agenda-day .agenda-time-axis { border-right: 1px solid var(--border); }
+    .barber-agenda-day .agenda-time-axis span { justify-content: flex-start; padding-left: 5px; font-size: 11px; }
+    .barber-agenda-day .agenda-event__details strong { font-size: 12px; }
+    .barber-agenda-day .agenda-event__details small { font-size: 10px; }
+    .barber-agenda-day .agenda-event--short .agenda-event__details strong { font-size: 10px; }
+    .barber-agenda-day .agenda-event--short .agenda-event__details small { font-size: 8px; }
+    .barber-agenda-day .agenda-event--compact .agenda-event__details strong { font-size: 8px; }
+    .barber-agenda-day .agenda-event--compact .agenda-event__details small { font-size: 7px; }
+    .barber-agenda-fab { width: 56px; height: 56px; right: 15px; bottom: calc(68px + env(safe-area-inset-bottom)); border-radius: 19px; }
+  }
+}
+
 @layer pages {
   .admin-shell { min-height: 100vh; background: var(--page-canvas); }
   .admin-sidebar { position: fixed; z-index: 40; inset: 0 auto 0 0; width: 218px; display: flex; flex-direction: column; padding: 21px 14px 13px; background: #111d1a; color: #fff; }
