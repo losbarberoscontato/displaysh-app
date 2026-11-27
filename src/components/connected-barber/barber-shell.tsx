@@ -17,6 +17,7 @@ import {
 import { Avatar } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { productIdentityStyle } from "@/lib/product-identity";
+import { barberSwitcherEntryStorageKey } from "@/lib/barber-switcher-entry";
 import type { BarberAppContext } from "./types";
 
 type BarberNavigationItem = { href: string; label: string; icon: typeof CalendarDays; disabled?: boolean };
@@ -71,14 +72,16 @@ export function BarberShell({ context, children }: { context: BarberAppContext; 
     return `${href}${suffix}`;
   }
 
-  const organizationSwitcher = <Link className="organization-switcher barber-organization-switcher" href="/barbeiro" aria-label={organizationPlural}>
+  const organizationSwitcher = <Link className="organization-switcher barber-organization-switcher" href="/profissional" prefetch={false} aria-label={organizationPlural} onClick={() => {
+    try { window.sessionStorage.setItem(barberSwitcherEntryStorageKey, context.organization_slug); } catch { /* The route guard will deny access if browser storage is unavailable. */ }
+  }}>
     <span className={`organization-switcher__mark${context.organization_logo_url ? " organization-switcher__mark--logo" : ""}`} role={context.organization_logo_url ? "img" : undefined} aria-label={context.organization_logo_url ? `Logo de ${context.organization_name}` : undefined} style={context.organization_logo_url ? { backgroundImage: `url("${context.organization_logo_url}")` } : undefined}>{!context.organization_logo_url && initials(context.organization_name)}</span>
     <span><strong>{context.organization_name}</strong></span><ChevronDown size={16} />
   </Link>;
-  const topbarOrganization = <Link className="barber-topbar-org" href="/barbeiro" aria-label={organizationPlural} title={organizationPlural}>
+  const topbarOrganization = <div className="barber-topbar-org">
     <span className={`barber-topbar-org__logo${context.organization_logo_url ? " has-logo" : ""}`} role={context.organization_logo_url ? "img" : undefined} aria-label={context.organization_logo_url ? `Logo de ${context.organization_name}` : undefined} style={context.organization_logo_url ? { backgroundImage: `url("${context.organization_logo_url}")` } : undefined}>{!context.organization_logo_url && initials(context.organization_name)}</span>
     <strong>{context.organization_name}</strong>
-  </Link>;
+  </div>;
 
   const accountFooter = <div className="manager-profile">
     <Link className="manager-profile__identity" href={link(profile.href)}><Avatar initials={currentInitials} tone="amber" /><span><strong>{context.barber_name}</strong><small>{professionalName[0]?.toLocaleUpperCase("pt-BR")}{professionalName.slice(1)}</small></span></Link>

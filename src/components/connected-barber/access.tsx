@@ -10,16 +10,21 @@ function initials(value: string) {
   return value.split(/\s+/u).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 }
 
-export function BarberConnectionScreen({ organizations }: { organizations: BarberAppContext[] }) {
+export function BarberConnectionScreen({ organizations, mode = "choose" }: { organizations: BarberAppContext[]; mode?: "choose" | "switch" }) {
+  const switching = mode === "switch";
   return (
-    <main className={styles.page}>
-      <header className={styles.header}><Brand light name="Display SH" tagline="Sua equipe, conectada" mark="DS" /></header>
-      <section className={styles.panel} aria-labelledby="barber-connection-title">
+    <main className={`${styles.page} ${switching ? styles.organizationSwitcherPage : ""}`}>
+      <header className={`${styles.header} ${switching ? styles.organizationSwitcherHeader : ""}`}>
+        {switching
+          ? <Brand href="/cliente" name="Display" tagline="App" mark="D" />
+          : <Brand light name="Display SH" tagline="Sua equipe, conectada" mark="DS" />}
+      </header>
+      <section className={`${styles.panel} ${switching ? styles.organizationSwitcherPanel : ""}`} aria-labelledby="barber-connection-title">
         <div className={styles.panelHeading}>
           <span className={styles.headingIcon}><Building2 size={24} /></span>
           <div>
-            <h1 id="barber-connection-title">Escolha um estabelecimento</h1>
-            <p>Você está conectado a {organizations.length} estabelecimentos. Escolha qual deseja acessar.</p>
+            <h1 id="barber-connection-title">{switching ? "Alterar Equipe" : "Escolha um estabelecimento"}</h1>
+            {!switching && <p>Você está conectado a {organizations.length} estabelecimentos. Escolha qual deseja acessar.</p>}
           </div>
         </div>
         <ul className={styles.organizationList} aria-label="Estabelecimentos conectados">
@@ -32,7 +37,7 @@ export function BarberConnectionScreen({ organizations }: { organizations: Barbe
               )}
               <strong>{organization.organization_name}</strong>
               <Link className={styles.enterButton} href={`/barbeiro/agenda?barbearia=${encodeURIComponent(organization.organization_slug)}`}>
-                Entrar <ArrowRight size={18} />
+                {switching ? "Alterar" : "Entrar"} <ArrowRight size={18} />
               </Link>
             </li>
           ))}
