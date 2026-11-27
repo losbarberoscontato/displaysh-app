@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type TouchEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
@@ -27,6 +27,7 @@ import {
   currentTimeGeometry,
   dateKeyInTimezone,
   monthCells,
+  shiftDateKey,
 } from "@/components/connected-manager/agenda-calendar";
 import {
   formatCents,
@@ -161,6 +162,7 @@ export function BarberAgenda({
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState(todayKey);
   const datePickerRef = useRef<HTMLDivElement>(null);
+  const agendaTouchStartRef = useRef<{ x: number; y: number; scrollLeft: number; maxScrollLeft: number; onTimeAxis: boolean } | null>(null);
   const [barberFilter, setBarberFilter] = useState(
     ownAgenda ? context.barber_id : "ALL",
   );
@@ -277,6 +279,35 @@ export function BarberAgenda({
     params.set("barbearia", context.organization_slug);
     params.set("data", dateKey);
     router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+  }
+  function handleAgendaTouchStart(event: TouchEvent<HTMLDivElement>) {
+    const touch = event.touches[0];
+    if (!touch || (event.target instanceof Element && event.target.closest(".agenda-event"))) {
+      agendaTouchStartRef.current = null;
+      return;
+    }
+    const element = event.currentTarget;
+    agendaTouchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      scrollLeft: element.scrollLeft,
+      maxScrollLeft: Math.max(0, element.scrollWidth - element.clientWidth),
+      onTimeAxis: event.target instanceof Element && Boolean(event.target.closest(".agenda-time-axis")),
+    };
+  }
+  function handleAgendaTouchEnd(event: TouchEvent<HTMLDivElement>) {
+    const start = agendaTouchStartRef.current;
+    agendaTouchStartRef.current = null;
+    const touch = event.changedTouches[0];
+    if (!start || !touch) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.abs(deltaX) < 52 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25) return;
+    const hasHorizontalOverflow = start.maxScrollLeft > 12;
+    const atStart = start.scrollLeft <= 12;
+    const atEnd = start.scrollLeft >= start.maxScrollLeft - 12;
+    if (hasHorizontalOverflow && !start.onTimeAxis && !((deltaX > 0 && atStart) || (deltaX < 0 && atEnd))) return;
+    selectDate(shiftDateKey(date, deltaX < 0 ? 1 : -1));
   }
   function serviceLabel(appointmentId: string) {
     return itemsByAppointment.get(appointmentId)?.join(" + ") || "Atendimento";
@@ -525,7 +556,13 @@ export function BarberAgenda({
             <strong>{formatDate(date, { day: "2-digit" })}</strong>
           </div>
         </div>
-        <div className="agenda-day__scroll" aria-label="Horários da agenda">
+        <div
+          className="agenda-day__scroll"
+          aria-label="Horários da agenda. Deslize sobre a coluna de horários para mudar o dia."
+          onTouchStart={handleAgendaTouchStart}
+          onTouchEnd={handleAgendaTouchEnd}
+          onTouchCancel={() => { agendaTouchStartRef.current = null; }}
+        >
           <div
             className="agenda-day__grid"
             style={{
@@ -573,12 +610,12 @@ export function BarberAgenda({
                   </button>
                 );
               })}
+              {nowLine && (
+                <div className="agenda-now-line" style={{ top: nowLine.top }} aria-label={`Hora atual: ${nowLine.label}`}>
+                  <span>{nowLine.label}</span><i />
+                </div>
+              )}
             </div>
-            {nowLine && (
-              <div className="agenda-now-line" style={{ top: nowLine.top }} aria-label={`Hora atual: ${nowLine.label}`}>
-                <span>{nowLine.label}</span><i />
-              </div>
-            )}
           </div>
         </div>
       </section>
